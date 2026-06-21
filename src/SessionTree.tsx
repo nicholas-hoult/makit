@@ -415,16 +415,11 @@ export const SessionTree = memo(function SessionTree({
           />
           {query && <button className="tree-search-clear" onClick={() => onQueryChange("")}>×</button>}
         </div>
-      </div>
 
-      <div className="tree-filter-bar">
-        <div className="tree-filter-row">
-          <span className="tree-filter-label">分组</span>
-          <select className="tree-filter-select" value={viewMode} onChange={(e) => setViewMode(e.target.value as "status" | "project")}>
-            <option value="status">按状态</option>
-            <option value="project">按项目</option>
-          </select>
-        </div>
+        <select className="tree-view-select" value={viewMode} onChange={(e) => setViewMode(e.target.value as "status" | "project")}>
+          <option value="status">按状态</option>
+          <option value="project">按项目</option>
+        </select>
 
         <button
           className="tree-filter-btn"

@@ -525,6 +525,24 @@
   background: var(--bg-hover);
 }
 
+/* 视图下拉框 */
+.tree-view-select {
+  padding: 0 8px;
+  height: 24px;
+  font-size: 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.tree-view-select:hover {
+  background: rgba(255,255,255,0.08);
+}
+
 /* 筛选栏 */
 .tree-filter-bar {
   display: flex;
@@ -546,6 +564,7 @@
   cursor: pointer;
   outline: none;
   transition: all 0.1s;
+  flex-shrink: 0;
 }
 
 .tree-filter-btn:hover {
