@@ -525,6 +525,34 @@
   background: var(--bg-hover);
 }
 
+/* 筛选栏 */
+.tree-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  background: rgba(0,0,0,0.2);
+}
+
+.tree-filter-btn {
+  padding: 4px 8px;
+  height: 24px;
+  font-size: 14px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 4px;
+  color: rgba(255,255,255,0.6);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.1s;
+}
+
+.tree-filter-btn:hover {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+}
+
 /* 视图模式下拉 */
 .tree-view-toggle {
   display: flex;
