@@ -416,18 +416,15 @@ export const SessionTree = memo(function SessionTree({
           {query && <button className="tree-search-clear" onClick={() => onQueryChange("")}>×</button>}
         </div>
 
-        <select className="tree-view-select" value={viewMode} onChange={(e) => setViewMode(e.target.value as "status" | "project")}>
+        <select
+          className="tree-view-select"
+          value={viewMode}
+          onChange={(e) => setViewMode(e.target.value as "status" | "project")}
+          title="分组方式"
+        >
           <option value="status">按状态</option>
           <option value="project">按项目</option>
         </select>
-
-        <button
-          className="tree-filter-btn"
-          onClick={() => setFilterOpen(!filterOpen)}
-          title="筛选"
-        >
-          ⚙
-        </button>
       </div>
 
       <div className="tree-body" ref={treeBodyRef}>
@@ -451,6 +448,13 @@ export const SessionTree = memo(function SessionTree({
       </div>
 
       <div className="tree-footer">
+        <button
+          className={"tree-icon-btn" + (showPinnedOnly || showArchived || showRunningOnly ? " active" : "")}
+          onClick={() => setFilterOpen((v) => !v)}
+          title="筛选"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12l-4.5 6v4l-3 1V9L2 3z"/></svg>
+        </button>
         <button
           className={"tree-icon-btn" + (refreshing ? " spinning" : "")}
           onClick={onRefresh}
