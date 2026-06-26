@@ -24,7 +24,7 @@ GitHub Actions 会自动构建三个平台：
 
 ### 3. 发布
 
-1. 前往 https://github.com/yourusername/makit/releases
+1. 前往 https://github.com/nicholas-hoult/makit/releases
 2. 编辑草稿 Release
 3. 完善 Release Notes
 4. 点击 "Publish release"

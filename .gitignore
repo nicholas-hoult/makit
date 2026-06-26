@@ -23,6 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 .gstack/
-/patches/
-/docs/
-/scripts/
+#/patches/
+#/docs/
+#/scripts/
