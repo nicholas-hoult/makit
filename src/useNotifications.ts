@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, startTransition } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
 
 export type NotificationRecord = {
   id: string;
@@ -51,18 +55,42 @@ function projectLabel(git_root: string, cwd: string): string {
   return base.split("/").filter(Boolean).pop() ?? base;
 }
 
+/**
+ * 系统通知的 **OS 授权状态**，和应用内的 `systemEnabled` 开关是两件独立的事：
+ * 开关是「我想要收」，这个是「系统允不允许发」。两者都为真才有横幅。
+ *
+ * 旧的 osascript 方案根本没有这个概念，于是出现过「三个开关都勾着、一条横幅都不来」：
+ * `display notification` 的投递身份是 Script Editor 而不是本应用，本机从未授权过这个身份，
+ * 横幅被静默丢弃，osascript 还退出 0。设置面板于是在说谎而自己不知道。
+ */
+export type NotifyPermission = "unknown" | "granted" | "denied";
+
 export function useNotifications(
   sessions: SessionLike[],
-  activeSessionId: string | null,
+  /** 「这个 session 正摆在眼前」——见 App.tsx 里 isSessionOnScreen 的注释 */
+  isSessionOnScreen: (sessionId: string) => boolean,
   onFocusNotify?: () => void,
 ) {
   const [notifications, setNotifications] = useState<NotificationRecord[]>(load);
   // 只用未读通知初始化，已读的 session 允许重新触发通知（重启去重）
   const notifiedRef = useRef(new Set<string>(load().filter((n) => !n.isRead).map((n) => n.sessionId)));
+  /**
+   * 「只闪了窗口、没真的通知过」的 session。
+   *
+   * 这一层是为了堵住一个单向门：原来你正看着某个 pane 时，事件会被
+   * `notifiedRef.add()` **消费掉**，然后只闪一下窗口 —— 既不入通知中心也不发横幅。
+   * 于是「你瞥了一眼、没处理、走开了」这个再普通不过的情况下，铃铛永远不会亮：
+   * session 还在 waiting，但去重集合里已经有它了。
+   *
+   * 拆成两个集合之后，抑制不再消费事件：看着的时候只记进 flashedRef（作用仅限于
+   * 防止每次 poll 都闪一遍），等它不在眼前了，poll 发现 notifiedRef 里没有它，
+   * 该亮的铃铛照样亮。两个集合都在 session 离开 waiting 时清空。
+   */
+  const flashedRef = useRef(new Set<string>());
   // 第一次 poll 时只入中心不弹 macOS 通知（避免重启 flood）
   const isFirstPollRef = useRef(true);
-  const activeSessionIdRef = useRef(activeSessionId);
-  activeSessionIdRef.current = activeSessionId;
+  const isOnScreenRef = useRef(isSessionOnScreen);
+  isOnScreenRef.current = isSessionOnScreen;
   const onFocusNotifyRef = useRef(onFocusNotify);
   onFocusNotifyRef.current = onFocusNotify;
   const [systemEnabled, setSystemEnabledState] = useState(
@@ -81,6 +109,66 @@ export function useNotifications(
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
+  const [permission, setPermissionState] = useState<NotifyPermission>("unknown");
+  const permissionRef = useRef<NotifyPermission>("unknown");
+  function setPermission(p: NotifyPermission) {
+    permissionRef.current = p;
+    setPermissionState(p);
+  }
+
+  // 启动时读一次真实授权状态，好让设置面板显示的是系统的答案而不是我们的猜测
+  useEffect(() => {
+    isPermissionGranted()
+      .then((g) => setPermission(g ? "granted" : "denied"))
+      .catch(() => setPermission("unknown"));
+  }, []);
+
+  /** 弹出系统授权框；返回是否拿到授权。设置面板的「请求授权」按钮用 */
+  async function requestSystemPermission(): Promise<boolean> {
+    try {
+      const r = await requestPermission();
+      setPermission(r === "granted" ? "granted" : "denied");
+      return r === "granted";
+    } catch {
+      setPermission("unknown");
+      return false;
+    }
+  }
+
+  /**
+   * 系统通知的唯一出口。原来 4 个调用点各自 `invoke("show_notification")` 并各自
+   * 判一遍 systemEnabled，开关判断和发送逻辑散在四处；现在都走这里。
+   * 未授权时先请求一次（macOS 首次会弹框），拿不到就记成 denied 并放弃 ——
+   * 不再出现「发了但被系统丢掉、调用方以为成功」的情况。
+   */
+  async function postSystem(title: string, body: string) {
+    if (!systemEnabledRef.current) return;
+    try {
+      if (permissionRef.current !== "granted") {
+        if (!(await isPermissionGranted())) {
+          if (!(await requestSystemPermission())) return;
+        } else {
+          setPermission("granted");
+        }
+      }
+      sendNotification({ title, body });
+    } catch (e) {
+      // 静默失败是这个 bug 能藏这么久的直接原因，留一条 console 便于下次排查
+      console.warn("[notify] 系统通知发送失败", e);
+    }
+  }
+
+  /** 设置面板的「发送测试通知」——不必等真有 session 进入等待态才能验证链路 */
+  async function sendTestNotification() {
+    if (permissionRef.current !== "granted" && !(await requestSystemPermission())) return false;
+    try {
+      sendNotification({ title: "makit 通知自检", body: "能看到这条横幅，说明系统通知链路是通的" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   // poll-based detection: fires when sessions array changes
   useEffect(() => {
     const isFirstPoll = isFirstPollRef.current;
@@ -89,55 +177,50 @@ export function useNotifications(
     const fresh: NotificationRecord[] = [];
 
     for (const s of sessions) {
-      if (s.status === "waiting") {
-        const isUserWait = s.waiting_for === "user";
-        const shouldNotify = isUserWait ? notifyUserRef.current : notifyApprovalRef.current;
-        if (shouldNotify && !notifiedRef.current.has(s.session_id)) {
-          notifiedRef.current.add(s.session_id);
-          const isActiveSession = activeSessionIdRef.current === s.session_id;
-
-          if (isActiveSession) {
-            // 对标产品 isFocusedPanel：active session 永不进通知中心
-            if (!isFirstPoll) {
-              if (document.hasFocus()) {
-                onFocusNotifyRef.current?.();
-              } else if (systemEnabledRef.current) {
-                const label = projectLabel(s.git_root, s.cwd);
-                const waitLabel = isUserWait ? "等待回答" : "等待审批";
-                const name = s.display_name || s.session_id.slice(0, 8);
-                invoke("show_notification", {
-                  title: `Claude ${waitLabel}`,
-                  body: name + (label ? ` — ${label}` : ""),
-                }).catch(() => {});
-              }
-            }
-          } else {
-            const label = projectLabel(s.git_root, s.cwd);
-            const waitLabel = isUserWait ? "等待回答" : "等待审批";
-            const rec: NotificationRecord = {
-              id: `${s.session_id}-${Date.now()}`,
-              sessionId: s.session_id,
-              sessionName: s.display_name || s.session_id.slice(0, 8),
-              projectLabel: label,
-              timestamp: Date.now(),
-              isRead: false,
-              kind: "waiting",
-              source: "poll",
-              waitingFor: s.waiting_for || undefined,
-            };
-            fresh.push(rec);
-            if (!isFirstPoll && systemEnabledRef.current) {
-              invoke("show_notification", {
-                title: `Claude ${waitLabel}`,
-                body: rec.sessionName + (label ? ` — ${label}` : ""),
-              }).catch(() => {});
-            }
-          }
-        } else if (!shouldNotify) {
-          notifiedRef.current.delete(s.session_id);
-        }
-      } else {
+      // 离开 waiting、或对应开关被关掉：两个集合一起清，下一次进 waiting 重新算一次
+      if (s.status !== "waiting") {
         notifiedRef.current.delete(s.session_id);
+        flashedRef.current.delete(s.session_id);
+        continue;
+      }
+      const isUserWait = s.waiting_for === "user";
+      const shouldNotify = isUserWait ? notifyUserRef.current : notifyApprovalRef.current;
+      if (!shouldNotify) {
+        notifiedRef.current.delete(s.session_id);
+        flashedRef.current.delete(s.session_id);
+        continue;
+      }
+
+      // 正摆在眼前：只闪一下窗口，不入中心不发横幅 —— 但**不占用** notifiedRef，
+      // 这样等你切走之后它还能正常通知（对标产品 isFocusedPanel 的本意是"别重复告知"，
+      // 不是"这次就算了"）
+      if (isOnScreenRef.current(s.session_id)) {
+        if (!flashedRef.current.has(s.session_id)) {
+          flashedRef.current.add(s.session_id);
+          if (!isFirstPoll) onFocusNotifyRef.current?.();
+        }
+        continue;
+      }
+
+      if (notifiedRef.current.has(s.session_id)) continue;
+      notifiedRef.current.add(s.session_id);
+
+      const label = projectLabel(s.git_root, s.cwd);
+      const waitLabel = isUserWait ? "等待回答" : "等待审批";
+      const rec: NotificationRecord = {
+        id: `${s.session_id}-${Date.now()}`,
+        sessionId: s.session_id,
+        sessionName: s.display_name || s.session_id.slice(0, 8),
+        projectLabel: label,
+        timestamp: Date.now(),
+        isRead: false,
+        kind: "waiting",
+        source: "poll",
+        waitingFor: s.waiting_for || undefined,
+      };
+      fresh.push(rec);
+      if (!isFirstPoll) {
+        postSystem(`Claude ${waitLabel}`, rec.sessionName + (label ? ` — ${label}` : ""));
       }
     }
 
@@ -168,29 +251,18 @@ export function useNotifications(
         const shouldNotify = isUserWait ? notifyUserRef.current : notifyApprovalRef.current;
         if (!shouldNotify) return;
 
-        // dedup with poll-based detector using the same ref
-        if (notifiedRef.current.has(sessionId)) return;
-        notifiedRef.current.add(sessionId);
-
-        const isActiveSession = activeSessionIdRef.current === sessionId;
-
-        if (isActiveSession) {
-          // 对标产品 isFocusedPanel：active session 永不进通知中心
-          if (document.hasFocus()) {
+        // 正摆在眼前：同 poll 那条分支 —— 只闪窗口，不占 notifiedRef
+        if (isOnScreenRef.current(sessionId)) {
+          if (!flashedRef.current.has(sessionId)) {
+            flashedRef.current.add(sessionId);
             onFocusNotifyRef.current?.();
-          } else if (systemEnabledRef.current) {
-            const cur2 = sessionsRef.current;
-            const s2 = cur2.find((x) => x.session_id === sessionId);
-            const label2 = s2 ? projectLabel(s2.git_root, s2.cwd) : "";
-            const name2 = s2?.display_name || sessionId.slice(0, 8);
-            const isUserWait2 = payload.waiting_for === "user";
-            invoke("show_notification", {
-              title: `Claude ${isUserWait2 ? "等待回答" : "等待审批"}`,
-              body: name2 + (label2 ? ` — ${label2}` : ""),
-            }).catch(() => {});
           }
           return;
         }
+
+        // 和 poll 探测器共用同一个去重集合
+        if (notifiedRef.current.has(sessionId)) return;
+        notifiedRef.current.add(sessionId);
 
         const cur = sessionsRef.current;
         const session = cur.find((s) => s.session_id === sessionId);
@@ -220,12 +292,7 @@ export function useNotifications(
           });
         });
 
-        if (systemEnabledRef.current) {
-          invoke("show_notification", {
-            title: `Claude ${waitLabel}`,
-            body: sessionName + (label ? ` — ${label}` : ""),
-          }).catch(() => {});
-        }
+        postSystem(`Claude ${waitLabel}`, sessionName + (label ? ` — ${label}` : ""));
       } catch {}
     }).then((fn) => {
       unlisten = fn;
@@ -308,5 +375,8 @@ export function useNotifications(
     setNotifyApproval,
     notifyUser,
     setNotifyUser,
+    permission,
+    requestSystemPermission,
+    sendTestNotification,
   };
 }

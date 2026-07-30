@@ -1,13 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { NotificationRecord } from "./useNotifications";
-
-function relativeTime(ts: number): string {
-  const diff = Math.floor((Date.now() - ts) / 1000);
-  if (diff < 60) return "刚刚";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  return `${Math.floor(diff / 86400)}d`;
-}
+import { relativeTime } from "./relativeTime";
 
 function statusLabel(waitingFor?: string): string {
   if (waitingFor === "user") return "等待回答";
@@ -39,7 +32,14 @@ export function NotificationPanel({
 }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [activeIdx, setActiveIdx] = useState(notifications.length > 0 ? 0 : -1);
+  // 打开时默认落在**第一条未读**上，而不是第一行 —— 面板是"有事待处理"的入口，
+  // 而列表按时间倒序，最上面那条常常是刚刚看过的。全部已读时退回第一行。
+  // 放在 useState 的惰性初始化里就够了：面板关闭时整体卸载
+  // （App 里是 `{notifPanelOpen && <NotificationPanel …/>}`），所以每次打开都会重算。
+  const [activeIdx, setActiveIdx] = useState(() => {
+    const i = notifications.findIndex((n) => !n.isRead);
+    return i >= 0 ? i : notifications.length > 0 ? 0 : -1;
+  });
 
   // 打开时 focus 面板，允许键盘操作
   useEffect(() => {
@@ -69,24 +69,32 @@ export function NotificationPanel({
   }, [onClose]);
 
   function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape") { onClose(); return; }
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); return; }
     if (notifications.length === 0) return;
+    // stopPropagation 是必须的：面板开着的时候方向键不能再漏进终端，否则一边挪高亮
+    // 一边往 PTY 里发 ESC[A/B
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      e.stopPropagation();
       setActiveIdx((i) => (i + 1) % notifications.length);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      e.stopPropagation();
       setActiveIdx((i) => (i - 1 + notifications.length) % notifications.length);
     } else if (e.key === "Enter" && activeIdx >= 0) {
       e.preventDefault();
+      e.stopPropagation();
       const n = notifications[activeIdx];
       if (n) { onMarkRead(n.id); onNavigate(n.sessionId); onClose(); }
     }
   }
 
+  // 挂在 window 的捕获阶段，和 App 里其它全局快捷键一致。原来挂在 document 的冒泡阶段：
+  // xterm.js 处理掉自己认识的按键后会调 cancel()，里面是 preventDefault + stopPropagation，
+  // 所以只要焦点还在某个终端的 textarea 上，方向键就永远到不了 document。
   useEffect(() => {
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose, notifications, activeIdx]);
 
   return (
@@ -135,7 +143,10 @@ export function NotificationPanel({
               key={n.id}
               data-notif-idx={idx}
               className={"notif-row" + (n.isRead ? " notif-row-read" : "") + (idx === activeIdx ? " notif-row-active" : "")}
-              onMouseEnter={() => setActiveIdx(idx)}
+              // 不用 onMouseEnter 同步 activeIdx：列表溢出时会和键盘打架 ——
+              // 按方向键 → scrollIntoView 滚动列表 → 某一行滑到静止的鼠标底下 →
+              // mouseenter 把 activeIdx 拽回鼠标那一行，方向键像是没反应。
+              // hover 现在有自己的 --bg-hover 底色，不需要再借用键盘选中态。
               onClick={() => {
                 onMarkRead(n.id);
                 onNavigate(n.sessionId);

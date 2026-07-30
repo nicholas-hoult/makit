@@ -12,7 +12,17 @@ edition = "2021"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "makit_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# tauri 模板默认 ["staticlib", "cdylib", "rlib"]：staticlib 给 iOS、cdylib 给 Android，
+# 桌面构建一个都不用，但每次增量重编都要多跑两遍 codegen + link。
+# 只留 rlib 后改一行 Rust 的重编从 3.3s 降到 2.2s（配合下面的 debug 设置，总共 5.1s → 2.2s）。
+# ⚠️ 代价：不能再 build iOS / Android。要做移动端就把那两项加回来。
+crate-type = ["rlib"]
+
+[profile.dev]
+# 改一行 Rust 要等 5.1s，其中 user 1.5s / sys 2.0s —— 时间不在类型检查，
+# 在生成和链接完整 DWARF。line-tables-only 只保留行号表：panic 回溯照样能定位到
+# 文件:行号，丢掉的是变量级调试信息（真要下断点调试时临时改回 debug = true）。
+debug = "line-tables-only"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -21,6 +31,18 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
+# 系统通知走官方插件，不再 shell 出去调 osascript。
+# osascript 的 `display notification` 投递身份是 Script Editor（com.apple.ScriptEditor2）
+# 而不是本应用，本机 ncprefs 里从来没有这个身份的授权条目，横幅被静默丢弃，
+# 而 osascript 仍然退出 0 —— 于是应用内开关是开的、一条通知都不来，且毫无诊断。
+# 插件以应用自己的身份投递，在系统设置里有独立条目可授权，也能读回真实授权状态。
+tauri-plugin-notification = "2"
+# 确认对话框也必须走官方插件。wry 的 WKUIDelegate 只实现了 windowWillClose /
+# runOpenPanel / requestMediaCapturePermission 三个方法，**没有**
+# runJavaScriptConfirmPanelWithMessage:，而 WebKit 的约定是：UI delegate 不实现它，
+# 就不弹框、`confirm()` 直接返回 false。于是 `window.confirm()` 在这个 webview 里恒假 ——
+# 不弹框、不报错、不抛异常，调用方看不出任何区别。alert/prompt 同理。
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
