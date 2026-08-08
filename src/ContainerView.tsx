@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { TerminalView } from "./Terminal";
 import type { ContainerNode, PaneTab, TabKind } from "./workspace-types";
+import { isTabDrag } from "./paneDrop";
 
 type Props = {
   container: ContainerNode;
@@ -22,6 +23,7 @@ type Props = {
   onPaneDragOver: (e: React.DragEvent) => void;
   onPaneDrop: (e: React.DragEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onTabContextMenu?: (e: React.MouseEvent, tabId: string) => void;
 };
 
 export function ContainerView({
@@ -44,6 +46,7 @@ export function ContainerView({
   onPaneDragOver,
   onPaneDrop,
   onContextMenu,
+  onTabContextMenu,
 }: Props) {
   function kindIcon(kind: TabKind) {
     if (kind === "resume") return "↻";
@@ -68,14 +71,12 @@ export function ContainerView({
   const initializedTabsRef = useRef(new Set<string>());
   if (container.activeTabId) initializedTabsRef.current.add(container.activeTabId);
 
+  // active tab 溢出到视野外时滚回来（tab 条窄、tab 多时必需）。
+  // 这里曾经还加过 tab-flash：切 tab 时整块刷 0.6s 饱和 accent。已删 —— 见 App.css 里
+  // tab-flash 那段注释，简言之首次挂载也会触发，启动时满屏蓝块，而它本身没有信息量。
   useEffect(() => {
     const el = tabsRef.current?.querySelector(".container-tab.active") as HTMLElement | null;
-    if (el) {
-      el.scrollIntoView({ block: "nearest", inline: "nearest" });
-      el.classList.add("tab-flash");
-      const timer = setTimeout(() => el.classList.remove("tab-flash"), 600);
-      return () => clearTimeout(timer);
-    }
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [container.activeTabId]);
 
   return (
@@ -116,6 +117,15 @@ export function ContainerView({
                 + (dropIdx === idx + 1 && idx === container.tabs.length - 1 ? " drop-after" : "")
               }
               onClick={() => onTabClick(t.id)}
+              // stopPropagation 是这里的要点：不拦的话事件冒到 container-view
+              // 根节点（下面 onContextMenu），弹出来的是 pane 菜单，而那个菜单的
+              // 「关闭」关的是 activeTabId —— 在非激活 tab 上右键点关闭会关掉别人。
+              onContextMenu={(e) => {
+                if (!onTabContextMenu) return;
+                e.preventDefault();
+                e.stopPropagation();
+                onTabContextMenu(e, t.id);
+              }}
               draggable
               onDragStart={(e) => {
                 setDraggingTabId(t.id);
@@ -124,6 +134,10 @@ export function ContainerView({
               onDragEnd={() => { setDraggingTabId(null); setDropIdx(null); }}
               onDragOver={(e) => {
                 e.preventDefault();
+                // 同 #175：只有 tab 拖拽才画「插到这里」的竖线。tab 条的 drop 只认
+                // CONTAINER_TAB_MIME，所以文件或 session 卡片悬在这儿时画线是句谎话，
+                // 而外部拖拽按 ESC 取消不派发 dragend，那条线会留着。
+                if (!isTabDrag(e.dataTransfer.types)) return;
                 e.dataTransfer.dropEffect = "move";
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const before = e.clientX < r.left + r.width / 2;
@@ -205,28 +219,45 @@ export function ContainerView({
               <div className="welcome-title">makit</div>
               <div className="welcome-sub">Claude Code Session 管理 · 工作区终端</div>
               <div className="welcome-tip">点侧栏 session 卡片恢复对话；点项目 worktree 起新会话；⌘ 点击为纯 shell</div>
+              {/* 键位表按"轴"分组而不是按功能堆：⌘ = tab 轴，⌥⌘ = pane 轴。
+                  这样表格本身就在教那条规则，不用逐条记。
+                  每行左列固定宽度右对齐（见 .welcome-row 的 grid），否则键帽宽度不等、
+                  右边的说明文字会参差不齐。 */}
               <div className="welcome-shortcuts">
                 <div className="welcome-group">
                   <div className="welcome-group-title">搜索 · 命令</div>
-                  <div className="welcome-row"><kbd>⌘K</kbd><span>全局搜索（命令面板）</span></div>
-                  <div className="welcome-row"><kbd>⌘F</kbd><span>当前终端内搜索</span></div>
-                  <div className="welcome-row"><kbd>⌘⇧F</kbd><span>聚焦侧栏 session 搜索</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘K</kbd></span><span>全局搜索（命令面板）</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘F</kbd></span><span>当前终端内搜索</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘⇧F</kbd></span><span>侧栏 session 搜索</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘I</kbd></span><span>通知中心</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘R</kbd></span><span>刷新 session 列表</span></div>
                 </div>
                 <div className="welcome-group">
-                  <div className="welcome-group-title">布局</div>
-                  <div className="welcome-row"><kbd>⌘D</kbd><span>左右分屏</span></div>
-                  <div className="welcome-row"><kbd>⌘⇧D</kbd><span>上下分屏</span></div>
-                  <div className="welcome-row"><kbd>⌘B</kbd> / <kbd>⌘\</kbd><span>折叠项目栏 / 会话栏</span></div>
+                  <div className="welcome-group-title">Tab · ⌘ 轴</div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘T</kbd></span><span>新建 shell tab</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘W</kbd></span><span>关闭当前 tab</span></div>
+                  {/* 修饰键和方向键分成两个键帽：四个箭头挤在一个键帽里，← → 会连成一根长箭头 */}
+                  <div className="welcome-row"><span className="keys"><kbd>⌘</kbd><kbd>← → ↑ ↓</kbd></span><span>上 / 下一个 tab</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘[</kbd><kbd>⌘]</kbd></span><span>同上（浏览器习惯）</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌃⇧Tab</kbd><kbd>⌃Tab</kbd></span><span>同上（VS Code 习惯）</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘1</kbd><i>–</i><kbd>⌘9</kbd></span><span>第 N 个 tab</span></div>
                 </div>
                 <div className="welcome-group">
-                  <div className="welcome-group-title">终端</div>
-                  <div className="welcome-row"><kbd>⌘T</kbd><span>新建 shell tab</span></div>
-                  <div className="welcome-row"><kbd>⌘W</kbd><span>关闭当前 tab</span></div>
+                  <div className="welcome-group-title">Pane · ⌥⌘ 轴</div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘D</kbd></span><span>左右分屏</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘⇧D</kbd></span><span>上下分屏</span></div>
+                  {/* 修饰键和方向键分成两个键帽：四个箭头挤在一个键帽里，← → 会连成一根长箭头 */}
+                  <div className="welcome-row"><span className="keys"><kbd>⌥⌘</kbd><kbd>← → ↑ ↓</kbd></span><span>切到相邻 pane</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌥⌘1</kbd><i>–</i><kbd>⌥⌘9</kbd></span><span>第 N 个 pane</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌥⌘↩</kbd></span><span>最大化 / 还原 pane</span></div>
                 </div>
                 <div className="welcome-group">
-                  <div className="welcome-group-title">导航</div>
-                  <div className="welcome-row"><kbd>⌘1</kbd>~<kbd>⌘9</kbd><span>切到第 N 个 container</span></div>
-                  <div className="welcome-row"><kbd>⌘⌥</kbd>+方向键<span>上/下一个 container</span></div>
+                  <div className="welcome-group-title">侧栏 · 面板</div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘B</kbd></span><span>折叠项目列表</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘L</kbd></span><span>在侧栏定位当前 session</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>↑</kbd><kbd>↓</kbd></span><span>面板内上下选择</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>⌘↩</kbd></span><span>命令面板：在 split 打开</span></div>
+                  <div className="welcome-row"><span className="keys"><kbd>Esc</kbd></span><span>关闭面板 / 取消</span></div>
                 </div>
               </div>
             </div>
@@ -242,6 +273,9 @@ export function ContainerView({
                 visible={t.id === container.activeTabId}
                 isActive={isActive && t.id === container.activeTabId}
                 initCommand={t.initCommand}
+                // resume tab 的启动目录不能悄悄换：换了就等于换了 claude 的存储键，
+                // 会话直接找不到。目录没了就让它启动失败，交给恢复流程。
+                allowCwdFallback={t.kind !== "resume"}
               />
             ))
         )}

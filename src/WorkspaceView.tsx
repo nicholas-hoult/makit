@@ -3,6 +3,8 @@ import { ContainerView } from "./ContainerView";
 import { terminalManager } from "./TerminalManager";
 import type { LayoutNode, SplitNode, WorkspaceState, Rect } from "./workspace-types";
 import { layoutTree, setSplitRatio } from "./workspace-types";
+import { CONTAINER_TAB_MIME, PANE_SPEC_MIME, acceptsPaneDrop } from "./paneDrop";
+import { formatPathsForTerminal, parseDroppedPaths } from "./dropPaths";
 
 type DropZone = { dir: "h" | "v"; side: "before" | "after" };
 
@@ -16,8 +18,6 @@ function computeDropZone(rect: DOMRect, mx: number, my: number): DropZone {
   if (min === dt) return { dir: "h", side: "before" };
   return { dir: "h", side: "after" };
 }
-
-const TAB_DRAG_MIME = "application/x-ccs-container-tab";
 
 type Props = {
   workspace: WorkspaceState;
@@ -35,6 +35,7 @@ type Props = {
   onUpdateRoot: (newRoot: LayoutNode) => void;
   onToggleMaximize?: (containerId: string) => void;
   onContextMenu: (containerId: string, x: number, y: number) => void;
+  onTabContextMenu?: (containerId: string, tabId: string, x: number, y: number) => void;
   getTabTitle?: (tab: import("./workspace-types").PaneTab) => string;
   getTabStatus?: (tab: import("./workspace-types").PaneTab) => "waiting" | "busy" | "idle" | null;
 };
@@ -55,6 +56,7 @@ export function WorkspaceView({
   onUpdateRoot,
   onToggleMaximize,
   onContextMenu,
+  onTabContextMenu,
   getTabTitle,
   getTabStatus,
 }: Props) {
@@ -110,13 +112,13 @@ export function WorkspaceView({
   }, [workspace.root, workspace.maximizedContainerId]);
 
   function handleTabDragStart(containerId: string, tabId: string, e: React.DragEvent) {
-    e.dataTransfer.setData(TAB_DRAG_MIME, JSON.stringify({ containerId, tabId }));
+    e.dataTransfer.setData(CONTAINER_TAB_MIME, JSON.stringify({ containerId, tabId }));
     e.dataTransfer.effectAllowed = "move";
   }
 
   function handleTabBarDrop(containerId: string, e: React.DragEvent, idx?: number) {
     e.preventDefault();
-    const raw = e.dataTransfer.getData(TAB_DRAG_MIME);
+    const raw = e.dataTransfer.getData(CONTAINER_TAB_MIME);
     if (!raw) return;
     try {
       const { containerId: srcId, tabId } = JSON.parse(raw);
@@ -136,8 +138,16 @@ export function WorkspaceView({
   }
 
   function handlePaneDragOver(containerId: string, e: React.DragEvent) {
+    // preventDefault 无条件调用，**必须在守卫之前**：它的语义是「本元素接受这次 drop」。
+    // 不调用的话 drop 事件根本不会派发到这里，而是走浏览器默认动作 —— 把拖进来的文件
+    // 当页面导航过去，等于整个 app 被顶掉。所以外部拖拽照旧「接住并吞掉」。
     e.preventDefault();
+    // 同样无条件：文件拖进来也是能落的（落下去会插路径），光标该显示 + 而不是禁止符。
     e.dataTransfer.dropEffect = "copy";
+    // 但只有会分屏的拖拽才画落点浮层。文件拖进来时画一个「松手就分屏」的提示是句谎话
+    // ——它插的是一段文本，不动布局——而且**外部拖拽不派发 dragend**，浮层清不掉会
+    // 永久留在终端上（#175）。
+    if (!acceptsPaneDrop(e.dataTransfer.types)) return;
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const zone = computeDropZone(r, e.clientX, e.clientY);
     setHoverDrop({ containerId, zone });
@@ -150,7 +160,7 @@ export function WorkspaceView({
     const zone = computeDropZone(r, e.clientX, e.clientY);
 
     // tab 跨 container 拖到边缘 → split
-    const tabRaw = e.dataTransfer.getData(TAB_DRAG_MIME);
+    const tabRaw = e.dataTransfer.getData(CONTAINER_TAB_MIME);
     if (tabRaw) {
       try {
         const { containerId: srcId, tabId } = JSON.parse(tabRaw);
@@ -160,12 +170,26 @@ export function WorkspaceView({
     }
 
     // session 卡片拖入
-    const specRaw = e.dataTransfer.getData("application/x-ccs-pane-spec");
+    const specRaw = e.dataTransfer.getData(PANE_SPEC_MIME);
     if (specRaw) {
       try {
         const spec = JSON.parse(specRaw);
         onSplitWithSession(containerId, zone.dir, zone.side, spec);
       } catch {}
+    }
+
+    // 从 Finder 拖文件进来 → 在当前 tab 的命令行里插入路径。放在最后，我们自己的两种
+    // 拖拽优先；`zone` 对它没有意义（不分屏，就插一段文本，跟 Terminal.app 一样）。
+    if (!tabRaw && !specRaw) {
+      const paths = parseDroppedPaths(e.dataTransfer);
+      if (paths.length === 0) return;
+      const tabId = containerById.get(containerId)?.activeTabId;
+      if (!tabId) return;
+      if (terminalManager.writeText(tabId, formatPathsForTerminal(paths))) {
+        // 焦点跟过去：插完就是要接着打字，否则用户得再点一下终端
+        onSetActive(containerId);
+        terminalManager.focus(tabId);
+      }
     }
   }
 
@@ -220,7 +244,17 @@ export function WorkspaceView({
               onTabDragOver={handleTabBarDragOver}
               onPaneDragOver={(e) => handlePaneDragOver(containerId, e)}
               onPaneDrop={(e) => handlePaneDrop(containerId, e)}
-              onContextMenu={(e) => { e.preventDefault(); onContextMenu(containerId, e.clientX, e.clientY); }}
+              onContextMenu={(e) => {
+                // 落在终端里的右键归终端菜单（App 里 window 上的 contextmenu
+                // handler 按 data-pane-id 认领）。这里不能抢：container-view 是
+                // 终端的祖先，不判断的话两个 handler 会先后各设一次菜单 state，
+                // 结果取决于谁最后跑 —— 那种"能用但说不清为什么"的实现下次一定坏。
+                // 也别在这儿 preventDefault：那个 handler 自己会做。
+                if ((e.target as HTMLElement | null)?.closest?.("[data-pane-id]")) return;
+                e.preventDefault();
+                onContextMenu(containerId, e.clientX, e.clientY);
+              }}
+              onTabContextMenu={onTabContextMenu ? (e, tabId) => onTabContextMenu(containerId, tabId, e.clientX, e.clientY) : undefined}
             />
             {hover && <DropOverlay zone={hover} />}
           </div>
@@ -289,6 +323,7 @@ function SplitResizer({ info, onResize }: { info: SplitInfo; onResize: (ratio: n
       document.body.style.cursor = isV ? "ew-resize" : "ns-resize";
       document.body.style.userSelect = "none";
       document.body.classList.add("pane-resizing");
+      div.classList.add("is-dragging"); // 分隔线拖动时高亮（见 App.css .pane-resizer.is-dragging）
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -308,6 +343,7 @@ function SplitResizer({ info, onResize }: { info: SplitInfo; onResize: (ratio: n
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.body.classList.remove("pane-resizing");
+      div.classList.remove("is-dragging");
     };
 
     const onPointerCancel = () => {
@@ -315,6 +351,7 @@ function SplitResizer({ info, onResize }: { info: SplitInfo; onResize: (ratio: n
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.body.classList.remove("pane-resizing");
+      div.classList.remove("is-dragging");
     };
 
     div.addEventListener("pointerdown", onPointerDown);
@@ -330,16 +367,21 @@ function SplitResizer({ info, onResize }: { info: SplitInfo; onResize: (ratio: n
     };
   }, [info.node.ratio, info.dir, info.outerRect, onResize]);
 
+  // RESIZER_PX=0 → info.rect 在分割方向上厚度为 0。给 resizer 一个真实的 10px 抓取盒
+  // 横跨边界（不再依赖 0 宽父盒 + ::after 溢出，WKWebView 下溢出伪元素命中不可靠）。
+  const HIT = 10;
+  const isV = info.dir === "v";
+  const boxStyle: React.CSSProperties = isV
+    ? { left: info.rect.x - HIT / 2, top: info.rect.y, width: HIT, height: info.rect.height }
+    : { left: info.rect.x, top: info.rect.y - HIT / 2, width: info.rect.width, height: HIT };
+
   return (
     <div
       ref={divRef}
       className={"pane-resizer pane-resizer-" + info.dir}
       style={{
         position: "absolute",
-        left: info.rect.x,
-        top: info.rect.y,
-        width: info.rect.width,
-        height: info.rect.height,
+        ...boxStyle,
         touchAction: "none", // 防止触摸滚动干扰
       }}
     />
