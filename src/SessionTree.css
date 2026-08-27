@@ -2,7 +2,9 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-soft);
-  border-right: none;
+  /* 全局最主要的一条结构线：侧栏 ↔ 工作区。右侧紧跟的 .resizer 是透明抓取区，
+     线画在这里才能和标题栏里的 .app-titlebar-sidebar 边框对齐、从 y=0 一路贯下来 */
+  border-right: 1px solid var(--border-strong);
   overflow: hidden;
   flex-shrink: 0;
   user-select: none;
@@ -14,13 +16,14 @@
   background: transparent;
 }
 
+/* 不画 border-bottom：搜索框自己有边框，头部区域的下沿已经被它交代清楚了，
+   再补一条通栏发丝线就是第二次说同一件事。8px 内边距 + .tree-body 的 4px
+   一共 12px 间距足够把"找"和"看"分开。 */
 .tree-header {
   position: relative;
   display: flex;
   align-items: center;
   padding: 8px;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
 }
 
 .tree-search-wrap {
@@ -31,7 +34,7 @@
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   padding: 4px 24px 4px 8px;
   font-size: 12px;
   color: var(--fg);
@@ -65,7 +68,7 @@
   width: 22px;
   height: 22px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
@@ -78,32 +81,12 @@
   background: var(--bg-hover);
 }
 
+/* 滚动条（滚动时显形）不在这里写：App.css 里 .settings-body 下面那段是**全局**规则，
+   本项目所有能滚的容器共用一套，例外才单列 —— 详见那段注释 */
 .tree-body {
   flex: 1;
   overflow-y: auto;
   padding: 4px 0;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
-}
-.tree-body:hover {
-  scrollbar-color: rgba(255,255,255,0.18) transparent;
-}
-.tree-body::-webkit-scrollbar {
-  width: 4px;
-}
-.tree-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.tree-body::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 2px;
-  transition: background 0.2s;
-}
-.tree-body:hover::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.18);
-}
-.tree-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.32);
 }
 
 /* Sections */
@@ -111,6 +94,7 @@
   margin-bottom: 2px;
 }
 
+/* 旧 section header（按项目视图里项目名用的是 .tree-project-header，这里保留备用） */
 .tree-section-header {
   display: flex;
   align-items: center;
@@ -124,7 +108,7 @@
 }
 .tree-section-header-clickable {
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius);
   user-select: none;
 }
 .tree-section-header-clickable:hover {
@@ -137,20 +121,171 @@
   opacity: 0.5;
   flex-shrink: 0;
 }
-
-.tree-section-icon {
-  font-size: 12px;
-}
-.tree-attention .tree-section-icon { color: #f59e0b; }
-.tree-running .tree-section-icon { color: #3b82f6; }
-
+.tree-section-icon { font-size: 12px; }
 .tree-section-count {
   margin-left: auto;
   background: var(--bg-hover);
-  border-radius: 8px;
+  border-radius: 999px;
   padding: 0 6px;
   font-size: 10px;
   font-weight: 500;
+}
+
+/* 需要回应：紧凑警示区 */
+.tree-needs-attention {
+  margin: 4px 6px 2px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 22%, transparent);
+  overflow: hidden;
+}
+.tree-attention-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--warning);
+}
+.tree-attention-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+  animation: attention-pulse 2s ease-in-out infinite;
+}
+@keyframes attention-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.tree-attention-count {
+  margin-left: auto;
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  border-radius: 999px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--warning);
+}
+.tree-needs-attention .tree-session-list {
+  padding: 0 0 4px;
+}
+
+/* 控制行：左边视图切换（常驻），右边生效中的筛选。
+   这一行常驻存在（因为视图切换常驻），换来 .tree-header 里搜索框吃满整宽。
+   26px 的固定高度换 90px 的横向宽度，在一条几百 px 高、280px 宽的侧栏里划算。
+   漏斗也在这一行的右端：筛选的输入和输出（chip）放在一起，
+   position: relative 是给向下弹的 .tree-filter-panel 当定位参照。 */
+.tree-list-controls {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 6px;
+}
+/* 推到最右：中间的 chip 区会换行，靠 margin-left:auto 而不是靠它撑满。
+   类名不叫 .tree-filter-btn —— 这个文件下面（.tree-filter-bar 那段死代码里）
+   已经有一份同名规则，且排在 .tree-icon-btn 之后，会把这个扁平图标按钮
+   变成 24px 带边框的方块。 */
+.tree-controls-filter {
+  margin-left: auto;
+}
+
+/* 生效中的筛选。放在这一行、列表正上方是有意的：它解释的是「下面这个列表为什么
+   是这些」，必须和列表在同一视线里。之前这件事只由 .tree-footer 里那个变色的漏斗
+   图标表达 —— 开着「仅运行中」的时候，用户看到的是"我的 session 少了一半"。
+   一条筛选都没生效时整块不渲染（视图切换器仍在，所以行不会塌）。 */
+.tree-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+/* 左右内边距不对称：右边要放 ×，它自己带视觉留白 */
+.tree-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 4px 1px 6px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--fg-muted);
+  background: var(--bg-hover);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.tree-filter-chip:hover {
+  color: var(--fg);
+  background: var(--bg-active);
+}
+.tree-filter-chip-x {
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.6;
+}
+.tree-filter-chip:hover .tree-filter-chip-x {
+  opacity: 1;
+}
+
+/* 分组间距代替发丝线（为什么见 SessionTree.tsx 的 renderGroup 注释） */
+.tree-group + .tree-group {
+  margin-top: 10px;
+}
+/* 项目视图下「打开中」段紧跟着的是项目组，同样要这道间距 */
+.tree-group + .tree-section {
+  margin-top: 10px;
+}
+/* 组标签只给「需要回应」和「收藏」两个非默认组："其余"是默认档，
+   命名它等于给每个人的常态多加一行噪音。
+   列对齐：折叠箭头（8px 宽）正好占满 session 行左边那道 12px 的空档，箭头之后
+   标签文字落在 4+8+5=17px，和状态圆点的光学中心（12+6=18px）基本重合 ——
+   一级一个符号，箭头管组，圆点管行。 */
+.tree-group-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 12px 3px 4px;
+  font-size: 10px;
+  color: var(--fg-muted);
+}
+.tree-group-label.warn {
+  color: var(--warning);
+}
+/* 可折叠的标签整行可点。hover 才给背景：常态下它是一行 10px 的弱文字，
+   长期挂着一块底色会让它比组里的 session 还重。 */
+.tree-group-label.clickable {
+  cursor: pointer;
+  user-select: none;
+  border-radius: var(--radius);
+  margin: 0 4px 0 0;
+}
+.tree-group-label.clickable:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+/* 和 .tree-project-arrow 同一套形状语言（› 转 90° = 展开），只是尺寸压到
+   10px 标签的量级。宽度定死 8px 撑出固定一列（正好是 session 行左边那道空档），
+   转的是 transform 不是内容，折叠/展开时标签文字不会左右跳。 */
+.tree-group-arrow {
+  font-size: 10px;
+  width: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(0deg);
+  transition: transform 0.15s ease;
+  line-height: 1;
+  opacity: 0.6;
+}
+.tree-group-arrow.open {
+  transform: rotate(90deg);
+}
+.tree-group-count {
+  opacity: 0.6;
 }
 
 /* Session items */
@@ -164,30 +299,74 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  padding: 3px 12px 3px 16px;
+  /* 每行是两行文字（标题 + 元信息），3px 上下内边距会让相邻两条 session 的
+     元信息行和标题行几乎贴上，整列糊成一片。5px 刚好把"行内"和"行间"分开。
+
+     左内边距 8px（连 margin 一共 12px），不是原来的 16px（一共 20px）：侧栏常被
+     拖到 180px 上下用，20px 的死空白吃掉整列 11% 的宽度，而标题本来就在截断
+     （"a2ui-compos…"）。圆点自己的 12px 盒子里已经有 ~3px 的内建留白，8px 够了。
+     右边保持 12px：那一列放的是右对齐的相对时间，贴边会显得掉出去。 */
+  padding: 5px 12px 5px 8px;
   font-size: 12px;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius);
   margin: 0 4px;
 }
 .tree-session:hover {
   background: var(--bg-hover);
 }
+/* 左侧那条 accent 竖条用 inset 阴影而不是 border-left：整行有 border-radius，
+   直的 border 会被圆角切掉两头，看起来是一根断头的短线，而且还要靠
+   padding-left: 14px 去补 border 占掉的 2px（一个只为抵消副作用存在的数字）。
+   inset 阴影画在 padding box 里、天然跟着圆角走，也不参与盒模型。 */
 .tree-session.focused {
   background: color-mix(in srgb, var(--accent) 15%, transparent);
-  border-left: 2px solid var(--accent);
-  padding-left: 14px;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+/* 键盘选中。和 .focused（当前打开的那条）是两个正交状态，会同时落在同一行上，
+   所以必须占用**不同的视觉通道**：.focused 用背景 + 左竖条，.selected 用一圈描边。
+   同用背景的话「选中一条已经打开的」和「选中一条没打开的」看起来一样，
+   而这两件事的下一步动作完全不同（切过去 / 起一个新的 claude -r）。
+
+   用 outline 不用 border：不参与盒模型（不需要拿 padding 去抵消 1px）、
+   天然跟着 border-radius 走 —— 理由同上面那条竖条为什么用 inset 阴影。 */
+.tree-session.selected {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+/* aside 自己拿到焦点时不画系统焦点环：焦点位置由行上的 .selected 表达，
+   再给整条侧栏套一圈 280px 宽的蓝框是噪音。 */
+.session-tree:focus,
+.session-tree:focus-visible {
+  outline: none;
 }
 
 .tree-status-icon {
   font-size: 10px;
   flex-shrink: 0;
   width: 12px;
-  text-align: center;
+  /* row1 的 12px 文字行盒实测 17px 高；图标自己的行盒只有 12px，
+     在 align-items:flex-start 下圆点会比标题的光学中心高 2.5px。撑到同高再居中。 */
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.tree-status-icon.waiting { color: #f59e0b; }
-.tree-status-icon.busy { color: #3b82f6; }.tree-status-icon.idle { color: var(--fg-muted); }
+.tree-status-icon.waiting { color: var(--warning); }
+/* idle（进程活着但闲着）必须和 stopped 在**颜色**上分开，不能只靠 ● / ○ 的填充。
+   两者曾经都是 var(--fg-muted)、只差一个填充和 0.4 的透明度 —— 同色、同位、10px
+   同大小，实测分辨不出来，而这正是整列里最该分清的一对：活的点进去接着用，死的
+   要 claude -r 重启并重载上下文。
+   绿色不是新造的语义：App.css 里 --success 的注释本来就写着「运行/空闲/成功」。
+   压到 70% 是因为它出现在每一行，满饱和的绿会成为整列最亮的东西，抢在标题前面。 */
+.tree-status-icon.idle { color: color-mix(in srgb, var(--success) 70%, transparent); }
 .tree-status-icon.stopped { color: var(--fg-muted); opacity: 0.4; }
+/* 正在跑的用脉动强化：一列 session 里哪几个在动，扫一眼就知道。
+   曲线和 .tree-attention-dot 同一条，保持全局"有事在动"的观感一致 */
+.tree-status-icon.busy {
+  color: var(--info);
+  animation: attention-pulse 2s ease-in-out infinite;
+}
 
 .tree-session-content {
   flex: 1;
@@ -209,22 +388,27 @@
 }
 
 .tree-pin {
-  color: #f59e0b;
+  color: var(--warning);
   font-size: 10px;
   flex-shrink: 0;
 }
 
+/* 定宽右列。紧凑格式最长是 "10mo"，给 26px 就够；固定下来之后整列时间左边缘
+   对齐，标题的可用宽度也不再随时间字符串长短变化。 */
 .tree-session-time {
   font-size: 10px;
   color: var(--fg-muted);
   flex-shrink: 0;
+  min-width: 26px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .tree-session-row2 {
   display: flex;
   align-items: center;
   gap: 3px;
-  margin-top: 1px;
+  margin-top: 2px;
   font-size: 10px;
   color: var(--fg-muted);
 }
@@ -233,10 +417,20 @@
   opacity: 0.7;
 }
 
+/* row2 里的「工作中」。不做成药丸：row2 整行都是 10px 的弱文字，一个带底色的
+   胶囊在这里会比同行的项目名/分支还重，而它并不需要人做什么。只借 --info 的
+   色相和脉动的状态点呼应。 */
+.tree-session-busy {
+  color: var(--info);
+  flex-shrink: 0;
+}
+
+/* 只剩 waiting 一种，但保留 .tree-status-badge 这层类名：
+   .waiting 的配色规则挂在它上面，而且药丸的形状语言以后可能还要给别的状态用。 */
 .tree-status-badge {
   font-size: 9px;
   padding: 0 5px;
-  border-radius: 8px;
+  border-radius: 999px;
   flex-shrink: 0;
   background: var(--bg-hover);
   color: var(--fg-muted);
@@ -246,21 +440,17 @@
   font-size: 8px;
   font-weight: 700;
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
   letter-spacing: 0.3px;
 }
 .tree-tool-badge.codex {
-  background: color-mix(in srgb, #10a37f 18%, transparent);
-  color: #10a37f;
+  background: color-mix(in srgb, var(--brand-codex) 18%, transparent);
+  color: var(--brand-codex);
 }
 .tree-status-badge.waiting {
-  background: color-mix(in srgb, #f59e0b 20%, transparent);
-  color: #f59e0b;
-}
-.tree-status-badge.busy {
-  background: color-mix(in srgb, #3b82f6 20%, transparent);
-  color: #3b82f6;
+  background: color-mix(in srgb, var(--warning) 20%, transparent);
+  color: var(--warning);
 }
 
 .tree-session-id {
@@ -268,8 +458,11 @@
   opacity: 0.7;
 }
 
+/* 分支名不用 accent。它出现在每一行，用饱和色会成为整列最亮的东西，
+   比 session 标题还抢眼 —— 层级正好反了。前面的 ⑂ 图标已经说明这是分支，
+   颜色只需要和同行的 repo / id（opacity 0.7）拉开一档。 */
 .tree-session-branch {
-  color: var(--accent-text);
+  color: var(--fg-muted);
   flex-shrink: 0;
   max-width: 80px;
   overflow: hidden;
@@ -297,10 +490,10 @@
   position: fixed;
   z-index: 9000;
   background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   padding: 8px 10px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 16px var(--shadow-strong);
   min-width: 240px;
   max-width: 360px;
   pointer-events: auto;
@@ -338,7 +531,7 @@
 
 .hover-card-row {
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .hover-card-row:hover td {
   background: var(--bg-hover);
@@ -367,7 +560,7 @@
   opacity: 0.55;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition: opacity 0.1s;
 }
@@ -393,25 +586,22 @@
 /* 监控段（waiting/running）头部图标着色 */
 .tree-attention .tree-section-header > span:first-child + span,
 .tree-attention .tree-section-header span:first-child {
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 /* Filter panel (floating popover) */
 /* footer bar */
+/* 不再 position: relative —— 筛选面板搬到控制行去了，footer 里已经没有绝对定位的东西 */
 .tree-footer {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
+  /* 2px 的时候三个 22px 图标按钮几乎贴着，读成一个连体控件；而它们是三件
+     互不相干的事（筛选 / 刷新 / 设置）。6px 让 hover 高亮各自独立、也和
+     .tree-header 里 8px 的内边距是同一档节奏。 */
+  gap: 6px;
+  padding: 4px 8px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
-}
-
-.tree-filter-panel-up {
-  top: auto !important;
-  bottom: 100%;
-  margin-bottom: 4px;
 }
 
 .tree-filter-backdrop {
@@ -425,10 +615,10 @@
   right: 8px;
   z-index: 100;
   padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
   background: var(--bg-soft);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: 0 4px 12px var(--shadow);
   font-size: 11px;
   min-width: 150px;
 }
@@ -447,7 +637,7 @@
   background: var(--bg-soft);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 2px 4px;
   font-size: 11px;
 }
@@ -468,7 +658,7 @@
   width: 22px;
   height: 22px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
@@ -491,115 +681,70 @@
   to { transform: rotate(360deg); }
 }
 
-/* Context menu */
-.tree-context-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 9998;
-}
-.tree-context-menu {
-  position: fixed;
-  z-index: 9999;
-  background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px;
-  min-width: 120px;
-  max-height: calc(100vh - 16px);
-  overflow-y: auto;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-}
-.tree-context-menu button {
-  display: block;
-  width: 100%;
-  padding: 5px 10px;
-  border: none;
-  background: transparent;
-  color: var(--fg);
-  font-size: 12px;
-  text-align: left;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.tree-context-menu button:hover {
-  background: var(--bg-hover);
-}
-
-/* 视图下拉框 */
-.tree-view-select {
-  padding: 0 8px;
-  height: 24px;
-  font-size: 12px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 4px;
-  color: rgba(255,255,255,0.7);
-  cursor: pointer;
-  outline: none;
-  flex-shrink: 0;
-}
-
-.tree-view-select:hover {
-  background: rgba(255,255,255,0.08);
-}
+/* 右键菜单样式已收口到 App.css 的 .context-menu（组件 ContextMenu.tsx）。
+   这里原来那套 .tree-context-* 是它的第二份实现，两份长相不一致，已删。 */
 
 /* 筛选栏 */
 .tree-filter-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-  background: rgba(0,0,0,0.2);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-soft);
 }
 
 .tree-filter-btn {
   padding: 4px 8px;
   height: 24px;
   font-size: 14px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 4px;
-  color: rgba(255,255,255,0.6);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-muted);
   cursor: pointer;
   outline: none;
-  transition: all 0.1s;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
   flex-shrink: 0;
 }
 
 .tree-filter-btn:hover {
-  background: rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.8);
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 
-/* 视图模式下拉 */
+/* 视图模式分段控件。底色用 --bg（比侧栏的 --bg-soft 更沉）+ 1px 边框做成一条
+   凹进去的轨道，选中项用 --bg-active 浮起来 —— 「两个互斥选项、当前在哪个」
+   靠位置和明度同时说明，不需要额外的图标或文字状态。
+   这套样式本来就在这个文件里（早先写好没接线），这次接上而不是新造一套。 */
 .tree-view-toggle {
   display: flex;
   flex-shrink: 0;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   padding: 1px;
   gap: 1px;
 }
 .tree-view-toggle-btn {
-  padding: 0 6px;
+  padding: 0 8px;
   height: 20px;
-  font-size: 12px;
+  font-size: 11px;
+  font-family: inherit;
   background: transparent;
   border: none;
-  border-radius: 3px;
-  color: rgba(255,255,255,0.4);
+  border-radius: var(--radius-sm);
+  color: var(--fg-subtle);
   cursor: pointer;
   outline: none;
   transition: background 0.1s, color 0.1s;
 }
 .tree-view-toggle-btn:hover {
-  color: rgba(255,255,255,0.7);
+  color: var(--fg);
 }
 .tree-view-toggle-btn.active {
-  background: rgba(255,255,255,0.1);
-  color: rgba(255,255,255,0.85);
+  background: var(--bg-active);
+  color: var(--fg);
 }
 
 /* 项目视图 */
@@ -614,15 +759,15 @@
   padding: 5px 8px;
   cursor: pointer;
   font-size: 11px;
-  color: var(--text-muted, rgba(255,255,255,0.55));
-  border-radius: 4px;
+  color: var(--fg-muted);
+  border-radius: var(--radius);
   user-select: none;
   transition: background 0.1s;
 }
 
 .tree-project-header:hover {
-  background: rgba(255,255,255,0.05);
-  color: var(--text-primary, rgba(255,255,255,0.85));
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 
 .tree-project-arrow {
@@ -645,27 +790,36 @@
   font-size: 12px;
 }
 
+.tree-project-active-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  margin-right: 4px;
+}
+
 .tree-project-name {
   flex: 1;
   font-weight: 500;
-  color: var(--text-secondary, rgba(255,255,255,0.75));
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tree-project-header.collapsed .tree-project-name {
-  color: var(--text-muted, rgba(255,255,255,0.45));
+  color: var(--fg-muted);
 }
 
 .tree-project-add {
   flex-shrink: 0;
   width: 16px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
-  color: var(--fg-muted, rgba(255,255,255,0.4));
+  color: var(--fg-subtle);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -680,8 +834,8 @@
   opacity: 1;
 }
 .tree-project-add:hover {
-  background: rgba(255,255,255,0.1);
-  color: var(--fg, rgba(255,255,255,0.85));
+  background: var(--bg-active);
+  color: var(--fg);
 }
 
 /* session 行里的 tool logo */
@@ -695,17 +849,19 @@
   opacity: 0.75;
 }
 
-/* tool picker 按钮 */
-.tool-picker-btn {
+/* tool picker 按钮。选择器带上 .context-menu 是为了压住 .context-menu button 的
+   display:block —— 那条和这里的 flex 打架，而 `.context-menu button` 的特异性
+   比裸 .tool-picker-btn 高。加一层类之后 padding 也不再需要 !important。 */
+.context-menu .tool-picker-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 12px !important;
+  padding: 7px 12px;
 }
 .tool-picker-logo {
   width: 16px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   object-fit: contain;
   flex-shrink: 0;
 }
