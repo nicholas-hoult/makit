@@ -8,6 +8,18 @@ use chrono::TimeZone;
 
 use crate::SessionMeta;
 
+/// 「这条会话属于哪个 AI 工具」—— **为统一 claude / codex 两条路预留的抽象，目前只接了一半。**
+///
+/// 现在实际在用的只有 `sessions_dir()`，而且只有 `Codex` 那一支（lib.rs 扫 codex 会话时）。
+/// claude 的两件事都还各走各的路：
+///   - 目录：`~/.claude/projects` 在 lib.rs 里硬编码；
+///   - 恢复命令：在前端 `src/workspace-types.ts` 的 `resumeCmd` 里拼。
+/// 所以 `Claude` 这个变体从没被构造过，`all()` / `name()` / `spawn_cmd()` 也没有调用点，
+/// 编译器如实报了 dead_code。这里挂 `#[allow(dead_code)]` 而不是删：它们是把上面两条路
+/// 收进来时要用的形状，删了下次还得原样写一遍。
+///
+/// 把这个抽象做完的 todo 记在 docs/任务进度.md 待做里。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AiTool {
     Claude,
@@ -15,10 +27,12 @@ pub enum AiTool {
 }
 
 impl AiTool {
+    #[allow(dead_code)]
     pub fn all() -> &'static [AiTool] {
         &[AiTool::Claude, AiTool::Codex]
     }
 
+    #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         match self {
             AiTool::Claude => "claude",
@@ -26,6 +40,8 @@ impl AiTool {
         }
     }
 
+    /// 这个抽象里唯一有调用点的方法（lib.rs 扫 codex 会话时用 `Codex` 那一支）。
+    /// 故意不挂 allow：它要是哪天也没人调了，我想收到警告。
     pub fn sessions_dir(&self) -> Option<PathBuf> {
         let home = dirs::home_dir()?;
         match self {
@@ -34,7 +50,11 @@ impl AiTool {
         }
     }
 
-    pub fn spawn_cmd(&self, cwd: &str, session_id: Option<&str>) -> String {
+    /// 原来的签名多带一个 `cwd`，函数体里从没用过 —— 命令行里确实不需要它：
+    /// 工作目录是起 pty 时设的，不是拼进 `claude -r <id>` 的。多余的参数删掉，
+    /// 免得以后按它去实现。
+    #[allow(dead_code)]
+    pub fn spawn_cmd(&self, session_id: Option<&str>) -> String {
         match self {
             AiTool::Claude => session_id
                 .map(|id| format!("claude -r {id}"))

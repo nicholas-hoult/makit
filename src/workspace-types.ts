@@ -48,10 +48,153 @@ export function findContainer(node: LayoutNode, containerId: string): ContainerN
   return findContainer(node.a, containerId) || findContainer(node.b, containerId);
 }
 
+// 放大态的唯一不变量：**「我在看哪个」必须等于「键盘输入去哪」**。
+// maximizedContainerId 决定谁铺满、其余 display:none（WorkspaceView），
+// activeContainerId 决定键盘输入进谁 —— 两者不等时就出现「操作一个看不见的
+// pane」：你打的字进了一个隐藏的终端，屏幕上什么都不动。
+//
+// 这个不变量以前没有任何一处代码保证，于是有 4 条路径各自破坏它（关 tab、
+// 拖 tab、⌥⌘方向键/数字导航、侧栏点一个已在别的 pane 打开的 session）。
+// 由 useWorkspace 在 setWorkspace 的出口统一收口，而不是逐个 handler 补 ——
+// 那样每加一个 handler 都要记得补一次，漏一个就复现，而 17 个 handler 里
+// 已经漏了 2 个。
+//
+// 两步的顺序不能反：关掉「被放大 container 的最后一个 tab」会同时让 container
+// 消失、active 跳到别的 container，此时正确行为是退出放大（①），而不是把新
+// 落脚的那个放大（②）。
+export function normalizeWorkspace(ws: WorkspaceState): WorkspaceState {
+  const maxId = ws.maximizedContainerId;
+  if (!maxId) return ws;
+  // ① 被放大的 container 已不存在（最后一个 tab 关掉 / 拖走 / 合并）→ 退出放大
+  if (!findContainer(ws.root, maxId)) return { ...ws, maximizedContainerId: null };
+  // ② 焦点移到了别的 container → 放大跟着焦点走（专注模式内轮流切换）。
+  // 焦点自己都落在一个不存在的 id 上时（handleMoveTab 有 `?? ""` 的兜底路径）退出
+  // 放大，而不是把 maximized 也指向那个空 id —— 这个函数的产出必须是合法状态，
+  // 把校验推给渲染层是把责任放错了地方。
+  if (maxId !== ws.activeContainerId) {
+    const target = findContainer(ws.root, ws.activeContainerId) ? ws.activeContainerId : null;
+    return { ...ws, maximizedContainerId: target };
+  }
+  return ws;
+}
+
+// --- resume tab：命令 + 形状 ---
+
+/// 恢复一个已有会话要敲的命令。**只在这里拼** —— 原来有 5 处各拼一遍
+/// （App.tsx 4 处、useWorkspace.openSession 1 处），而第 6 条路
+/// （bindSessionToTab）一处都没拼，见下面 bindSessionToPaneTab 的注释。
+export function resumeCmd(sessionId: string, tool?: string): string {
+  return tool === "codex" ? `codex resume ${sessionId}` : `claude -r ${sessionId}`;
+}
+
+/// resume tab 的 initCommand。前面那个 clear 是为了不让 shell 自己的 banner
+/// 留在会话上下文的上方。
+export function resumeInitCommand(sessionId: string, tool?: string): string {
+  return `clear && ${resumeCmd(sessionId, tool)}`;
+}
+
+/// 把一个 shell / new tab 升级成 resume tab —— 用户在纯 shell 里手打了 `claude`，
+/// 后端从 pid 文件认出了它是哪个 session。
+///
+/// **必须连 initCommand 一起写**：`kind` 只是 UI 元信息，生成 PTY 的时候根本不看它
+/// （TerminalManager 只把 initCommand 交给后端）。少写这一个字段，tab 会同时坏两处：
+///   1. 下次启动没有命令可跑，只起一个空 shell —— 「关掉 makit 后不会自动恢复」；
+///   2. sessionId 却已经填上了，App 的 findSessionLocation 认为这个会话「已经开着」，
+///      点侧栏只会聚焦到那个空 shell —— 「占用恢复的 tab」。
+/// 两个症状是同一个漏掉的字段。
+///
+/// tool 不做参数、固定按 claude 拼：这条路的唯一数据源是
+/// `~/.claude/sessions/<pid>.json`（见 lib.rs 的 resolve_bindings_in），
+/// 那个文件只有 claude 自己会写，codex 不写。
+///
+/// 已知不足：tab 的 cwd 还是当初开 shell 时的目录。用户如果先 cd 到别处再敲
+/// claude，恢复时会在错的目录下 `claude -r`（claude 的存储键含 cwd，会找不到会话）。
+/// 修它需要后端把 claude 进程的真实 cwd 一起报上来，不在这次范围内。
+export function bindSessionToPaneTab(
+  t: PaneTab,
+  sessionId: string,
+  shortId: string,
+  label?: string,
+): PaneTab {
+  return {
+    ...t,
+    kind: "resume",
+    sessionId,
+    sessionShortId: shortId,
+    initCommand: resumeInitCommand(sessionId),
+    // label 可选：session 的 jsonl 还没生成时 sessions 里查不到 meta，
+    // stableGetTabTitle 会回退到 tab.label —— 这时 claude 自己写的会话名
+    // 比 `[shortId]` 有用得多
+    label: label && label.trim() ? label : `[${shortId}]`,
+  };
+}
+
+/// 修掉已经躺在 localStorage 里的坏 tab：kind 是 resume、有 sessionId、却没有
+/// initCommand。这种形状只有旧版 bindSessionToTab 会产出，所以同样按 claude 补。
+///
+/// 只在读取持久化状态时跑一次，**不并进 normalizeWorkspace** —— 那个函数每次
+/// setWorkspace 都跑，而这是一次性的数据迁移，不是每次 set 都要维持的不变量。
+export function repairResumeTabs(ws: WorkspaceState): WorkspaceState {
+  let changed = false;
+  function fix(node: LayoutNode): LayoutNode {
+    if (node.kind !== "container") return { ...node, a: fix(node.a), b: fix(node.b) };
+    return {
+      ...node,
+      tabs: node.tabs.map((t) => {
+        if (t.kind !== "resume" || !t.sessionId || t.initCommand) return t;
+        changed = true;
+        return { ...t, initCommand: resumeInitCommand(t.sessionId) };
+      }),
+    };
+  }
+  const root = fix(ws.root);
+  return changed ? { ...ws, root } : ws;
+}
+
+// --- tab 批量关闭 ---
+
+export type CloseScope = "others" | "right";
+
+/// 「关闭其他」/「关闭右侧」要关掉哪些 tab，按 tab 条上的**显示顺序**返回。
+///
+/// 锚点是**右键的那个 tab**，不是 activeTabId —— container 右键菜单的「关闭」
+/// 一直用的是 `c.activeTabId`，于是在一个非激活的 tab 上右键点关闭，关掉的是
+/// 别人。批量关闭把这个坑放大 N 倍，所以锚点必须由调用方显式传进来。
+///
+/// 找不到锚点时返回空数组而不是"全关"：调用方拿到的是一串 destroy 调用，
+/// 空数组是唯一安全的降级。
+export function tabsToClose(tabs: PaneTab[], anchorId: string, scope: CloseScope): string[] {
+  const idx = tabs.findIndex((t) => t.id === anchorId);
+  if (idx < 0) return [];
+  if (scope === "others") return tabs.filter((t) => t.id !== anchorId).map((t) => t.id);
+  return tabs.slice(idx + 1).map((t) => t.id);
+}
+
 export function collectContainers(node: LayoutNode, out: ContainerNode[] = []): ContainerNode[] {
   if (node.kind === "container") { out.push(node); return out; }
   collectContainers(node.a, out);
   collectContainers(node.b, out);
+  return out;
+}
+
+/// 「打开中」段的顺序：所有在 tab 里开着的会话 id，按**屏幕上的空间顺序**。
+///
+/// 排序不用 mtime：这段对应的是用户屏幕上的窗口布局，「刚动过的排前面」会让同一屏的
+/// 几个 pane 在侧栏里每次都换位置，切会话时反而找不到。`collectContainers` 先 a 后 b
+/// 的遍历顺序天然就是左/上先于右/下，直接用。
+///
+/// 去重是为了 React key：同一条会话理论上不会开在两个 pane（openResumeTab 会切过去
+/// 而不是再开一个），但坏掉的持久化状态里出现过，重复 key 会让这段渲染行为诡异。
+export function openedOrder(ws: WorkspaceState): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const c of collectContainers(ws.root)) {
+    for (const t of c.tabs) {
+      if (t.kind !== "resume" || !t.sessionId || seen.has(t.sessionId)) continue;
+      seen.add(t.sessionId);
+      out.push(t.sessionId);
+    }
+  }
   return out;
 }
 
@@ -90,11 +233,16 @@ export function setSplitRatio(node: LayoutNode, targetId: string, ratio: number)
   return { ...node, a: setSplitRatio(node.a, targetId, ratio), b: setSplitRatio(node.b, targetId, ratio) };
 }
 
+// split 的 id 必须与 layoutTree 生成的一致：都取子树里"第一个 container"的 id
+// （layoutTree 用 Object.keys(subtree.containers)[0]，即最左/最上的 container）。
+// 之前这里对 split 子节点递归拼接 split 字符串，导致嵌套分屏时 id 不匹配、拖动无效。
+function firstContainerId(node: LayoutNode): string {
+  return node.kind === "container" ? node.id : firstContainerId(node.a);
+}
+
 function getSplitId(node: LayoutNode): string {
   if (node.kind === "container") return node.id;
-  const aId = node.a.kind === "container" ? node.a.id : getSplitId(node.a);
-  const bId = node.b.kind === "container" ? node.b.id : getSplitId(node.b);
-  return `split-${aId}-${bId}`;
+  return `split-${firstContainerId(node.a)}-${firstContainerId(node.b)}`;
 }
 
 // --- 高级操作 ---

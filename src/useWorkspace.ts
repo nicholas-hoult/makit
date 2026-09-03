@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
 import { terminalManager } from "./TerminalManager";
 import {
   WorkspaceState, LayoutNode, ContainerNode, PaneTab,
   makeContainerId, makeTabId, findContainer, collectContainers,
   splitContainer, addTabToContainer, closeTab, moveTab, removeContainer,
-  updateContainer, isWorkspaceState, migrateWorkspace,
+  updateContainer, isWorkspaceState, migrateWorkspace, normalizeWorkspace,
+  resumeInitCommand, bindSessionToPaneTab, repairResumeTabs,
 } from "./workspace-types";
 
 function makeDefaultWorkspace(): WorkspaceState {
@@ -35,7 +36,18 @@ function loadWorkspace(): WorkspaceState {
 }
 
 export function useWorkspace() {
-  const [workspace, setWorkspace] = useState<WorkspaceState>(loadWorkspace);
+  // 初始值也要过 normalize：localStorage 里存着的就可能是不一致的状态
+  // （上面那 4 条路径已经写进去过），否则一启动就是「焦点在看不见的 pane」
+  // repairResumeTabs 在 normalize 之前：它修的是**存档里已有的**坏 tab
+  // （kind=resume 但 initCommand=null，见 workspace-types），只在这一次读取时跑
+  const [workspace, setWorkspaceRaw] = useState<WorkspaceState>(
+    () => normalizeWorkspace(repairResumeTabs(loadWorkspace()))
+  );
+  const setWorkspace: Dispatch<SetStateAction<WorkspaceState>> = (update) => {
+    setWorkspaceRaw((prev) =>
+      normalizeWorkspace(typeof update === "function" ? (update as (p: WorkspaceState) => WorkspaceState)(prev) : update)
+    );
+  };
   const activationStackRef = useRef<string[]>([]);
 
   // 持久化 debounce 500ms（避免切 tab 等高频操作时同步 stringify 阻塞主线程）
@@ -47,13 +59,10 @@ export function useWorkspace() {
     }, 500);
   }, [workspace]);
 
-  // maximize 失效守卫：被最大化的 container 若已不存在（关闭/拖走/合并），清掉
-  useEffect(() => {
-    if (!workspace.maximizedContainerId) return;
-    if (!findContainer(workspace.root, workspace.maximizedContainerId)) {
-      setWorkspace((ws) => ({ ...ws, maximizedContainerId: null }));
-    }
-  }, [workspace.root, workspace.maximizedContainerId]);
+  // 原来这里有一个「maximize 失效守卫」effect，逻辑和 normalizeWorkspace 的 ①
+  // 完全一样，已并进去：normalize 在 set 的那一刻就生效，不用多等一次 re-render
+  // 渲染出一帧不一致的画面。（顺带说明它为什么从没生效过：handleTabClose 直接把
+  // maximizedContainerId 丢成了 undefined，守卫看到的永远是「本来就没放大」。）
 
   function toggleMaximize(containerId: string) {
     setWorkspace((ws) => {
@@ -107,7 +116,11 @@ export function useWorkspace() {
       if (!result.root) return makeDefaultWorkspace();
       const containers = collectContainers(result.root);
       const activeStillExists = containers.some((c) => c.id === ws.activeContainerId);
+      // `...ws` 不能省：漏了它 maximizedContainerId 会被丢成 undefined，
+      // 于是「关掉放大 pane 里的某个 tab」会顺带退出放大态。normalize 救不回来
+      // —— 信息已经没了，它只会认为本来就没放大。
       return {
+        ...ws,
         root: result.root,
         activeContainerId: activeStillExists ? ws.activeContainerId : pickNextContainer(containers, containerId),
       };
@@ -166,7 +179,9 @@ export function useWorkspace() {
       const newTabs = [...dest.tabs.slice(0, idx), tab, ...dest.tabs.slice(idx)];
       root = updateContainer(root, destContainerId, () => ({ ...dest, tabs: newTabs, activeTabId: tab.id }));
       const containers = collectContainers(root);
+      // `...ws` 同 handleTabClose：漏了会让「把 tab 拖到别的 pane」顺带退出放大态
       return {
+        ...ws,
         root,
         activeContainerId: containers.some((c) => c.id === destContainerId) ? destContainerId : (containers[0]?.id ?? ""),
       };
@@ -192,22 +207,22 @@ export function useWorkspace() {
   }
 
   function handleSplitWithTab(srcContainerId: string, tabId: string, targetContainerId: string, dir: "h" | "v", side: "before" | "after") {
+    const newId = makeContainerId();
     setWorkspace((ws) => {
       const src = findContainer(ws.root, srcContainerId);
       if (!src) return ws;
       const tab = src.tabs.find((t) => t.id === tabId);
       if (!tab) return ws;
-      // 从源 container 摘除 tab
+      // 从源 container 摘除 tab（tab 被移动不是关闭，不 destroy 终端）
       const srcRemaining = src.tabs.filter((t) => t.id !== tabId);
       let root = ws.root;
       if (srcRemaining.length === 0) {
-        terminalManager.destroy(tabId);
         root = removeContainer(root, srcContainerId) ?? root;
       } else {
         const nextActive = src.activeTabId === tabId ? srcRemaining[0].id : src.activeTabId;
         root = updateContainer(root, srcContainerId, () => ({ ...src, tabs: srcRemaining, activeTabId: nextActive }));
       }
-      // 在目标 container 旁边创建新 containerconst newId = makeContainerId();
+      // 在目标 container 旁边创建新 container
       const newContainer: ContainerNode = { kind: "container", id: newId, tabs: [tab], activeTabId: tab.id, tabHistory: [] };
       // 把目标 container 替换为 split(target, new) 或 split(new, target)
       root = updateContainer(root, targetContainerId, (target) => ({
@@ -264,10 +279,7 @@ export function useWorkspace() {
         return;
       }
     }
-    const resumeCmd = tool === "codex"
-      ? `clear && codex resume ${sessionId}`
-      : `clear && claude -r ${sessionId}`;
-    const tab: PaneTab = { id: makeTabId(), kind: "resume", cwd, initCommand: resumeCmd, sessionId, sessionShortId: shortId, label: label || `[${shortId}]` };
+    const tab: PaneTab = { id: makeTabId(), kind: "resume", cwd, initCommand: resumeInitCommand(sessionId, tool), sessionId, sessionShortId: shortId, label: label || `[${shortId}]` };
     setWorkspace((ws) => ({
       ...ws,
       root: addTabToContainer(ws.root, ws.activeContainerId, tab),
@@ -313,17 +325,44 @@ export function useWorkspace() {
     openNewSession,
     openShell,
     bindSessionToTab,
+    updateTabCwd,
   };
 
-  function bindSessionToTab(containerId: string, tabId: string, sessionId: string, shortId: string) {
+  /// 改掉某个 tab 记着的启动目录。
+  ///
+  /// 恢复被删目录之后**必须**做这一步：workspace 是持久化的，tab 里那个已经不存在的 cwd
+  /// 会一直躺在 localStorage 里，下次启动照样按它 spawn，照样坏。恢复只修当前这次是不够的。
+  /// 按 tabId 找，不需要 containerId —— 调用方（PTY 回调）手里只有 paneId。
+  function updateTabCwd(tabId: string, cwd: string) {
+    setWorkspace((ws) => {
+      let root = ws.root;
+      for (const c of collectContainers(ws.root)) {
+        if (!c.tabs.some((t) => t.id === tabId)) continue;
+        root = updateContainer(root, c.id, (cc) => ({
+          ...cc,
+          tabs: cc.tabs.map((t) => (t.id === tabId ? { ...t, cwd } : t)),
+        }));
+        break;
+      }
+      return { ...ws, root };
+    });
+  }
+
+  // tab 的形状变换在 workspace-types.bindSessionToPaneTab 里（那边有为什么
+  // 必须连 initCommand 一起写的说明），这里只负责在树里找到它
+  function bindSessionToTab(
+    containerId: string,
+    tabId: string,
+    sessionId: string,
+    shortId: string,
+    label?: string,
+  ) {
     setWorkspace((ws) => ({
       ...ws,
       root: updateContainer(ws.root, containerId, (c) => ({
         ...c,
         tabs: c.tabs.map((t) =>
-          t.id === tabId
-            ? { ...t, kind: "resume" as const, sessionId, sessionShortId: shortId, label: `[${shortId}]` }
-            : t
+          t.id === tabId ? bindSessionToPaneTab(t, sessionId, shortId, label) : t
         ),
       })),
     }));

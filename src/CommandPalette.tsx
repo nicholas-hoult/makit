@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { isCmd } from "./keys";
 
 export type PaletteItem = {
   id: string;
@@ -8,7 +9,10 @@ export type PaletteItem = {
   group?: string;
   type?: string;
   projectRoot?: string;
-  status?: "waiting" | "busy" | "idle" | null;  // 用于状态点显示
+  // 实际流进来的还有 "stopped" / "archived"（见 App.tsx pushSession），CSS 里
+  // .palette-status-dot.stopped/.archived 也一直在按这两个值写，只有这个类型漏了，
+  // 于是调用处得靠 `stat as any` 绕过去。补齐它。
+  status?: "waiting" | "busy" | "idle" | "stopped" | "archived" | null;  // 用于状态点显示
   statusLabel?: string;   // 状态文字徽章
   waitingFor?: string;    // waiting 细分："user" = 等待回答，其他 = 等待审批
   running?: boolean;      // 用于「运行中/已停止」筛选
@@ -85,6 +89,48 @@ function saveHistory(q: string) {
 type TimeFilter = "all" | "today" | "week" | "month";
 type StatusKey = "waiting_approval" | "waiting_user" | "busy" | "idle" | "stopped" | "archived";
 
+/**
+ * 把命中的子串标出来。
+ *
+ * 搜索本身是大小写不敏感的 includes（见下面 filtered），这里必须用**同一条规则**切分：
+ * 高亮和"这条为什么会出现"是同一个问题的两面，规则一旦不一致，就会出现一条完全没有
+ * 高亮的结果，比不高亮更让人困惑。
+ *
+ * 命中可能落在 subtitle / group / type 上（hay 是四者拼起来的），所以标题没高亮是正常的，
+ * 不是漏标 —— subtitle 也走这个函数，两处都没有就说明是 group/type 命中的。
+ */
+function highlight(text: string, needle: string): ReactNode {
+  if (!needle) return text;
+  const lower = text.toLowerCase();
+  const q = needle.toLowerCase();
+  const out: ReactNode[] = [];
+  let cursor = 0;
+  let key = 0;
+  for (;;) {
+    const at = lower.indexOf(q, cursor);
+    if (at < 0) break;
+    if (at > cursor) out.push(text.slice(cursor, at));
+    out.push(<mark key={key++} className="palette-mark">{text.slice(at, at + q.length)}</mark>);
+    cursor = at + q.length;
+  }
+  if (cursor === 0) return text;   // 一次都没命中，原样返回，不产生多余节点
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return out;
+}
+
+// 状态药丸只留"需要人动手"的那一档 + 归档。
+//
+// 这条规则侧栏已经定过了（SessionTree.tsx 里 .tree-status-badge 那段注释）：
+// 「工作中」和脉动的圆点说的是同一件事，「空闲」「已停止」更是每一行都挂一个灰药丸、
+// 信息量为零却每行都在和标题抢宽度。⌘K 这边一直没跟上，于是列表里几乎每行右侧
+// 都有一颗药丸，标题的可用宽度被凭空削掉一截。状态交给圆点。
+//
+// archived 例外：它不是运行态而是生命周期分桶，出现频率低（不破坏行的节奏），
+// 而且一颗暗紫圆点没人能学会它是"已归档"。
+function showsStatusPill(status: PaletteItem["status"]): boolean {
+  return status === "waiting" || status === "archived";
+}
+
 export function CommandPalette({ open, onClose, items, placeholder, projects = [] }: Props) {
   const initFilter = loadFilter();
   const [query, setQuery] = useState("");
@@ -136,7 +182,7 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" || (e.key === "k" && (e.metaKey || e.ctrlKey))) { e.preventDefault(); onClose(); }
+      if (e.key === "Escape" || (e.key === "k" && isCmd(e))) { e.preventDefault(); onClose(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -253,14 +299,25 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
       e.preventDefault();
       const item = flat[activeIdx];
       if (item) {
-        const mod = e.shiftKey && (e.metaKey || e.ctrlKey) ? "newContainer"
-          : (e.metaKey || e.ctrlKey) ? "split" : "default";
+        const mod = e.shiftKey && isCmd(e) ? "newContainer"
+          : isCmd(e) ? "split" : "default";
         activate(item, mod);
       }
     }
   }
 
   const hasFilters = filterProject || filterTime !== "all" || filterStatus.size > 0 || filterPinnedOnly;
+  const q = query.trim();   // 给 highlight() 用；大小写归一在函数里做
+
+  // 抽出来是因为空状态那边也要用（原来只有筛选栏底部一个入口）。
+  // 刻意不重置 activeType：那是顶部 chips 的状态，和侧栏这几项不是一组，
+  // 一起清掉会让人以为 chips 坏了。
+  function clearFilters() {
+    setFilterProject("");
+    setFilterTime("all");
+    setFilterStatus(new Set());
+    setFilterPinnedOnly(false);
+  }
 
   return (
     <div className="palette-backdrop" onClick={onClose}>
@@ -313,7 +370,19 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
             )}
 
             {grouped.length === 0 && (
-              <div className="palette-empty">没有匹配项</div>
+              <div className="palette-empty">
+                <div className="palette-empty-title">
+                  {q ? <>没有匹配 <span className="palette-empty-q">{q}</span> 的结果</> : "这里什么都没有"}
+                </div>
+                {/* 筛选条件是存在 localStorage 里的（FILTER_KEY），会跨次启动留着。
+                    上次筛了「只看置顶」忘了清，下次打开 ⌘K 就是一片空白、且没有任何线索
+                    说明为什么 —— 空状态是唯一该说这句话的地方。 */}
+                {hasFilters && (
+                  <button className="palette-empty-clear" onClick={clearFilters}>
+                    当前有筛选生效，点这里清除
+                  </button>
+                )}
+              </div>
             )}
 
             {grouped.map(({ group, items: groupItems }) => {
@@ -325,7 +394,11 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
                     className={"palette-section-title palette-section-toggle" + (collapsed ? " collapsed" : "")}
                     onClick={() => toggleCollapsed(group)}
                   >
-                    <span className="palette-section-chevron">{collapsed ? "▸" : "▾"}</span>
+                    {/* 一个字形转 90°，不是换字形。原来是 ▸/▾ 互换 —— 这两个字符的
+                        视觉重量差挺多（▾ 明显更粗更宽），展开/收起时组头会"跳"一下；
+                        而且 .palette-section-chevron 上那句 `transition: transform`
+                        因为根本没有 transform 在变，一直是死的。 */}
+                    <span className="palette-section-chevron">▸</span>
                     <span>{group}</span>
                     <span className="palette-section-count">{groupItems.length}</span>
                   </button>
@@ -340,20 +413,29 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
                         data-idx={idx}
                         className={"palette-item" + (idx === activeIdx ? " active" : "")}
                         onClick={(e) => {
-                          const mod = e.shiftKey && (e.metaKey || e.ctrlKey) ? "newContainer"
-                            : (e.metaKey || e.ctrlKey) ? "split" : "default";
+                          const mod = e.shiftKey && isCmd(e) ? "newContainer"
+                            : isCmd(e) ? "split" : "default";
                           activate(it, mod);
                         }}
                         onMouseEnter={() => { if (mouseMovedRef.current) setActiveIdx(idx); }}
                       >
-                        {it.status && <span className={"palette-status-dot " + it.status} title={it.statusLabel ?? it.status} />}
-                        {it.pinned && <span className="palette-pin" title="置顶">★</span>}
+                        {/* 前导槽宽度固定：状态点和 ★ 都是"有就画"的，直接并排放会让标题的
+                            左边缘在相邻两行之间来回抖，扫列表时眼睛锁不住一条左轨。
+                            槽子空着也占位，标题的 x 就成了常量。 */}
+                        <span className="palette-item-lead">
+                          {it.status && <span className={"palette-status-dot " + it.status} title={it.statusLabel ?? it.status} />}
+                          {it.pinned && <span className="palette-pin" title="置顶">★</span>}
+                        </span>
                         <div className="palette-item-main">
-                          <span className="palette-item-title">{it.title}</span>
-                          {it.subtitle && <span className="palette-item-sub">{it.subtitle}</span>}
+                          <span className="palette-item-title">{highlight(it.title, q)}</span>
+                          {it.subtitle && <span className="palette-item-sub">{highlight(it.subtitle, q)}</span>}
                         </div>
-                        {it.statusLabel && <span className={"palette-status-label " + (it.status ?? "")}>{it.statusLabel}</span>}
-                        {it.hint && <span className="palette-item-hint">{it.hint}</span>}
+                        <span className="palette-item-meta">
+                          {it.statusLabel && showsStatusPill(it.status) && (
+                            <span className={"palette-status-label " + (it.status ?? "")}>{it.statusLabel}</span>
+                          )}
+                          {it.hint && <span className="palette-item-hint">{it.hint}</span>}
+                        </span>
                       </li>
                     );
                   })}
@@ -367,8 +449,10 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
           <div className="palette-footer">
             <span><kbd>↑↓</kbd> 选择</span>
             <span><kbd>↵</kbd> 打开</span>
-            <span><kbd>⌘↵</kbd> 在 split 打开</span>
-            <span><kbd>Esc</kbd> 取消</span>
+            <span><kbd>⌘↵</kbd> 拆分</span>
+            {/* onKey / onClick 里一直支持 ⌘⇧↵ = newContainer，只有这行提示没写出来 */}
+            <span><kbd>⌘⇧↵</kbd> 新容器</span>
+            <span className="palette-footer-end"><kbd>Esc</kbd> 取消</span>
           </div>
         </div>
 
@@ -401,16 +485,21 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
 
             <div className="palette-filter-section">
               <div className="palette-filter-label">运行状态（多选）</div>
+              {/* 字形单独放进定宽槽：原来是拼在文案里的（"⚠ 等待审批"、"🗄 已归档"），
+                  而 ⚠/?/▶/○ 和 emoji 🗄 的字宽各不相同、"已停止"又干脆没有字形，
+                  六行的文字左缘是锯齿状的。顺手把 🗄 换成等宽的 ▤ —— emoji 是彩色的，
+                  夹在一列单色符号里最扎眼。 */}
               {([
-                ["waiting_approval", "⚠ 等待审批"],
-                ["waiting_user", "? 等待回答"],
-                ["busy", "▶ 工作中"],
-                ["idle", "○ 空闲（运行中）"],
-                ["stopped", "已停止（未归档）"],
-                ["archived", "🗄 已归档"],
-              ] as [StatusKey, string][]).map(([k, label]) => (
+                ["waiting_approval", "⚠", "等待审批"],
+                ["waiting_user", "?", "等待回答"],
+                ["busy", "▶", "工作中"],
+                ["idle", "○", "空闲（运行中）"],
+                ["stopped", "·", "已停止（未归档）"],
+                ["archived", "▤", "已归档"],
+              ] as [StatusKey, string, string][]).map(([k, glyph, label]) => (
                 <label key={k} className="palette-filter-row">
                   <input type="checkbox" checked={filterStatus.has(k)} onChange={() => toggleStatus(k)} />
+                  <span className={"palette-filter-glyph " + k}>{glyph}</span>
                   {label}
                 </label>
               ))}
@@ -433,8 +522,7 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
             </div>
 
             {hasFilters && (
-              <button className="palette-filter-clear" onClick={() => {setFilterProject(""); setFilterTime("all"); setFilterStatus(new Set()); setFilterPinnedOnly(false);
-              }}>清除全部筛选</button>
+              <button className="palette-filter-clear" onClick={clearFilters}>清除全部筛选</button>
             )}
           </div>
         )}
