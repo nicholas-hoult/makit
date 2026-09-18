@@ -3,14 +3,28 @@
   font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC",
     "Microsoft YaHei", sans-serif;
   font-size: 13px;
-  /* 默认（vscode-dark）— 也作 :root[data-theme=...] 未匹配时的 fallback */
+
+  /* ── 设计令牌（不随主题变化）────────────────────────────────
+     圆角/间距统一，参考 IDEA：控件小圆角、浮层稍大，不混用 3/5/8px */
+  --radius-sm: 3px;   /* 徽章、极小控件 */
+  --radius: 4px;      /* 按钮、输入框、列表项 */
+  --radius-md: 6px;   /* 浮层、面板、菜单 */
+  --radius-lg: 8px;   /* 大型模态、命令面板 */
+  /* 品牌色：属于第三方标识，不参与主题推导 */
+  --brand-codex: #10a37f;
+
+  /* ── 主题变量兜底（vscode-dark）────────────────────────────
+     运行时由 theme.ts 从源色推导后注入 :root[data-theme="..."]（特异性更高，会覆盖这里）。
+     这一份只在 JS 尚未执行时短暂生效。 */
   --bg: #1e1e1e;
   --bg-soft: #252526;
   --bg-hover: #2d2d2e;
   --bg-active: #094771;
   --fg: #d4d4d4;
   --fg-muted: #858585;
-  --border: #333;
+  --fg-subtle: #5c5c5c;
+  --border: #404040;
+  --border-strong: #606060;
   --accent: #007acc;
   --accent-text: #4db8ff;
   --accent-fg: #fff;
@@ -19,10 +33,13 @@
   --success: #2ea043;
   --warning: #d29922;
   --info: #58a6ff;
-  /* xterm 选中区背景：半透色，与下层 fg 叠加后仍可读
-     深色主题用半透白；亮色主题各自覆盖为半透黑 */
+  /* xterm 选中区背景：半透色，与下层 fg 叠加后仍可读 */
   --selection-bg: rgba(255, 255, 255, 0.22);
   --selection-bg-inactive: rgba(255, 255, 255, 0.12);
+  --accent-alt: #c586c0;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow-strong: rgba(0, 0, 0, 0.60);
+  --scrim: rgba(0, 0, 0, 0.48);
   /* ANSI 16 色 — VS Code Dark+ 色板 */
   --ansi-black: #1e1e1e;
   --ansi-red: #f44747;
@@ -42,496 +59,6 @@
   --ansi-bright-white: #e5e5e5;
 }
 
-:root[data-theme="vscode-dark"] {
-  --bg: #1e1e1e;
-  --bg-soft: #252526;
-  --bg-hover: #2d2d2e;
-  --bg-active: #094771;
-  --fg: #d4d4d4;
-  --fg-muted: #858585;
-  --border: #333;
-  --accent: #007acc;
-  --accent-text: #4db8ff;
-  --accent-fg: #fff;
-  --danger: #f48771;
-  --success: #2ea043;
-  --warning: #d29922;
-  --info: #58a6ff;
-}
-
-:root[data-theme="github-dark"] {
-  --bg: #0d1117;
-  --bg-soft: #161b22;
-  --bg-hover: #21262d;
-  --bg-active: #1f6feb44;
-  --fg: #c9d1d9;
-  --fg-muted: #8b949e;
-  --border: #30363d;
-  --accent: #58a6ff;
-  --accent-text: #58a6ff;
-  --accent-fg: #ffffff;
-  --danger: #f85149;
-  --success: #3fb950;
-  --warning: #d29922;
-  --info: #58a6ff;
-  --ansi-black: #484f58;
-  --ansi-red: #ff7b72;
-  --ansi-green: #3fb950;
-  --ansi-yellow: #d29922;
-  --ansi-blue: #58a6ff;
-  --ansi-magenta: #bc8cff;
-  --ansi-cyan: #39c5cf;
-  --ansi-white: #b1bac4;
-  --ansi-bright-black: #6e7681;
-  --ansi-bright-red: #ffa198;
-  --ansi-bright-green: #56d364;
-  --ansi-bright-yellow: #e3b341;
-  --ansi-bright-blue: #79c0ff;
-  --ansi-bright-magenta: #d2a8ff;
-  --ansi-bright-cyan: #56d4dd;
-  --ansi-bright-white: #f0f6fc;
-}
-
-:root[data-theme="tokyo-night"] {
-  --bg: #1a1b26;
-  --bg-soft: #16161e;
-  --bg-hover: #1f2335;
-  --bg-active: #283457;
-  --fg: #c0caf5;
-  --fg-muted: #565f89;
-  --border: #2a2e3f;
-  --accent: #7aa2f7;
-  --accent-text: #7aa2f7;
-  --accent-fg: #1a1b26;
-  --danger: #f7768e;
-  --success: #9ece6a;
-  --warning: #e0af68;
-  --info: #7dcfff;
-  --ansi-black: #15161e;
-  --ansi-red: #f7768e;
-  --ansi-green: #9ece6a;
-  --ansi-yellow: #e0af68;
-  --ansi-blue: #7aa2f7;
-  --ansi-magenta: #bb9af7;
-  --ansi-cyan: #7dcfff;
-  --ansi-white: #a9b1d6;
-  --ansi-bright-black: #414868;
-  --ansi-bright-red: #f7768e;
-  --ansi-bright-green: #9ece6a;
-  --ansi-bright-yellow: #e0af68;
-  --ansi-bright-blue: #7aa2f7;
-  --ansi-bright-magenta: #bb9af7;
-  --ansi-bright-cyan: #7dcfff;
-  --ansi-bright-white: #c0caf5;
-}
-
-:root[data-theme="dracula"] {
-  --bg: #282a36;
-  --bg-soft: #21222c;
-  --bg-hover: #44475a;
-  --bg-active: #6272a4;
-  --fg: #f8f8f2;
-  --fg-muted: #6272a4;
-  --border: #44475a;
-  --accent: #bd93f9;
-  --accent-text: #bd93f9;
-  --accent-fg: #282a36;
-  --danger: #ff5555;
-  --success: #50fa7b;
-  --warning: #f1fa8c;
-  --info: #8be9fd;
-  --ansi-black: #21222c;
-  --ansi-red: #ff5555;
-  --ansi-green: #50fa7b;
-  --ansi-yellow: #f1fa8c;
-  --ansi-blue: #bd93f9;
-  --ansi-magenta: #ff79c6;
-  --ansi-cyan: #8be9fd;
-  --ansi-white: #f8f8f2;
-  --ansi-bright-black: #6272a4;
-  --ansi-bright-red: #ff6e6e;
-  --ansi-bright-green: #69ff94;
-  --ansi-bright-yellow: #ffffa5;
-  --ansi-bright-blue: #d6acff;
-  --ansi-bright-magenta: #ff92df;
-  --ansi-bright-cyan: #a4ffff;
-  --ansi-bright-white: #ffffff;
-}
-
-:root[data-theme="solarized-dark"] {
-  --bg: #002b36;
-  --bg-soft: #073642;
-  --bg-hover: #0a4655;
-  --bg-active: #586e75;
-  --fg: #93a1a1;
-  --fg-muted: #657b83;
-  --border: #073642;
-  --accent: #268bd2;
-  --accent-text: #5eaed7;
-  --accent-fg: #fdf6e3;
-  --danger: #dc322f;
-  --success: #859900;
-  --warning: #b58900;
-  --info: #2aa198;
-  --ansi-black: #073642;
-  --ansi-red: #dc322f;
-  --ansi-green: #859900;
-  --ansi-yellow: #b58900;
-  --ansi-blue: #268bd2;
-  --ansi-magenta: #d33682;
-  --ansi-cyan: #2aa198;
-  --ansi-white: #eee8d5;
-  --ansi-bright-black: #586e75;
-  --ansi-bright-red: #cb4b16;
-  --ansi-bright-green: #859900;
-  --ansi-bright-yellow: #b58900;
-  --ansi-bright-blue: #839496;
-  --ansi-bright-magenta: #6c71c4;
-  --ansi-bright-cyan: #93a1a1;
-  --ansi-bright-white: #fdf6e3;
-}
-
-:root[data-theme="catppuccin-mocha"] {
-  --bg: #1e1e2e;
-  --bg-soft: #181825;
-  --bg-hover: #313244;
-  --bg-active: #45475a;
-  --fg: #cdd6f4;
-  --fg-muted: #7f849c;
-  --border: #313244;
-  --accent: #89b4fa;
-  --accent-text: #89b4fa;
-  --accent-fg: #1e1e2e;
-  --danger: #f38ba8;
-  --success: #a6e3a1;
-  --warning: #f9e2af;
-  --info: #94e2d5;
-  --ansi-black: #45475a;
-  --ansi-red: #f38ba8;
-  --ansi-green: #a6e3a1;
-  --ansi-yellow: #f9e2af;
-  --ansi-blue: #89b4fa;
-  --ansi-magenta: #f5c2e7;
-  --ansi-cyan: #94e2d5;
-  --ansi-white: #bac2de;
-  --ansi-bright-black: #585b70;
-  --ansi-bright-red: #f38ba8;
-  --ansi-bright-green: #a6e3a1;
-  --ansi-bright-yellow: #f9e2af;
-  --ansi-bright-blue: #89b4fa;
-  --ansi-bright-magenta: #f5c2e7;
-  --ansi-bright-cyan: #94e2d5;
-  --ansi-bright-white: #a6adc8;
-}
-
-:root[data-theme="nord"] {
-  --bg: #2e3440;
-  --bg-soft: #3b4252;
-  --bg-hover: #434c5e;
-  --bg-active: #4c566a;
-  --fg: #d8dee9;
-  --fg-muted: #7b88a1;
-  --border: #3b4252;
-  --accent: #88c0d0;
-  --accent-text: #88c0d0;
-  --accent-fg: #2e3440;
-  --danger: #bf616a;
-  --success: #a3be8c;
-  --warning: #ebcb8b;
-  --info: #81a1c1;
-  --ansi-black: #3b4252;
-  --ansi-red: #bf616a;
-  --ansi-green: #a3be8c;
-  --ansi-yellow: #ebcb8b;
-  --ansi-blue: #81a1c1;
-  --ansi-magenta: #b48ead;
-  --ansi-cyan: #88c0d0;
-  --ansi-white: #e5e9f0;
-  --ansi-bright-black: #4c566a;
-  --ansi-bright-red: #bf616a;
-  --ansi-bright-green: #a3be8c;
-  --ansi-bright-yellow: #ebcb8b;
-  --ansi-bright-blue: #81a1c1;
-  --ansi-bright-magenta: #b48ead;
-  --ansi-bright-cyan: #8fbcbb;
-  --ansi-bright-white: #eceff4;
-}
-
-:root[data-theme="one-dark"] {
-  --bg: #282c34;
-  --bg-soft: #21252b;
-  --bg-hover: #2c313a;
-  --bg-active: #3e4451;
-  --fg: #abb2bf;
-  --fg-muted: #5c6370;
-  --border: #3e4451;
-  --accent: #61afef;
-  --accent-text: #61afef;
-  --accent-fg: #282c34;
-  --danger: #e06c75;
-  --success: #98c379;
-  --warning: #e5c07b;
-  --info: #56b6c2;
-  --ansi-black: #282c34;
-  --ansi-red: #e06c75;
-  --ansi-green: #98c379;
-  --ansi-yellow: #e5c07b;
-  --ansi-blue: #61afef;
-  --ansi-magenta: #c678dd;
-  --ansi-cyan: #56b6c2;
-  --ansi-white: #abb2bf;
-  --ansi-bright-black: #5c6370;
-  --ansi-bright-red: #e06c75;
-  --ansi-bright-green: #98c379;
-  --ansi-bright-yellow: #e5c07b;
-  --ansi-bright-blue: #61afef;
-  --ansi-bright-magenta: #c678dd;
-  --ansi-bright-cyan: #56b6c2;
-  --ansi-bright-white: #ffffff;
-}
-
-:root[data-theme="monokai-pro"] {
-  --bg: #2c292d;
-  --bg-soft: #221f22;
-  --bg-hover: #403e41;
-  --bg-active: #5b595c;
-  --fg: #fcfcfa;
-  --fg-muted: #939293;
-  --border: #403e41;
-  --accent: #ffd866;
-  --accent-text: #ffd866;
-  --accent-fg: #2c292d;
-  --danger: #ff6188;
-  --success: #a9dc76;
-  --warning: #fc9867;
-  --info: #78dce8;
-  --ansi-black: #403e41;
-  --ansi-red: #ff6188;
-  --ansi-green: #a9dc76;
-  --ansi-yellow: #ffd866;
-  --ansi-blue: #fc9867;
-  --ansi-magenta: #ab9df2;
-  --ansi-cyan: #78dce8;
-  --ansi-white: #fcfcfa;
-  --ansi-bright-black: #727072;
-  --ansi-bright-red: #ff6188;
-  --ansi-bright-green: #a9dc76;
-  --ansi-bright-yellow: #ffd866;
-  --ansi-bright-blue: #fc9867;
-  --ansi-bright-magenta: #ab9df2;
-  --ansi-bright-cyan: #78dce8;
-  --ansi-bright-white: #fcfcfa;
-}
-
-:root[data-theme="gruvbox-dark"] {
-  --bg: #282828;
-  --bg-soft: #1d2021;
-  --bg-hover: #3c3836;
-  --bg-active: #504945;
-  --fg: #ebdbb2;
-  --fg-muted: #a89984;
-  --border: #3c3836;
-  --accent: #fabd2f;
-  --accent-text: #fabd2f;
-  --accent-fg: #282828;
-  --danger: #fb4934;
-  --success: #b8bb26;
-  --warning: #fabd2f;
-  --info: #83a598;
-  --ansi-black: #282828;
-  --ansi-red: #cc241d;
-  --ansi-green: #98971a;
-  --ansi-yellow: #d79921;
-  --ansi-blue: #458588;
-  --ansi-magenta: #b16286;
-  --ansi-cyan: #689d6a;
-  --ansi-white: #a89984;
-  --ansi-bright-black: #928374;
-  --ansi-bright-red: #fb4934;
-  --ansi-bright-green: #b8bb26;
-  --ansi-bright-yellow: #fabd2f;
-  --ansi-bright-blue: #83a598;
-  --ansi-bright-magenta: #d3869b;
-  --ansi-bright-cyan: #8ec07c;
-  --ansi-bright-white: #ebdbb2;
-}
-
-:root[data-theme="rose-pine"] {
-  --bg: #191724;
-  --bg-soft: #1f1d2e;
-  --bg-hover: #26233a;
-  --bg-active: #403d52;
-  --fg: #e0def4;
-  --fg-muted: #6e6a86;
-  --border: #26233a;
-  --accent: #c4a7e7;
-  --accent-text: #c4a7e7;
-  --accent-fg: #191724;
-  --danger: #eb6f92;
-  --success: #9ccfd8;
-  --warning: #f6c177;
-  --info: #31748f;
-  --ansi-black: #26233a;
-  --ansi-red: #eb6f92;
-  --ansi-green: #31748f;
-  --ansi-yellow: #f6c177;
-  --ansi-blue: #9ccfd8;
-  --ansi-magenta: #c4a7e7;
-  --ansi-cyan: #ebbcba;
-  --ansi-white: #e0def4;
-  --ansi-bright-black: #6e6a86;
-  --ansi-bright-red: #eb6f92;
-  --ansi-bright-green: #31748f;
-  --ansi-bright-yellow: #f6c177;
-  --ansi-bright-blue: #9ccfd8;
-  --ansi-bright-magenta: #c4a7e7;
-  --ansi-bright-cyan: #ebbcba;
-  --ansi-bright-white: #e0def4;
-}
-
-:root[data-theme="vscode-light"] {
-  color-scheme: light;
-  --bg: #ffffff;
-  --bg-soft: #f3f3f3;
-  --bg-hover: #e8e8e8;--bg-active: #cce5ff;
-  --fg: #1f1f1f;
-  --fg-muted: #6c6c6c;
-  --border: #d4d4d4;
-  --accent: #0066b8;
-  --accent-text: #0066b8;
-  --accent-fg: #ffffff;
-  --danger: #d93025;
-  --success: #1a7f37;
-  --warning: #9a6700;
-  --info: #0969da;
-  --selection-bg: rgba(0, 0, 0, 0.18);
-  --selection-bg-inactive: rgba(0, 0, 0, 0.10);
-  --ansi-black: #000000;
-  --ansi-red: #cd3131;
-  --ansi-green: #00bc00;
-  --ansi-yellow: #949800;
-  --ansi-blue: #0451a5;
-  --ansi-magenta: #bc05bc;
-  --ansi-cyan: #0598bc;
-  --ansi-white: #555555;
-  --ansi-bright-black: #666666;
-  --ansi-bright-red: #cd3131;
-  --ansi-bright-green: #14ce14;
-  --ansi-bright-yellow: #b5ba00;
-  --ansi-bright-blue: #0451a5;
-  --ansi-bright-magenta: #bc05bc;
-  --ansi-bright-cyan: #0598bc;
-  --ansi-bright-white: #a5a5a5;
-}
-
-:root[data-theme="github-light"] {
-  color-scheme: light;
-  --bg: #ffffff;
-  --bg-soft: #f6f8fa;
-  --bg-hover: #eaeef2;
-  --bg-active: #ddf4ff;
-  --fg: #1f2328;
-  --fg-muted: #656d76;
-  --border: #d0d7de;
-  --accent: #0969da;
-  --accent-text: #0969da;
-  --accent-fg: #ffffff;
-  --danger: #cf222e;
-  --success: #1a7f37;
-  --warning: #9a6700;
-  --info: #0969da;
-  --selection-bg: rgba(0, 0, 0, 0.18);
-  --selection-bg-inactive: rgba(0, 0, 0, 0.10);
-  --ansi-black: #24292f;
-  --ansi-red: #cf222e;
-  --ansi-green: #116329;
-  --ansi-yellow: #4d2d00;
-  --ansi-blue: #0969da;
-  --ansi-magenta: #8250df;
-  --ansi-cyan: #1b7c83;
-  --ansi-white: #6e7781;
-  --ansi-bright-black: #57606a;
-  --ansi-bright-red: #a40e26;
-  --ansi-bright-green: #1a7f37;
-  --ansi-bright-yellow: #633c01;
-  --ansi-bright-blue: #218bff;
-  --ansi-bright-magenta: #a475f9;
-  --ansi-bright-cyan: #3192aa;
-  --ansi-bright-white: #8c959f;
-}
-
-:root[data-theme="solarized-light"] {
-  color-scheme: light;
-  --bg: #fdf6e3;
-  --bg-soft: #eee8d5;
-  --bg-hover: #e6dfc6;
-  --bg-active: #93a1a1;
-  --fg: #586e75;
-  --fg-muted: #93a1a1;
-  --border: #eee8d5;
-  --accent: #268bd2;
-  --accent-text: #268bd2;
-  --accent-fg: #fdf6e3;
-  --danger: #dc322f;
-  --success: #859900;
-  --warning: #b58900;
-  --info: #2aa198;
-  --selection-bg: rgba(0, 0, 0, 0.18);
-  --selection-bg-inactive: rgba(0, 0, 0, 0.10);
-  --ansi-black: #073642;
-  --ansi-red: #dc322f;
-  --ansi-green: #859900;
-  --ansi-yellow: #b58900;
-  --ansi-blue: #268bd2;
-  --ansi-magenta: #d33682;
-  --ansi-cyan: #2aa198;
-  --ansi-white: #eee8d5;
-  --ansi-bright-black: #002b36;
-  --ansi-bright-red: #cb4b16;
-  --ansi-bright-green: #586e75;
-  --ansi-bright-yellow: #657b83;
-  --ansi-bright-blue: #839496;
-  --ansi-bright-magenta: #6c71c4;
-  --ansi-bright-cyan: #93a1a1;
-  --ansi-bright-white: #fdf6e3;
-}
-
-:root[data-theme="catppuccin-latte"] {
-  color-scheme: light;
-  --bg: #eff1f5;
-  --bg-soft: #e6e9ef;
-  --bg-hover: #dce0e8;
-  --bg-active: #bcc0cc;
-  --fg: #4c4f69;
-  --fg-muted: #8c8fa1;
-  --border: #ccd0da;
-  --accent: #1e66f5;
-  --accent-text: #1e66f5;
-  --accent-fg: #eff1f5;
-  --danger: #d20f39;
-  --success: #40a02b;
-  --warning: #df8e1d;
-  --info: #179299;
-  --selection-bg: rgba(0, 0, 0, 0.18);
-  --selection-bg-inactive: rgba(0, 0, 0, 0.10);
-  --ansi-black: #5c5f77;
-  --ansi-red: #d20f39;
-  --ansi-green: #40a02b;
-  --ansi-yellow: #df8e1d;
-  --ansi-blue: #1e66f5;
-  --ansi-magenta: #ea76cb;
-  --ansi-cyan: #179299;
-  --ansi-white: #acb0be;
-  --ansi-bright-black: #6c6f85;
-  --ansi-bright-red: #d20f39;
-  --ansi-bright-green: #40a02b;
-  --ansi-bright-yellow: #df8e1d;
-  --ansi-bright-blue: #1e66f5;
-  --ansi-bright-magenta: #ea76cb;
-  --ansi-bright-cyan: #179299;
-  --ansi-bright-white: #bcc0cc;
-}
-
 /* 前台通知 flash：窗口边框短暂亮一下，0.55s 消失 */
 @keyframes window-notify-flash {
   0%   { opacity: 0; }
@@ -544,7 +71,7 @@
   inset: 0;
   pointer-events: none;
   border: 1.5px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   opacity: 0;
   animation: window-notify-flash 0.55s ease-out forwards;
   z-index: 99999;
@@ -601,7 +128,7 @@ body,
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   outline: none;
   width: 100%;
 }
@@ -645,10 +172,10 @@ body,
   line-height: 1;
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .search-clear:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
 }
 
@@ -663,7 +190,7 @@ body,
   border: none;
   color: var(--fg-muted);
   padding: 5px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -672,7 +199,7 @@ body,
   transition: opacity 120ms, background 120ms;
 }
 .icon-btn:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
   opacity: 1;
 }
@@ -698,9 +225,9 @@ body,
   right: 8px;
   margin-top: 4px;
   background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px var(--shadow);
   z-index: 101;
   min-width: 180px;
   overflow: hidden;
@@ -720,22 +247,36 @@ body,
   text-align: left;
 }
 .popover-row:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
 }
 .popover-row.active {
   color: var(--accent-text);
 }
 
 /* === Command Palette === */
+@keyframes palette-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes palette-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
 .palette-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--scrim);
   z-index: 200;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: 12vh;
+  /* scrim 只是压暗，底下那一屏终端文字仍然清晰可读，眼睛会持续被它拉走。
+     模糊掉高频细节，面板才真的成为"前景"。3px 足够毁掉字形又不至于糊成一片色块。 */
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: palette-backdrop-in 120ms ease-out;
 }
 
 /* === Cmd+K Palette v2 (层级化) === */
@@ -745,13 +286,29 @@ body,
   max-width: 760px;
   max-height: 70vh;
   background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  /* 两层影子。单独一层大范围模糊只能表达"飘着"，表达不出"贴在上面一层"——
+     近距离那层（0 2px 6px）是接触影，远的那层（0 16px 48px）是环境光。
+     真实物体两者都有，少一层就会显得是贴图。 */
+  box-shadow: 0 2px 6px var(--shadow), 0 16px 48px var(--shadow-strong);
   overflow: hidden;
+  /* 从上方 8px 落下 + 一点缩放。⌘K 是个"叫出来"的东西，硬切出现会让人怀疑
+     自己是不是按错了；140ms 短到不影响"按完就打字"的手感。 */
+  animation: palette-in 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* 开/关筛选栏时 760 → 980 是硬跳，整个列表会横向蹦一下。让宽度自己走过去。 */
+  transition: max-width 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .palette.with-filter {
   max-width: 980px;
+}
+
+/* 关掉动画：这个偏好在系统层面就是"别给我动效"，不是"动效小一点"。 */
+@media (prefers-reduced-motion: reduce) {
+  .palette-backdrop, .palette { animation: none; }
+  .palette { transition: none; }
+  .palette-status-dot.waiting { animation: none; }
+  .palette-section-chevron { transition: none; }
 }
 
 .palette-main {
@@ -761,70 +318,103 @@ body,
   min-width: 0;
 }
 
+/* 左右两个 header 必须在一条线上。原来各自写「上 14 下 12 + 内容自然高度」，
+   而两边的内容高度是各算各的：左边是 15px 字号 input 的行盒（受字体度量影响），
+   右边是 13px 的 span + 22px 的按钮。两个独立算出来的和不可能长期相等 ——
+   要对齐的东西就该共用一个数，而不是各自凑。48px 定高 + 内容居中。 */
+.palette-header,
+.palette-filter-header {
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  flex-shrink: 0;
+}
+
 .palette-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
 }
 .palette-search-icon {
-  color: var(--fg-muted);
-  opacity: 0.6;
+  /* 原来是 --fg-muted 再叠 opacity 0.6 —— 两道减光，浅色主题下直接淡到没有。
+     --fg-subtle 本身就是"三级文字"那一档，且有对比度下限兜着。 */
+  color: var(--fg-subtle);
   flex-shrink: 0;
 }
 .palette-input {
   flex: 1;
-  font-size: 14px;
+  font-size: 15px;
   background: transparent;
   color: var(--fg);
   border: none;
   outline: none;
-  padding: 4px 0;
+  padding: 2px 0;
+  min-width: 0;
+}
+.palette-input::placeholder {
+  color: var(--fg-subtle);
 }
 .palette-filter-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background: none;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 999px;
   color: var(--fg-muted);
   padding: 4px 10px;
   font-size: 12px;
+  line-height: 1;
   cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
 .palette-filter-btn:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
 }
 .palette-filter-btn.active {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  background: var(--bg-active);
   color: var(--accent-text);
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
+/* "已经有筛选生效"的提示。原来是个 "•" 字符：字号跟着文字、基线也跟着文字，
+   在不同字体下位置飘。改成真正的 5px 圆点，和铃铛的未读点（.notif-bell-badge）同一套。 */
 .palette-filter-btn.has-filters::after {
-  content: "•";
-  color: var(--accent-text);
-  margin-left: 2px;
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
 }
 .palette-close {
   background: none;
   border: none;
-  color: var(--fg-muted);
-  font-size: 18px;
+  color: var(--fg-subtle);
+  font-size: 16px;
   cursor: pointer;
-  padding: 0 6px;
   line-height: 1;
+  /* 做成方形图标钮，和旁边的「筛选」在同一条基线上、有同样的点击反馈；
+     原来是个裸的 × 字符，热区只有字宽。 */
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  transition: background 120ms, color 120ms;
 }
-.palette-close:hover { color: var(--fg); }
+.palette-close:hover { color: var(--fg); background: var(--bg-hover); }
 
 .palette-chips {
   display: flex;
-  gap: 6px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  /* 不再画底线：上面 header 已经有一条，两条水平线隔 30px 平行摆着最显廉价。
+     一条边界要么靠面、要么靠线，这里让 chips 自己的留白当分界（同 theme.ts 里的取舍）。 */
+  padding: 8px 10px 6px;
   overflow-x: auto;
   scrollbar-width: none;
   flex-shrink: 0;
@@ -832,8 +422,12 @@ body,
 .palette-chips::-webkit-scrollbar { display: none; }
 
 .palette-chip {
-  background: var(--bg);
-  border: 1px solid var(--border);
+  /* 原来默认态是 --bg 底 + --border 边：面板本身是 --bg-soft，比 --bg 更亮（深色主题下），
+     于是每个 chip 都成了一个"凹进去的坑"，读起来不像可点的东西。改成完全透明、
+     只在 hover/选中时才浮起来 —— 静态时它就只是一排文字标签。
+     边框保留 1px transparent，避免三态之间宽度跳动。 */
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--fg-muted);
   padding: 4px 12px;
   font-size: 12px;
@@ -841,89 +435,105 @@ body,
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: all 120ms;
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
 .palette-chip:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
 }
 .palette-chip.active {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background: var(--bg-active);
   color: var(--accent-text);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .palette-body {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 2px 0 6px;
 }
 
 .palette-section {
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .palette-section-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px 6px;
+  padding: 10px 14px 4px;
   font-size: 11px;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   font-weight: 600;
   letter-spacing: 0.3px;
 }
 
+/* 分组之间不再画横线。原来 header 一条、chips 一条、每两组之间一条、footer 一条 ——
+   一个 70vh 的盒子里五六条水平线，比它要分隔的内容还抢眼。分组标题自己的
+   上留白（10px）+ 字重已经足够说明"这里换组了"，线是多余的。 */
 .palette-section + .palette-section {
-  border-top: 1px solid var(--border);
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: 2px;
 }
 
 .palette-section-toggle {
   background: none;
   border: none;
-  width: 100%;
   cursor: pointer;
   text-align: left;
   user-select: none;
-  border-radius: 4px;
-  margin: 0 4px;
-  width: calc(100% - 8px);
+  border-radius: var(--radius);
+  /* 内缩量和下面的 .palette-item 对齐：6px 外边距 + 8px 内边距 = 内容左缘 14px，
+     和不可折叠的 .palette-section-title（padding-left 14px）落在同一条竖线上。 */
+  margin: 0 6px;
+  width: calc(100% - 12px);
+  padding: 10px 8px 4px;
+  transition: background 120ms, color 120ms;
 }
 .palette-section-toggle:hover {
   color: var(--fg);
-  background: var(--hover);
+  background: var(--bg-hover);
 }
 
 .palette-section-chevron {
   width: 12px;
   display: inline-block;
-  font-size: 10px;
-  color: var(--fg-muted);
+  text-align: center;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--fg-subtle);
   flex-shrink: 0;
-  transition: transform 120ms;
+  /* 展开态 = 转到朝下。收起态回到 0°（朝右）。这样上面那句 transition 才真的有东西可动。 */
+  transform: rotate(90deg);
+  transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.palette-section-toggle.collapsed .palette-section-chevron {
+  transform: rotate(0deg);
 }
 
 .palette-section-toggle .palette-section-count {
   margin-left: auto;
 }
 .palette-section-count {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent-text);
-  padding: 2px 8px;
-  border-radius: 10px;
+  /* 改中性色。原来每个分组的计数都是 accent 底 + accent 字，八个分组就是八块蓝 ——
+     accent 在这个面板里只该有一个意思："光标在这"。计数不是那个意思。 */
+  background: var(--bg-hover);
+  color: var(--fg-subtle);
+  padding: 1px 7px;
+  border-radius: 999px;
   font-size: 10px;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .palette-section-action {
   background: none;
   border: none;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   cursor: pointer;
   font-size: 14px;
   padding: 0 4px;
+  line-height: 1;
 }
+.palette-section-action:hover { color: var(--fg); }
 
 .palette-history {
   display: flex;
@@ -937,12 +547,14 @@ body,
   color: var(--fg-muted);
   padding: 3px 10px;
   font-size: 11px;
-  border-radius: 4px;
+  border-radius: 999px;
   cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
 }
 .palette-history-chip:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
+  border-color: var(--border-strong);
 }
 
 .palette-list {
@@ -952,70 +564,146 @@ body,
 }
 
 .palette-empty {
-  padding: 24px 16px;
-  color: var(--fg-muted);
+  padding: 44px 16px 48px;
   text-align: center;
-  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.palette-empty-title {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+/* 把用户敲的词原样回显出来。空状态最怕的是「不知道系统在拿什么去匹配」，
+   回显一下就把这件事说清了；顺便和列表里的命中高亮用同一个色，语义连上。 */
+.palette-empty-q {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.palette-empty-clear {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.palette-empty-clear:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+  border-color: var(--border-strong);
 }
 
 .palette-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  /* 6px 外边距 + 8px 内边距 = 内容左缘 14px，和分组标题同一条竖线。 */
+  margin: 0 6px;
+  padding: 5px 8px;
+  /* 有 subtitle 的行是两行、没有的是一行，节奏本来是参差的。给个下限把单行行高
+     顶到接近两行的高度，一屏扫下去就有稳定的节拍。 */
+  min-height: 34px;
+  box-sizing: border-box;
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 13px;
+  /* 给 .active::before 那根左轨当定位参照 */
+  position: relative;
 }
+
+/* 键盘光标。这是整个面板最重要的一个元素 —— 90% 的用法是「⌘K → 敲两个字 → 回车」，
+   所以"我现在停在哪一条"必须在余光里就能定位。
+   原来只有 `accent 12%` 的透明混色、而且是通栏矩形：一是太淡（浅色主题里几乎看不见），
+   二是通栏矩形读起来像表格选中，不像浮层里的光标。
+   改成内缩圆角面 + accent 左轨：
+   - --bg-active 是主题里专门推导的"选中面"（mix(bg, accent, 18~26%)），比 12% 透明混色实得多；
+   - 左轨用 inset box-shadow 而不是 border-left，免得挤动内容布局；
+   - accent 左轨和 active pane 边框、active tab 顶条是同一套语言（见 theme.ts 里 --accent 的注释）。 */
 .palette-item.active {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--bg-active);
+}
+/* 左轨做成竖着的短胶囊，而不是通高的 inset 边。
+   通高那种会被行的 4px 圆角在两端掐出两个尖，看着是被裁掉的而不是画上去的；
+   短胶囊居中、两端自己圆，是 VS Code 活动栏 / Linear 的做法。 */
+.palette-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 16px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+.palette-item.active .palette-item-title {
+  font-weight: 500;
+}
+
+/* 前导定宽槽：8px 圆点 + 3px 间距 + 9px 的 ★ = 正好 20px。
+   3px 而不是 2px 是为了 waiting 圆点那圈 2px 的外发光（box-shadow，不占布局）
+   不去压到 ★ 上 —— 两者都是琥珀色，贴在一起会糊成一团。 */
+.palette-item-lead {
+  width: 20px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .palette-status-dot {
-  width: 10px;
-  height: 10px;
+  /* 10px 在这个密度下偏胖，8px 更利落，也让一列圆点自己成为一条左轨。 */
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.palette-status-dot.waiting { background: #f59e0b; box-shadow: 0 0 0 2px color-mix(in srgb, #f59e0b 30%, transparent); }
-.palette-status-dot.busy { background: #3b82f6; }
+/* waiting 是唯一"需要人动手"的一档，让它自己会呼吸 —— 侧栏的 .tree-attention-dot
+   已经是这个做法（keyframes attention-pulse 定义在 SessionTree.css:158，两个 CSS
+   都是全局引入的）。列表里 waiting 的行本来就少、还被排在最前面几组，不会满屏闪。
+   复用而不是再写第四个 pulse：这个仓库里已经有 attention-pulse / tab-dot-pulse /
+   notif-dot-pulse 三个几乎一样的了。 */
+.palette-status-dot.waiting {
+  background: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 30%, transparent);
+  animation: attention-pulse 2s ease-in-out infinite;
+}
+.palette-status-dot.busy { background: var(--info); }
 .palette-status-dot.idle { background: var(--fg-muted); opacity: 0.5; }
 
+/* 只剩 waiting / archived 两种（见 CommandPalette.tsx 的 showsStatusPill）：
+   busy「工作中」和圆点重复，idle「空闲」/ stopped「已停止」每行都挂一个、信息量为零，
+   三者的样式一起删掉，避免留下没人用的类。 */
 .palette-status-label {
   font-size: 10px;
   padding: 2px 7px;
-  border-radius: 10px;
+  border-radius: 999px;
   flex-shrink: 0;
   font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 .palette-status-label.waiting {
-  background: color-mix(in srgb, #f59e0b 18%, transparent);
-  color: #f59e0b;
-}
-.palette-status-label.busy {
-  background: color-mix(in srgb, #3b82f6 18%, transparent);
-  color: #3b82f6;
-}
-.palette-status-label.idle {
-  background: color-mix(in srgb, var(--fg-muted) 15%, transparent);
-  color: var(--fg-muted);
-}
-.palette-status-label.stopped {
-  background: color-mix(in srgb, var(--fg-muted) 10%, transparent);
-  color: var(--fg-muted);
-  opacity: 0.7;
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
 }
 .palette-status-label.archived {
-  background: color-mix(in srgb, #8b5cf6 18%, transparent);
-  color: #8b5cf6;
+  background: color-mix(in srgb, var(--accent-alt) 18%, transparent);
+  color: var(--accent-alt);
 }
 
 .palette-status-dot.stopped { background: var(--fg-muted); opacity: 0.3; }
-.palette-status-dot.archived { background: #8b5cf6; opacity: 0.6; }
+.palette-status-dot.archived { background: var(--accent-alt); opacity: 0.6; }
 
 .palette-pin {
-  color: #f59e0b;
-  font-size: 11px;
+  color: var(--warning);
+  font-size: 9px;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 .palette-item-main {
@@ -1023,43 +711,82 @@ body,
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
+/* 两行的行高收紧一点。默认行高（约 1.5）算下来每行 46px，70vh 里只装得下 11 条 ——
+   一个切换器该让人一屏看到更多。1.35 / 1.3 之后是 42px，13 条，且没到挤的程度。 */
 .palette-item-title {
   color: var(--fg);
+  line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .palette-item-sub {
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   font-size: 11px;
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* 命中高亮。用"字色 + 字重"而不是荧光底：这是一个每行都可能出现好几处的标记，
+   底色一填，密集列表立刻变成一片马赛克。终端里的 ⌘F 才需要底色（那边前景色不归我们管，
+   见 theme.ts 里 --search-match-bg 的注释），这里前景色是我们的，直接改前景更干净。 */
+.palette-mark {
+  background: none;
+  color: var(--accent-text);
+  font-weight: 600;
+}
+/* 光标行上换一套。那一行的底色 --bg-active 本身就是 mix(bg, accent, 18~26%)，
+   accent 色的高亮压在 accent 味的底上，对比度会掉一档、正好在最该看清的那一行看不清。
+   改用纯 --fg + 700：行内正文已经是 --fg/500，两者拉得开，且不依赖任何色相差
+   （VS Code 也是给 focus 行单独一个 highlightForeground，同一个原因）。 */
+.palette-item.active .palette-mark {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+/* 右侧元信息成组：状态药丸 + 时间。 */
+.palette-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .palette-item-hint {
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   font-size: 11px;
   flex-shrink: 0;
-  opacity: 0.7;
+  /* 时间文案（"3 分钟前" / "2 天前"）宽度不一，右对齐 + 等宽数字让它们排成一条右轨；
+     52px 是"11 分钟前"这一档的宽度，再宽就开始和标题抢地方了。 */
+  min-width: 52px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .palette-footer {
   display: flex;
+  align-items: center;
   gap: 14px;
   padding: 8px 14px;
   border-top: 1px solid var(--border);
   font-size: 11px;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   flex-shrink: 0;
+}
+/* Esc 推到最右：它是"退出"，和左边那几个"往前走"的动作不是一类。 */
+.palette-footer-end {
+  margin-left: auto;
 }
 
 .palette-footer kbd {
   font-family: ui-monospace, monospace;
   background: var(--bg);
-  padding: 1px 6px;
-  border-radius: 3px;
+  color: var(--fg-muted);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   margin-right: 4px;
   font-size: 10px;
@@ -1080,29 +807,55 @@ body,
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 14px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  /* 这一栏整体 overflow-y: auto，header 本来会跟着内容一起滚走 —— 滚到底就找不到关闭按钮了。 */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
 }
 .palette-filter-header button {
   background: none;
   border: none;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   cursor: pointer;
   font-size: 16px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  transition: background 120ms, color 120ms;
+}
+.palette-filter-header button:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
 }
 
+/* 分隔线只画在两节之间，不画在最后一节下面 —— 原来是每节 border-bottom，
+   最后那条线下面什么都没有，成了一条悬空的横线。
+   左右 14px 和 .palette-filter-header / .palette-header 同一个数：这一栏里的
+   标题、下拉框、勾选行、清除按钮必须全部落在同一条竖线上。 */
 .palette-filter-section {
   padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
+}
+.palette-filter-section + .palette-filter-section {
+  border-top: 1px solid var(--border);
 }
 
 .palette-filter-label {
   font-size: 11px;
-  color: var(--fg-muted);
+  color: var(--fg-subtle);
   margin-bottom: 6px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.palette-filter-row + .palette-filter-label {
+  margin-top: 12px;
 }
 
 .palette-filter-section select {
@@ -1110,21 +863,60 @@ body,
   background: var(--bg-soft);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px;
+  border-radius: var(--radius);
+  padding: 5px 6px;
   font-size: 12px;
   outline: none;
+  cursor: pointer;
+}
+.palette-filter-section select:focus {
+  border-color: var(--accent);
 }
 
 .palette-filter-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0;
+  /* 整行可点（label 包着 input），所以整行也该有 hover 反馈 —— 原来只有 4px 上下内边距、
+     没有任何悬停提示，看起来像一段静态文字，得试着点一下才知道能点。
+     负外边距 + 等量内边距：hover 的**底色**往两边各多铺 6px（贴近栏的边、看着像行），
+     而**内容**仍然停在 14px 那条竖线上。上一版直接加 padding，结果是内容被推到 18px、
+     和同一节里的 select / 清除按钮错开 4px。 */
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border-radius: var(--radius);
   font-size: 12px;
   color: var(--fg);
   cursor: pointer;
+  transition: background 120ms;
 }
+.palette-filter-row:hover {
+  background: var(--bg-hover);
+}
+/* 原生 radio/checkbox 交给系统画，但让它用主题色 —— 和设置页同一条做法
+   （见 .settings-toggle-row input[type="checkbox"]）。--fg 是文字色，
+   accent-color 只影响勾选态的填充。 */
+.palette-filter-row input[type="checkbox"],
+.palette-filter-row input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* 状态字形的定宽槽，让六行文案的左缘对齐；顺手给每个状态上它自己的颜色，
+   和列表里的圆点是同一套语义。 */
+.palette-filter-glyph {
+  width: 13px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--fg-subtle);
+}
+.palette-filter-glyph.waiting_approval,
+.palette-filter-glyph.waiting_user { color: var(--warning); }
+.palette-filter-glyph.busy { color: var(--info); }
+.palette-filter-glyph.archived { color: var(--accent-alt); }
 
 .palette-filter-clear {
   margin: 12px 14px;
@@ -1132,12 +924,14 @@ body,
   background: var(--bg-soft);
   border: 1px solid var(--border);
   color: var(--fg);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 12px;
+  transition: background 120ms, border-color 120ms;
 }
 .palette-filter-clear:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 /* === 终端内搜索栏（定位到 active container 右上角） === */
@@ -1150,8 +944,8 @@ body,
   padding: 6px 8px;
   background: var(--bg-soft);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px var(--shadow);
   color: var(--fg-muted);
 }
 .terminal-search-input {
@@ -1163,18 +957,30 @@ body,
   width: 220px;
   padding: 2px 4px;
 }
+/* 「3/17」计数。tabular-nums + min-width 是为了打字时 ↑↓ 按钮不左右跳：
+   等宽数字让「3/17」→「4/17」宽度不变，min-width 兜住「1/1」→「12/345」这种
+   位数变化。右对齐是因为总数在右边、变化更少，左对齐会让分隔线一直在动。 */
+.terminal-search-count {
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 5ch;
+  text-align: right;
+  padding-left: 2px;
+  white-space: nowrap;
+}
 .terminal-search-btn {
   background: none;
   border: none;
   color: var(--fg-muted);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   line-height: 1;
 }
 .terminal-search-btn:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
 }
 
@@ -1191,7 +997,7 @@ body,
   border: none;
   color: var(--fg-muted);
   padding: 6px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -1200,7 +1006,7 @@ body,
   transition: all 120ms;
 }
 .footer-btn:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
   opacity: 1;
 }
@@ -1209,7 +1015,7 @@ body,
 .settings-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--scrim);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -1222,9 +1028,9 @@ body,
   max-width: 700px;
   max-height: 80vh;
   background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px var(--shadow-strong);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1253,21 +1059,74 @@ body,
 .settings-body {
   overflow-y: auto;
   padding: 8px 0;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
 }
-.settings-body:hover {
-  scrollbar-color: rgba(255,255,255,0.18) transparent;
+
+/* 「滚动时显形、停手淡出」的滚动条。
+ *
+ * 上一版的修法是"删掉全部自定义、交回系统 overlay 条"，那个判断在本机结构性失效：
+ * `AppleShowScrollBars` 全局未设时是 **Automatic**，而 Automatic 的语义不是"自动隐藏"，
+ * 是"**接了滚轮鼠标就用经典常驻条**、只有触控板才用 overlay 条"。本机连着 MX Master 2S，
+ * 于是拿到的是一根又粗（15px）又长（贯穿整条轨道）的常驻条。这根条既不归 CSS 管、
+ * 也不是应用能关掉的开关 —— 所以只能自己画。
+ *
+ * 时序交给 JS：`.is-scrolling` 由 scrollActivity.ts 的**一个** document 捕获监听挂上、
+ * 停手 900ms 摘掉（scroll 不冒泡但会经过捕获阶段）。上一版失败的真因是 hover 驱动 ≠
+ * activity 驱动（在面板里操作时鼠标一直在面板内，条子从不淡出），而"停手一秒后淡出"
+ * 这个时序 CSS 表达不了。
+ *
+ * 从"逐个列出滚动容器"改成**全局兜底 + 例外单列**（#167）：上一版那份枚举号称"一次
+ * 列全所有还活着的滚动容器"，实际漏了 `.project-list`（280px 项目列表）和 `.tab-bar`
+ * （workspace tab 条的横向滚动）—— 两个都在用，于是它们各自带着一根系统 15px 经典条，
+ * 而侧栏 / 设置 / 通知里是 5px 细条：同一个窗口里两种滚动条。allowlist 的问题不是
+ * 这次写漏了，是它要求"每加一个能滚的面板都记得回来补五行"，漏掉的代价恰好是用户
+ * 一眼看得见的不一致。反过来写：**一致是默认，例外才需要理由**。真例外只有终端
+ * （见文件末尾 `.xterm-viewport`：可见滚动条会吃掉一列字宽），加上 `.palette-chips`
+ * 那排横向筹码（它本来就靠溢出裁切，不该出现滚动条）—— 两处都在自己那儿 display:none。
+ *
+ * 粗细和长度两个轴同一套：
+ * - 命中区 9px 是**命中区**（够宽才好按住拖，也就不必自己实现拖拽），thumb 用透明
+ *   border + `background-clip: padding-box` 收成看着 5px 的细条：短边留 2px，长边**两端
+ *   各留 3px**，于是 thumb 不会顶到面板的上下（横向时是左右）边缘。
+ * - `min-height` / `min-width` 34px（看得见的 28px）：thumb 长度是按内容比例算的，会话
+ *   一多比例就把它压成几个像素的点 —— 那时它既读不出"这是一根条"、也按不住。给个下限
+ *   不损失"内容有多少"这个信息（比例照旧），只是不让它退化成一个点。
+ * - `::-webkit-scrollbar-button` 显式关掉：经典条会在两端各画一个箭头钮，那是白吃掉的
+ *   轨道长度，也是两种滚动条长得不一样的原因之一。
+ *
+ * 颜色不新增主题变量：从 --fg 混出来，深浅主题自动跟随（上一版删掉的
+ * --scrollbar-thumb 就不必复活）。 */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
 }
-.settings-body::-webkit-scrollbar { width: 4px; }
-.settings-body::-webkit-scrollbar-track { background: transparent; }
-.settings-body::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
-  border-radius: 2px;
-  transition: background 0.2s;
 }
-.settings-body:hover::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); }
-.settings-body::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); }
+::-webkit-scrollbar-button {
+  display: none;
+}
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:vertical {
+  border-width: 3px 2px;
+  min-height: 34px;
+}
+::-webkit-scrollbar-thumb:horizontal {
+  border-width: 2px 3px;
+  min-width: 34px;
+}
+.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--fg) 30%, transparent);
+}
+/* 已经显形之后，指针放上去再深一档 —— 这是"我要抓它"的反馈，不是显形条件 */
+.is-scrolling::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fg) 50%, transparent);
+}
 
 .settings-section {
   padding: 12px 16px;
@@ -1307,13 +1166,25 @@ body,
   background: var(--bg-hover);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
-  width: 100%;
-  text-align: left;
+  /* 与 .settings-file-btn 同规格：模态里所有按钮都是自适应宽度，不要一个全宽一个包内容 */
 }
 .settings-action-btn:hover {
   background: var(--bg-active);
+}
+
+/* 嵌在 .settings-hint 句子里的按钮（「…或 请求授权」）。不能用 .settings-action-btn：
+   那个有 margin-top 且是块级排布的规格，塞进一行文字里会把行高顶开。
+   这里做成链接样感的行内元素，跟着 hint 的字号走。 */
+.settings-inline-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent-text);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .settings-select {
@@ -1321,7 +1192,7 @@ body,
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   padding: 6px 8px;
   font-size: 12px;
   outline: none;
@@ -1334,7 +1205,7 @@ body,
   padding: 6px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
 }
 .theme-swatch {
   width: 22px;
@@ -1342,6 +1213,43 @@ body,
   border-radius: 2px;
   flex: 1;
   min-width: 0;
+  /* 浅色主题里有的色块接近白色，加内描边才看得出边界 */
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+/* 隐藏原生 file input，只留一个和其他按钮一致的外观 */
+.settings-file-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--bg-hover);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.settings-file-btn:hover {
+  background: var(--bg-active);
+}
+.settings-file-btn input {
+  display: none;
+}
+.settings-text-btn {
+  padding: 5px 6px;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+.settings-text-btn:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .settings-row {
@@ -1366,9 +1274,10 @@ body,
   font-family: ui-monospace, monospace;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
-  margin-right: 6px;
+  /* 键帽间距交给 .keys 的 gap。留 margin-right 的话，一行里最后一个键帽也会带 6px 右边距，
+     右对齐的左列就对不齐了 */
   color: var(--fg);
   font-size: 10px;
 }
@@ -1379,12 +1288,12 @@ body,
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--fg);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   font-size: 12px;
 }
 .settings-action:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   border-color: var(--accent);
 }
 
@@ -1394,7 +1303,7 @@ body,
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   outline: none;
   transition: background 120ms, color 120ms, border-color 120ms;
@@ -1415,19 +1324,19 @@ body,
 }
 
 .btn.primary {
-  background: rgba(0, 122, 204, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent-text);
-  border-color: rgba(0, 122, 204, 0.3);
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .btn.primary:hover {
-  background: rgba(0, 122, 204, 0.25);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
   border-color: var(--accent);
 }
 
 .btn.copied {
   background: var(--success);
-  color: #fff;
+  color: var(--accent-fg);
   border-color: var(--success);
 }
 
@@ -1456,7 +1365,7 @@ body,
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius);
   font-size: 12px;
   cursor: pointer;
 }
@@ -1506,9 +1415,9 @@ body,
   width: 24px;
   height: 22px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: transparent;
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.5;
   cursor: pointer;
   display: flex;
@@ -1516,16 +1425,24 @@ body,
   justify-content: center;
   transition: opacity 0.15s, background 0.15s;
 }
-.titlebar-icon-btn:hover { opacity: 1; background: var(--hover-bg, rgba(128,128,128,0.12)); }
+.titlebar-icon-btn:hover { opacity: 1; background: var(--bg-hover); }
 .titlebar-icon-btn.notif-bell { opacity: 0.5; }
-.titlebar-icon-btn.notif-bell.has-unread { opacity: 1; color: var(--accent); }
+/* 有未读时只把铃铛从 0.5 提到 1，不改颜色。染成 accent 会有两个后果：
+   ① 整条 1440px 标题栏里唯一的饱和色变成一个通知铃铛，层级反了（和 session 列表里
+      分支名染 accent 是同一类问题）；② 徽章点也是 accent，和铃铛同色，就糊成铃铛上的
+   一个凸起而不是一个独立标记。"有未读"这一个 bit 交给点自己说，不必三重编码。 */
+.titlebar-icon-btn.notif-bell.has-unread { opacity: 1; }
 .app-titlebar-sidebar {
   flex-shrink: 0;
   height: 100%;
   background: var(--bg-soft);
+  /* 与 .session-tree 的 border-right 同色同位，让侧栏竖线从 y=0 贯穿整个窗口 */
+  border-right: 1px solid var(--border-strong);
+  box-sizing: border-box;
 }
 .app-titlebar-sidebar.collapsed {
   background: var(--bg);
+  border-right: none;
 }
 .app-titlebar-resizer {
   width: 2px;
@@ -1544,19 +1461,17 @@ body,
   justify-content: center;
   min-width: 0;
   background: var(--bg);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   box-sizing: border-box;
-}
-/* 系统全屏：抹掉顶部装饰线，让 tab 区一气贯到屏幕顶端 */
-body.app-fullscreen .app-titlebar-workspace {
-  border-bottom: none;
+  /* 不画 border-bottom：它只横跨 workspace 段（左边的 sidebar 镜像段没有），
+     会在 x=侧栏宽度 处断成一根悬空横线。标题栏(--bg) 与下方 tab bar(--bg-soft)
+     本身就有色阶，分界靠面即可 */
 }
 body.app-fullscreen .tab {
   border-top-color: transparent;
 }
 .app-titlebar-title {
   font-size: 12px;
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.7;
   letter-spacing: 0.3px;
   overflow: hidden;
@@ -1572,27 +1487,25 @@ body.app-fullscreen .tab {
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes notif-dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--waiting-color, #f59e0b) 50%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 50%, transparent); }
   50%       { box-shadow: 0 0 0 4px transparent; }
 }
 
 /* 铃铛 badge（用于 titlebar-icon-btn.notif-bell） */
+/* 未读标记：5px 圆点，压在铃铛右上角外沿。描一圈 bg-soft 把点和铃铛的轮廓切开。
+   取 --warning 而不是 --accent：铃铛本身是中性灰，琥珀色和它的色相差最远，一眼看得出
+   是两个东西；而且"有事等你处理"在侧栏里已经统一用琥珀（.tree-attention-dot /
+   .tree-project-active-dot / .tree-pin），语义对得上。 */
 .notif-bell-badge {
   position: absolute;
-  top: 2px;
-  right: 1px;
-  min-width: 10px;
-  height: 10px;
-  padding: 0 2px;
-  border-radius: 5px;
-  background: var(--accent);
-  color: var(--accent-fg, #fff);
-  font-size: 7px;
-  font-weight: 700;
-  line-height: 10px;
-  text-align: center;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 1.5px var(--bg-soft);
   pointer-events: none;
-  box-sizing: border-box;
 }
 
 /* ── 浮动卡片（对标产品 风格：锚定铃铛位置，相对尺寸）── */
@@ -1604,8 +1517,8 @@ body.app-fullscreen .tab {
   width: min(62vw, 680px);
   background: var(--bg-soft);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: 10px;
-  box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 48px var(--shadow-strong), 0 2px 8px var(--shadow);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -1629,7 +1542,7 @@ body.app-fullscreen .tab {
 }
 .notif-drawer-shortcut {
   font-size: 11px;
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.35;
   margin-left: 8px;
   flex: 1;
@@ -1643,12 +1556,12 @@ body.app-fullscreen .tab {
   border: none;
   background: transparent;
   font-size: 12px;
-  color: var(--accent, #6b8fff);
+  color: var(--accent);
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: var(--radius);
 }
-.notif-drawer-btn:hover { background: var(--hover-bg, rgba(128,128,128,0.12)); }
-.notif-drawer-btn-dim { color: var(--fg-dim, var(--fg)); opacity: 0.5; }
+.notif-drawer-btn:hover { background: var(--bg-hover); }
+.notif-drawer-btn-dim { color: var(--fg-muted); opacity: 0.5; }
 .notif-drawer-btn-dim:hover { opacity: 1; }
 
 .notif-drawer-list {
@@ -1667,7 +1580,7 @@ body.app-fullscreen .tab {
   padding-bottom: 60px;
 }
 .notif-drawer-empty-icon {
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.18;
 }
 .notif-drawer-empty-title {
@@ -1678,7 +1591,7 @@ body.app-fullscreen .tab {
 }
 .notif-drawer-empty-hint {
   font-size: 12px;
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.28;
 }
 
@@ -1693,8 +1606,28 @@ body.app-fullscreen .tab {
   transition: background 0.1s;
 }
 .notif-row:last-child { border-bottom: none; }
-.notif-row:hover,
-.notif-row-active { background: var(--hover-bg, rgba(128,128,128,0.07)); }
+.notif-row:hover { background: var(--bg-hover); }
+/* 键盘选中态。造型沿用侧栏的 .tree-session.focused（accent 底 + 左侧 2px accent 条），
+   全局「键盘焦点落在这一项」是同一套语言；用 inset box-shadow 而不是 border-left，
+   免去为了不让内容横移而补 padding 的那一步。
+   （上一版把它和 hover 都从 --bg-soft 挪开了，但没解决下面这两条，实测仍然像键盘失灵。）
+
+   选中必须比 hover 更重：选中是"状态"，hover 只是"指针现在在哪"。两条都要满足：
+   ① 特异度 —— `.notif-row:hover` 是 (0,2,0)，光写 `.notif-row-active` 只有 (0,1,0)，
+      鼠标停在列表上（点完铃铛必然如此）时 hover 会把选中行的底色整块盖掉，
+      选中只剩那根 2px 竖条。所以这里写成 `.notif-row.notif-row-active` 凑到 (0,2,0)
+      并放在 hover 之后。
+   ② 权重 —— 原来选中是 accent 15% alpha，混到抽屉底色上实测约 #364b4b，
+      而 hover 是不透明 #393939，两行一样重，根本分不出哪行是键盘选中的。
+      改成不透明地混 --bg-soft（抽屉自身底色），蓝得明确；选中行自己被 hover 时
+      再深一档，但不退回中性灰，否则一 hover 就又跟没选中一样。 */
+.notif-row.notif-row-active {
+  background: color-mix(in srgb, var(--accent) 26%, var(--bg-soft));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.notif-row.notif-row-active:hover {
+  background: color-mix(in srgb, var(--accent) 34%, var(--bg-soft));
+}
 
 .notif-row-dot-wrap {
   flex-shrink: 0;
@@ -1708,7 +1641,7 @@ body.app-fullscreen .tab {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--waiting-color, #f59e0b);
+  background: var(--warning);
   animation: notif-dot-pulse 2.4s ease-in-out 3;
 }
 
@@ -1734,7 +1667,7 @@ body.app-fullscreen .tab {
 .notif-row-time {
   flex-shrink: 0;
   font-size: 11px;
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.4;
 }
 .notif-row-sub {
@@ -1745,7 +1678,7 @@ body.app-fullscreen .tab {
   font-size: 11px;
 }
 .notif-row-project {
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0.45;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1753,7 +1686,7 @@ body.app-fullscreen .tab {
 }
 .notif-row-status {
   flex-shrink: 0;
-  color: var(--waiting-color, #f59e0b);
+  color: var(--warning);
   opacity: 0.8;
 }
 .notif-row-read .notif-row-project,
@@ -1768,15 +1701,17 @@ body.app-fullscreen .tab {
   background: transparent;
   font-size: 15px;
   line-height: 20px;
-  color: var(--fg-dim, var(--fg));
+  color: var(--fg-muted);
   opacity: 0;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius);
   margin-top: 1px;
   transition: opacity 0.1s, background 0.1s;
 }
-.notif-row:hover .notif-row-clear { opacity: 0.3; }
-.notif-row-clear:hover { opacity: 1 !important; background: var(--hover-bg, rgba(128,128,128,0.15)); }
+/* 键盘选中的那行也要露出「移除」，否则纯键盘操作时这个按钮永远不可达 */
+.notif-row:hover .notif-row-clear,
+.notif-row-active .notif-row-clear { opacity: 0.3; }
+.notif-row-clear:hover { opacity: 1 !important; background: var(--bg-hover); }
 
 /* 可拖拽分隔条：宽 4px，hover/active 显示 accent 色 */
 .resizer {
@@ -1789,16 +1724,16 @@ body.app-fullscreen .tab {
   -webkit-user-select: none;
 }
 .resizer:hover {
-  background: var(--accent, #007acc);
+  background: var(--accent);
 }
 .resizer:active,
 body.resizing .resizer {
-  background: var(--accent, #007acc);
+  background: var(--accent);
 }
 
 .sidebar {
   width: 280px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-strong);
   overflow-y: auto;
   background: var(--bg-soft);
 }
@@ -1909,7 +1844,7 @@ body.resizing .resizer {
   background: var(--fg-muted);
   color: var(--bg);
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
 }
 
@@ -1994,7 +1929,7 @@ body.resizing .resizer {
 .session-name {
   font-weight: 600;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
 }
 
@@ -2003,7 +1938,8 @@ body.resizing .resizer {
   background: var(--accent);
 }
 
-.session-name.slug {
+/* 非 rename 的名字（claude 写的标题 / codex 的首条消息）：弱化，和用户自己改的名区分 */
+.session-name.auto {
   color: var(--fg-muted);
   background: var(--bg-soft);
   font-style: italic;
@@ -2012,24 +1948,24 @@ body.resizing .resizer {
 
 .running {
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 500;
 }
 
 .running.status-busy {
-  color: var(--warning, #d29922);
-  background: rgba(210, 153, 34, 0.15);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
 }
 
 .running.status-waiting {
-  color: var(--danger, #f48771);
-  background: rgba(244, 135, 113, 0.15);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
 }
 
 .running.status-idle {
-  color: var(--success, #2ea043);
-  background: rgba(46, 160, 67, 0.15);
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
 }
 
 .time {
@@ -2054,7 +1990,7 @@ body.resizing .resizer {
   background: var(--accent);
   color: var(--accent-fg);
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
 }
 
@@ -2099,7 +2035,7 @@ body.resizing .resizer {
   min-width: auto;
 }
 .pin-btn.pinned {
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 
 .empty {
@@ -2116,16 +2052,16 @@ body.resizing .resizer {
   background: var(--fg);
   color: var(--bg);
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 12px var(--shadow);
   z-index: 1000;
 }
 
 .detail-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--shadow-strong);
   display: flex;
   justify-content: flex-end;
   z-index: 2000;
@@ -2138,7 +2074,7 @@ body.resizing .resizer {
   background: var(--bg);
   display: flex;
   flex-direction: column;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.3);
+  box-shadow: -8px 0 24px var(--shadow);
 }
 
 .detail-header {
@@ -2193,7 +2129,7 @@ body.resizing .resizer {
 .msg-block {
   margin-bottom: 14px;
   padding: 10px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-soft);
   border-left: 3px solid var(--border);
 }
@@ -2203,7 +2139,7 @@ body.resizing .resizer {
 }
 
 .msg-block.assistant {
-  border-left-color: #8a8a8a;
+  border-left-color: var(--border);
 }
 
 .msg-meta {
@@ -2236,7 +2172,7 @@ body.resizing .resizer {
   width: 280px;
   flex-shrink: 0;
   background: var(--bg-soft);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-strong);
   overflow-y: auto;
   padding: 8px 8px;
   display: flex;
@@ -2248,7 +2184,7 @@ body.resizing .resizer {
   text-align: left;
   padding: 10px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--fg);
   cursor: pointer;
@@ -2334,7 +2270,7 @@ body.resizing .resizer {
   width: 360px;
   flex-shrink: 0;
   background: var(--bg-soft);
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-strong);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2385,7 +2321,7 @@ body.resizing .resizer {
   width: 22px;
   height: 22px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
@@ -2448,14 +2384,14 @@ body.resizing .resizer {
   align-items: center;
   gap: 6px;
   padding: 5px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--fg);
   color: var(--bg);
   font-size: 11px;
   font-weight: 500;
   animation: refresh-fade-in 0.15s ease;
   pointer-events: none;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  box-shadow: 0 2px 8px var(--shadow);
 }
 .refresh-indicator::before {
   content: "";
@@ -2578,7 +2514,7 @@ body.resizing .resizer {
   font-size: 14px;
   line-height: 1;
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .tab-close:hover {
@@ -2586,35 +2522,52 @@ body.resizing .resizer {
   color: var(--fg);
 }
 
-/* tab 右键菜单 */
+/* 全 app 唯一的右键菜单样式（组件在 ContextMenu.tsx）。
+   原来这里和 SessionTree.css 各有一套，边框、阴影、min-width、按钮 padding、
+   z-index 全不一样 —— 同一个 app 里右键菜单有两种长相。合成一套时逐项取了
+   更适合浮层的那个值：--border-strong 的边（浮层要和底下的面板分得开）、
+   更大的投影（浮层更"高"）、外圈 4px padding 配按钮圆角（hover 时圆角内嵌）。
+   max-height + overflow 从侧栏那套保留：菜单项现在多了，矮窗口下要能滚。 */
 .context-menu-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 999;
+  z-index: 9998;
 }
 .context-menu {
   position: fixed;
   background: var(--bg-soft);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 0;
-  min-width: 140px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 1000;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  min-width: 150px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  box-shadow: 0 8px 24px var(--shadow-strong);
+  z-index: 9999;
 }
 .context-menu button {
   display: block;
   width: 100%;
-  padding: 6px 14px;
+  padding: 6px 12px;
   background: none;
   border: none;
+  border-radius: var(--radius);
   color: var(--fg);
   font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
-.context-menu button:hover {
+.context-menu button:hover:not(:disabled) {
   background: var(--bg-hover);
+}
+.context-menu button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
 }
 
 
@@ -2640,14 +2593,14 @@ body.resizing .resizer {
   line-height: 1;
 }
 .tab-dot.waiting {
-  color: var(--danger, #f48771);
+  color: var(--danger);
   animation: tab-dot-pulse 1.2s ease-in-out infinite;
 }
 .tab-dot.busy {
-  color: var(--warning, #d29922);
+  color: var(--warning);
 }
 .tab-dot.idle {
-  color: var(--fg-muted, #858585);
+  color: var(--fg-muted);
 }
 @keyframes tab-dot-pulse {
   0%, 100% { opacity: 1; }
@@ -2697,7 +2650,7 @@ body.resizing .resizer {
   margin-top: 8px;
   padding: 10px 12px;
   background: var(--bg-soft);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border-left: 3px solid var(--accent);
   line-height: 1.6;
 }
@@ -2796,7 +2749,7 @@ body.resizing .resizer {
 
 .tab-kind-clickable {
   cursor: pointer;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 0 2px;
   width: auto;
   min-width: 14px;
@@ -2837,80 +2790,68 @@ body.resizing .resizer {
 
 /* active pane 仅靠 tab bar top border 指示，不加左侧蓝线（会穿透 titlebar overlay） */
 
-.pane-divider {
-  z-index: 10;
-  box-sizing: border-box;
-  position: relative;
-  background: transparent; /* 透明击区 */
-  touch-action: none; /* 防止触摸滚动干扰拖动 */
-}
-
-/* 可见的分割线（透明击区的中心线） */
-.pane-divider::after {
-  content: "";
-  position: absolute;
-  background: var(--border);
-  pointer-events: none; /* 不拦截事件，让父元素处理 */
-}
-
-.pane-divider.is-vertical::after {
-  left: 50%;
-  transform: translateX(-50%);
-  top: 0;
-  bottom: 0;
-  width: 1px;
-}
-
-.pane-divider.is-horizontal::after {
-  top: 50%;
-  transform: translateY(-50%);
-  left: 0;
-  right: 0;
-  height: 1px;
-}
-
-/* 拖动时加粗高亮 */
-.pane-divider.is-dragging::after {
-  background: var(--accent);
-  width: 2px;
-}
-
-.pane-divider.is-horizontal.is-dragging::after {
-  background: var(--accent);
-  height: 2px;
-}
-
-/* hover 高亮 */
-.pane-divider:hover::after {
-  background: var(--accent);
-}
-
-/* 旧的样式保留作为备用（可删除） */
 .pane-resizer {
   z-index: 10;
   box-sizing: border-box;
   position: absolute;
 }
+/* resizer 父盒已是真实 10px 抓取区（见 SplitResizer 内联 style），
+   ::after 命中区与父盒对齐即可，不再向外溢出（避免与相邻 resizer 重叠）。 */
 .pane-resizer::after {
   content: "";
   position: absolute;
-  inset: -5px;
+  inset: 0;
   cursor: inherit;
-  z-index: 10; /* 确保扩展点击区域也在最上层 */
+  z-index: 10;
 }
-.pane-resizer-v::after {
-  inset: 0 -5px;
-}
-.pane-resizer-h::after {
-  inset: -5px 0;
+/* 可见分隔线由 resizer 自己画（::before，1px 居中）。
+   resizer 只在真实边界上存在（见 WorkspaceView 的 layout.splits），
+   所以每条边界恰好一根线，窗口最外侧也不会多出线 —— 这是把"谁负责画线"
+   收敛到唯一位置的关键：container 自己不画 border。 */
+.pane-resizer::before {
+  content: "";
+  position: absolute;
+  background: var(--border);
+  pointer-events: none;
+  z-index: 9;
 }
 .pane-resizer-v {
   cursor: ew-resize;
-  background: var(--border);
+}
+/* 线画在边界"前一个" pane 那一侧（-100% 而不是 -50%），不跨界。
+   居中会跨界：RESIZER_PX = 0 时两个 pane 严格相邻，边界是一条无厚度的线，
+   1px 的线居中就落在 [边界-0.5, 边界+0.5]，DPR 2 下正好吃掉后一个 pane 第一行像素的一半。
+   而后一个 pane 的首行恰好是 active tab 的 2px accent 顶线 —— 于是同一个状态标记
+   在"上方有邻居"和"没有邻居"的 pane 上粗细不同（用户可见：下方 pane 的蓝条显得矮一截）。
+   前一个 pane 的末行是终端正文最后一行，本身有内边距、又在滚动，占掉 1px 无感。 */
+.pane-resizer-v::before {
+  left: 50%;
+  transform: translateX(-100%);
+  top: 0;
+  bottom: 0;
+  width: 1px;
 }
 .pane-resizer-h {
   cursor: ns-resize;
-  background: var(--border);
+}
+.pane-resizer-h::before {
+  top: 50%;
+  transform: translateY(-100%);
+  left: 0;
+  right: 0;
+  height: 1px;
+  /* 横向边界不画常态分隔线。下方 pane 的首行是 32px 的 tab bar（--bg-soft），
+     和上方 pane 终端正文的 --bg 已有约 1.2:1 色阶 —— 边界本身就看得见。
+     再补一根线就是同一条边界的第三种编码（色阶 + 线 + active tab 的 2px 状态条），
+     且它紧贴状态条上沿，把下方 pane 的蓝条压得像矮了一截。
+     这和上面 .container-tab-bar 去掉 border-bottom 是同一条理由：分界靠面就够。
+     竖向边界必须留线：同一 x 两侧是同色的（tab bar 对 tab bar、终端对终端），没有色阶可借。
+     hover / 拖动时的 accent 线两个方向都保留 —— 那是操作反馈，不是常态结构线。 */
+  background: transparent;
+}
+.pane-resizer:hover::before,
+.pane-resizer.is-dragging::before {
+  background: var(--accent);
 }
 
 /* iTerm2 风格 per-pane 标题条：split 后每个 pane 自带，标识当前 pane 内容
@@ -2924,17 +2865,19 @@ body.resizing .resizer {
   height: 22px;
   font-size: 11px;
   line-height: 1;
-  background: var(--bg-2, rgba(255, 255, 255, 0.04));
-  color: var(--fg-muted, rgba(255, 255, 255, 0.55));
-  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  background: var(--bg-soft);
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
   user-select: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* active pane 的标题条：整条染蓝太抢眼，改为浅一档背景 + 左侧一段 accent 竖条 */
 .pane-title.active {
-  background: var(--accent-bg, rgba(64, 156, 255, 0.12));
-  color: var(--fg, rgba(255, 255, 255, 0.9));
+  background: var(--bg-hover);
+  color: var(--fg);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .pane-title-icon {
   flex: 0 0 auto;
@@ -2942,9 +2885,9 @@ body.resizing .resizer {
   text-align: center;
   font-weight: 600;
 }
-.pane-title.kind-resume .pane-title-icon { color: #6ec1e4; }
-.pane-title.kind-new    .pane-title-icon { color: #b8e986; }
-.pane-title.kind-shell  .pane-title-icon { color: #d6a35c; }
+.pane-title.kind-resume .pane-title-icon { color: var(--info); }
+.pane-title.kind-new    .pane-title-icon { color: var(--success); }
+.pane-title.kind-shell  .pane-title-icon { color: var(--warning); }
 .pane-title-label {
   flex: 1 1 auto;
   overflow: hidden;
@@ -2975,8 +2918,8 @@ body.resizing .resizer {
   display: inline-block;
   padding: 4px 10px;
   background: var(--accent);
-  color: var(--accent-fg, #fff);
-  border-radius: 4px;
+  color: var(--accent-fg);
+  border-radius: var(--radius);
   font-size: 12px;
   font-weight: 500;
   font-family: -apple-system, system-ui, sans-serif;
@@ -2984,7 +2927,7 @@ body.resizing .resizer {
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px var(--shadow);
   pointer-events: none;
 }
 
@@ -3009,24 +2952,40 @@ body.resizing .resizer {
   flex-direction: column;
   width: 100%;
   height: 100%;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  /* 不画自己的边框：pane 之间的分隔线由 .pane-resizer 负责（见下），
+     否则最右/最下的 pane 会在没有邻居的一侧白画一根，且与邻居的线叠成双线 */
+  /* 给 .pane-flash 落点牌当定位父级 */
+  position: relative;
 }
 
 /* panel active 高亮已移除 */
 
 
 .container-tab-bar {
+  /* pane-resizer 是 z-index:10 的绝对定位兄弟，不挡它就会压住 tab bar（resize 光标
+     出现在 tab bar 里，点击触发拖动而非切 tab）。高一层让 tab bar 始终可交互。*/
+  position: relative;
+  z-index: 11;
   display: flex;
   align-items: stretch;
-  gap: 0;
-  background: var(--sidebar-bg);
-  border-bottom: 1px solid var(--border);
-  flex: 0 0 32px;
-  min-height: 32px;
-  padding: 0 2px;
+  /* 这条 gap 只作用在 .container-tabs 和 .container-actions 之间（bar 只有这两个子元素）。
+     缺了它，tab 条的右边界正好压在第一个按钮上：tab 多起来时最后一个 tab 被裁在那条
+     边界上，读起来就是"标题钻到按钮底下去了"。6px 让"被裁开了、可以横向滚"和
+     "按钮从这里开始"是两件看得出来的事。 */
+  gap: 6px;
+  background: var(--bg-soft);
+  /* 不画 border-bottom：active tab 的背景是 --bg（与下方终端同色），横线会把它从内容上切断、
+     变成一块悬空矩形。bar 的 --bg-soft 与终端 --bg 已有约 1.2:1 色阶，分界靠面就够 */
+  /* 28px 而不是原来的 32px：多 pane 横排时每个都占一条 tab 条，加起来是纯 chrome、
+     不属于任何一个终端的可用高度。压掉这 4px 换回终端可用行高，图标/字号跟着按比例降。 */
+  flex: 0 0 28px;
+  min-height: 28px;
+  /* 左边不留内边距：首个 tab 必须紧贴侧栏那条结构线。留 4px 的话，线右边会多出一小块
+     32px 高的 --bg-soft 竖条 —— 而 active tab 的 --bg 本来要和下方终端连成一片，
+     这块竖条正好楔在拐角上，把连续的面切出个孤立小矩形。
+     右边留 4px 是给 .container-actions 的最后一个图标不贴窗口边。 */
+  padding: 0 4px 0 0;
   overflow: hidden;
-  transition: box-shadow 0.3s ease;
 }
 
 .container-tabs {
@@ -3035,7 +2994,7 @@ body.resizing .resizer {
   flex: 1;
   overflow-x: auto;
   overflow-y: hidden;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
   scrollbar-width: none;
 }
@@ -3047,32 +3006,155 @@ body.resizing .resizer {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  font-size: 12px;
-  border-radius: 4px 4px 0 0;
-  border-left: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  gap: 4px;
+  padding: 0 9px;
+  font-size: 11px;
+  /* 不要圆角：active tab 的背景比 bar 深，圆角会让它看成"往下凹的坑"，
+     顶部 2px accent 又被圆角裁成一道弧形眉毛。VS Code / Zed 的 tab 都是纯平的直角块。 */
   cursor: pointer;
   white-space: nowrap;
   color: var(--fg-muted);
   user-select: none;
-  flex-shrink: 0;
+  /* 可压缩（原来是 flex-shrink: 0）。窄 pane 下标题被**硬切在半个字上**而不是 ellipsis，
+     根因只有这一条：label 自己是能压的（它有 overflow: hidden），但它的容器 tab 不让压，
+     于是 label 从来没有被挤到需要 ellipsis 的宽度，整个 tab 被 .container-tabs 的
+     overflow 直接裁掉。压缩下限不写魔法数字 —— flex 项的自动最小尺寸就是 min-content，
+     即"图标 + label 的 min-width + 状态点 + × + 左右 padding"，压到那儿就停，
+     再窄才交给横向滚动（active tab 会自己滚回视野，见 ContainerView 的 scrollIntoView）。 */
+  flex-shrink: 1;
   transition: opacity 120ms;
 }
 
-.container-tab.tab-flash {
-  animation: tab-flash-anim 0.6s ease;
+/* tab-flash（切 tab 时整块刷 0.6s 饱和 accent）已删除，原因有三层：
+   ① 它在 activeTabId 每次变化时触发，包含首次挂载 —— 启动时每个 pane 的 active tab
+      同时刷一遍，满屏饱和蓝块，这是它最显眼的表现而不是边缘 case；
+   ② 那一帧是 `background: var(--accent)` + `color: var(--accent-fg)`，12px 标签压在
+      饱和色上读不出来；且 animation 优先级高于普通声明，会顶掉 .container-tab.active
+      的 `background: var(--bg)`，而那个 --bg 本来要和下方终端连成一片；
+   ③ 更根本的是它没有信息量。点 tab 是自己点的、⌘[ ⌘] 切 tab 时 active 样式自己在动，
+      都不需要额外提示；唯一需要"看这里"的是通知跳转那种远程跳，而那个已经由
+      flashContainer() 在 pane 边界上给了环。一个 bit 不需要第二种编码。 */
+
+/* 设置面板里的图标集预览。每个图标下面压一个序号 —— 这排东西要传达的不是
+   "有哪些图案"，而是"第 N 个 pane 是哪个图标"，序号是其中一半的信息。 */
+.pane-icon-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pane-icon-preview-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 24px;
+}
+.pane-icon-preview-glyph {
+  font-size: 17px;
+  line-height: 1.1;
+}
+.pane-icon-preview-num {
+  font-size: 9px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-@keyframes tab-flash-anim {
-  0%, 100% { background: transparent; }
-  30% { background: var(--accent); color: var(--accent-fg); }
-  60% { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+/* ⌥⌘方向键切 pane / ⌥⌘数字 / 通知跳转的落点提示：在目标 pane 中央浮一下它的名字。
+ *
+ * 这个提示要回答的问题是「焦点现在在哪个 pane」，而 pane 的身份就是它的名字。
+ * 前两版都只在**边界**上做记号，答不了这个问题：
+ * ① 给 tab bar 灌 26% accent 底色 —— active tab 自带 --bg 背景，会在这片色里挖出一个洞，
+ *    高亮恰好绕开了要看的东西；且反馈落在 32px 的 chrome 条上，而眼睛在 pane 正文里；
+ * ② 在 pane 矩形上描一圈 accent 环 —— 位置对了，但一圈线和 pane 分隔线、active tab 的
+ *    2px accent 顶条挤在同一批像素上，同一个 accent 用第三遍，看着只是"框变了个色"，
+ *    还得自己回推是哪个框亮了。
+ * 名字牌是 ⌘Tab 切应用那套编码：一个明确的东西浮出来告诉你落在哪，看完就没。
+ * 顺带解决了 tab 上标题被截断时看不到全名（textContent 取的是完整标题）。
+ *
+ * 700ms 里 10% 淡入、到 65% 保持、之后淡出 —— 连按方向键时每次都从头播，
+ * 不会拖尾；pointer-events: none，不挡点击。
+ *
+ * 图标和名字排在**一行**、图标在前，不是竖排两层：两者是同一个问题的两个精度 ——
+ * 形状答"落在第几个 pane"（扫一眼），名字答"这个 pane 装的是什么"（要确认时才读）。
+ * 竖排（⌘Tab 那种图标在上名字在下）中间必然留空，读起来是两块东西；一行内
+ * icon → name 是一条从粗到细的阅读顺序，也就是一张牌。
+ *
+ * 这里用真 DOM 节点（App.tsx 的 flashContainer 建的）而不是伪元素：伪元素 content 只能
+ * 放文本，且两个伪元素排不成一行（谁都不知道另一个多宽）。真节点换来 flex 一行、
+ * 图标字号独立于文字、以及图标能自己做进场动画。 */
+.pane-flash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  /* 7px：比字间距明显大（是一件独立的东西），又小于药丸内边距（还在同一张牌里） */
+  gap: 7px;
+  max-width: 80%;
+  /* 左边窄一点：图标本身四周就带视觉留白，两侧等距时看着偏右 */
+  padding: 6px 13px 6px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px var(--shadow-strong);
+  animation: pane-flash-in 700ms ease-out forwards;
 }
 
-.container-view.container-flash .container-tab-bar {
-  box-shadow: inset 0 0 0 50px rgba(100, 180, 255, 0.25);
+/* overflow: hidden 已经让这个 flex 项的自动最小尺寸变成 0（flexbox §4.5），
+   min-width: 0 只是把这件事写明白，不是 ellipsis 生效的前提 */
+.pane-flash-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 图标比正文大一档（20px）：它是这张牌里先被看到的东西，和 12px 文字同字号就成了
+   一个装饰性的小图案。用 em 而不是 px 的话字号一改这里就跟着变，不需要。 */
+.pane-flash-icon {
+  flex-shrink: 0;
+  font-size: 20px;
+  line-height: 1;
+  animation: pane-flash-icon-in 700ms ease-out forwards;
+}
+
+/* 整张牌：10% 淡入到位、65% 前保持、之后淡出。translate 每帧都写是因为
+   transform 只能有一个来源，居中的 -50% 和缩放必须待在同一条链上。 */
+@keyframes pane-flash-in {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  10%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  65%  { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* 图标：从左侧甩进来、转一整圈落定，身后拖一条彗尾。
+   - 转整圈（-360°→0°）而不是转个角度回摆：终点必须是 0°，歪着停住会一直显得没落稳
+   - 彗尾用 text-shadow 的三个横向偏移副本做：偏移越远越淡越糊，就是运动残影。
+     不用额外元素、不占布局，且 emoji 是彩色字形，WebKit 下 text-shadow 照样投得出
+   - 尾巴在 22% 处就收干净：残影留在静止的图标身后会变成"糊了"，不是"快"
+   - flex 行里 transform 不影响布局，所以图标怎么甩名字都不动 */
+@keyframes pane-flash-icon-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-16px) rotate(-360deg) scale(0.5);
+    /* 负偏移 = 尾巴在左边，也就是它飞来的方向（图标是 -16px → 0 往右走的） */
+    text-shadow:
+      -7px 0 5px color-mix(in srgb, var(--accent-fg) 55%, transparent),
+      -14px 0 9px color-mix(in srgb, var(--accent-fg) 30%, transparent),
+      -21px 0 14px color-mix(in srgb, var(--accent-fg) 14%, transparent);
+  }
+  22% {
+    opacity: 1;
+    transform: translateX(0) rotate(0deg) scale(1);
+    text-shadow: none;
+  }
+  100% { opacity: 1; transform: translateX(0) rotate(0deg) scale(1); text-shadow: none; }
 }
 
 /* 拖拽源 tab 半透明 */
@@ -3095,32 +3177,68 @@ body.resizing .resizer {
 .container-tab.drop-before::before { left: -2px; }
 .container-tab.drop-after::after { right: -2px; }
 
+/* tab 之间的短竖线。两个极端都试过：相邻 tab 加满高 border-left —— 整条 bar 读成
+   表格单元；完全不画（分界只靠 active tab 的填充 + 12px 内边距）—— 两个**都不活跃**的
+   tab 之间一点边界都没有，两个长标题挨在一起时读不出哪个词属于哪个 tab。
+   取 Chrome / Safari 那套：只在"两侧都不是 active、也没被 hover"的缝里画一根 14px 的
+   短竖线。14px 不到条高（32px）的一半，读成"缝",不会读成框线；而 active / hover 的
+   填充面本身就是分界，那两条缝里的线必须抹掉，否则线贴在色块边上变成描边。
+   色用 --border-strong 而不是 --border：这根线只有 1px 宽 14px 长，落在 --bg-soft 上，
+   用面板内部那档安静的线色等于没画（这就是上一版"看不出分割"的由来）。
+   画法用 background-image 而不是 ::before —— ::before / ::after 都被拖拽插入指示线占了。 */
+.container-tab + .container-tab {
+  background-image: linear-gradient(var(--border-strong), var(--border-strong));
+  background-repeat: no-repeat;
+  background-size: 1px 14px;
+  background-position: left center;
+}
+/* active / hover 自己那两条规则用的是 background 简写，会顺手把自己左边的线清掉；
+   右邻的线得显式抹 */
+.container-tab.active + .container-tab,
+.container-tab:hover + .container-tab {
+  background-image: none;
+}
+
 .container-tab:hover {
   background: var(--bg-hover);
 }
 
+/* active 指示用 inset box-shadow 而不是 border-top：border 会撑高盒子，
+   切 tab 时文字上下跳 2px。背景取 --bg 与下方终端内容连成一片，形成"标签页贴着内容"的观感 */
 .container-tab.active {
   color: var(--fg);
   font-weight: 500;
-  border-top: 2px solid color-mix(in srgb, var(--border) 50%, white);
+  background: var(--bg);
+  box-shadow: inset 0 2px 0 var(--border-strong);
 }
-body.window-focused .container-tab.active {
-  border-top-color: var(--accent);
+/* accent 顶线只给"当前活跃 container"的 active tab：
+   多 pane 时如果每个 pane 的 active tab 都亮 accent，就分辨不出焦点在哪个 pane 了 */
+body.window-focused .container-view.container-active .container-tab.active {
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 .container-tab-icon {
-  font-size: 10px;
+  font-size: 9px;
   opacity: 0.7;
 }
 
+/* 标签宽度上限。120px 太紧：实测「tradegpt-demo · shell」需要 125px，正好被截成
+   「tradegpt-demo · s…」—— 砍掉的恰好是区分 shell / 分支的那一截，而 tab 条右边
+   往往还空着几百 px。180px 能容下「byai-gateway · feat-plugin-a2u」这一档最长的现实标题，
+   同时仍然给病态长标题兜底。 */
 .container-tab-label {
-  max-width: 120px;
+  max-width: 180px;
+  /* min-width 在这里不是"让 ellipsis 生效"（本行有 overflow: hidden，按 flexbox §4.5
+     自动最小尺寸已经是 0，本来就压得动），而是给它一个**下限**：能压到 0 的话 tab 窄
+     下去时标题会先缩成一个"…"再彻底消失，那时这个 tab 只剩图标和 ×，和邻居分不开。
+     3ch 留两三个字 + ellipsis，再窄就该交给横向滚动，不该继续把字挤没。 */
+  min-width: 3ch;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .container-tab-close {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
   opacity: 0.5;
   cursor: pointer;
@@ -3130,12 +3248,23 @@ body.window-focused .container-tab.active {
 
 .container-tab-close:hover {
   opacity: 1;
-  background: var(--hover);
+  background: var(--bg-hover);
+}
+
+/* 多 pane 时每个 tab bar 都摊开 4 个图标会很吵：非活跃 pane 的按钮收起来，hover 再露出 */
+.container-view:not(.container-active) .container-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+.container-view:not(.container-active):hover .container-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .container-actions {
   display: flex;
   gap: 2px;
+  transition: opacity 120ms;
   margin-left: auto;
   flex-shrink: 0;
 }
@@ -3145,7 +3274,7 @@ body.window-focused .container-tab.active {
   border: none;
   color: var(--fg-muted);
   padding: 3px 2px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   line-height: 0;
   display: flex;
@@ -3156,7 +3285,7 @@ body.window-focused .container-tab.active {
 }
 
 .container-btn:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
   color: var(--fg);
   opacity: 1;
 }
@@ -3203,7 +3332,12 @@ body.pane-resizing .xterm-inner {
   height: 100% !important;
   background-color: var(--bg) !important;
 }
-/* xterm.js 内置 overflow-y:scroll，会产生常驻 scrollbar track；覆盖隐藏 */
+/* xterm.js 内置 overflow-y:scroll，会产生常驻 scrollbar track；覆盖隐藏。
+   终端这里**不用**上面那套自绘细条：`::-webkit-scrollbar` 一旦有宽度就会占布局宽度，
+   xterm 的 fit 按 viewport 可用宽度算 cols，9px 差不多正好是一列字 —— 而 cols 偏少
+   本来就是 #111 在盯的问题，为一根条再让出一列不划算。终端要的是"回滚到了哪"这个
+   信息，正解是自绘一个不占布局的覆盖层指示器（读 xterm 的 viewportY/baseY），
+   跟自绘滚动条是两件事，留给 #7。 */
 .xterm-inner .xterm-viewport::-webkit-scrollbar { display: none; }
 .xterm-inner .xterm-viewport { scrollbar-width: none; }
 
@@ -3283,19 +3417,39 @@ body.resizing .resizer {
   letter-spacing: 1px;
   margin-bottom: 4px;
 }
+/* 左列固定宽度、键帽右对齐。原来是 `display:flex` 直接排 kbd + 说明：键帽宽度从
+   ⌘K 到 ⌥⌘←→↑↓ 差三倍，右边的说明文字起点就跟着参差不齐，一列里没有任何一条竖直基线。
+   固定 108px 是量出来的：最宽的一行是 ⌥⌘1 – ⌥⌘9（约 104px）。 */
 .welcome-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 108px 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 12px;
   color: var(--fg-muted);
+}
+.welcome-row .keys,
+.settings-shortcuts .keys {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  min-width: 0;
+}
+/* 区间号（⌘1 – ⌘9 中间那个短横）。用 <i> 而不是纯文本节点：flex 容器里的裸文本会被
+   包成匿名 flex item，拿不到 gap 之外的样式，也没法单独调低对比度。 */
+.welcome-row .keys i,
+.settings-shortcuts .keys i {
+  font-style: normal;
+  opacity: 0.45;
+  font-size: 10px;
 }
 .welcome-row kbd {
   font-family: ui-monospace, monospace;
   background: var(--bg-soft);
   border: 1px solid var(--border);
   border-bottom-width: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   padding: 2px 6px;
   color: var(--fg);
   font-size: 11px;
@@ -3325,13 +3479,97 @@ body.resizing .resizer {
   flex-direction: column;
   gap: 6px;
 }
+/* 和 .welcome-row 同一套：左列固定宽右对齐。settings modal 窄一些，左列给 104px */
 .settings-shortcuts > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: 104px 1fr;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 12px;
   color: var(--fg-muted);
 }
-.settings-shortcuts > div span {
-  flex: 1;
+
+/* 「启动目录已不存在」恢复对话框（#173）。
+ * 只加真正新增的东西 —— 外壳复用 .settings-backdrop / .settings-modal / .btn。 */
+.recover-modal {
+  width: 34vw;
+  min-width: 400px;
+  max-width: 520px;
+}
+
+.recover-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recover-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+.recover-note code,
+.recover-option-desc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--fg);
+}
+
+/* 那个已经没了的路径：等宽 + 可选中，用户得能复制出去自己查 */
+.recover-gone {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--warning);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  user-select: text;
+  word-break: break-all;
+}
+
+.recover-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.recover-option-title {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.recover-option-desc {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+}
+
+.recover-input {
+  width: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  outline: none;
+}
+.recover-input:focus {
+  border-color: var(--accent);
+}
+
+.recover-error {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--danger);
+  word-break: break-all;
 }
