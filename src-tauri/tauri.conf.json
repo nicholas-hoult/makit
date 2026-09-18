@@ -5,7 +5,7 @@
   "identifier": "com.hoult.makit",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1421",
     "beforeBuildCommand": "./node_modules/.bin/vite build",
     "frontendDist": "../dist"
   },
@@ -24,7 +24,8 @@
         "acceptFirstMouse": true,
         "devtools": true,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "backgroundColor": "#1e1e1e"
       }
     ],
     "security": {

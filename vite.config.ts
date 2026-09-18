@@ -14,14 +14,16 @@ export default defineConfig(async () => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    // 1421 而不是 1420：另一个项目（~/another-project）的 dev 脚本会主动
+    // kill 掉占用 1420 的进程再起自己的，两边撞车。换端口避免被误杀。
+    port: 1421,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 1422,
         }
       : undefined,
     watch: {
