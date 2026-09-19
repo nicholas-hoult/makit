@@ -692,9 +692,9 @@ fn load_running_info() -> HashMap<String, RunningInfo> {
             .unwrap_or("")
             .to_string();
         let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
-        // 检查 claude 进程的环境变量获取 CCS_PTY_ID
+        // 检查 claude 进程的环境变量获取 MAKIT_PTY_ID
         let pty_id = if pid > 0 {
-            get_env_var_of_pid(pid, "CCS_PTY_ID").unwrap_or_default()
+            get_env_var_of_pid(pid, "MAKIT_PTY_ID").unwrap_or_default()
         } else {
             String::new()
         };
@@ -775,7 +775,7 @@ fn collect_process_table() -> HashMap<u32, (u32, String)> {
     table
 }
 
-// 扫 PPID=1 的孤儿进程，检查 env 里是否有 CCS_SESSION_ID=<session_id>
+// 扫 PPID=1 的孤儿进程，检查 env 里是否有 MAKIT_SESSION_ID=<session_id>
 // 返回 (session_id, ProcessInfo) 列表
 fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String, ProcessInfo)> {
     let orphans: Vec<u32> = table
@@ -809,8 +809,8 @@ fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String, Pr
     let text = String::from_utf8_lossy(&out.stdout);
     let mut result = Vec::new();
     for line in text.lines().skip(1) {
-        // 从 env 部分提取 CCS_SESSION_ID=xxx
-        if let Some(pos) = line.find("CCS_SESSION_ID=") {
+        // 从 env 部分提取 MAKIT_SESSION_ID=xxx
+        if let Some(pos) = line.find("MAKIT_SESSION_ID=") {
             let after = &line[pos + 15..];
             let session_id = after.split(|c: char| c.is_whitespace() || c == '\0')
                 .next()
@@ -1132,7 +1132,7 @@ fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
         }
     }
 
-    // 孤儿进程关联（通过 CCS_SESSION_ID 环境变量，PPID=1 的 detach 进程）
+    // 孤儿进程关联（通过 MAKIT_SESSION_ID 环境变量，PPID=1 的 detach 进程）
     let orphans = collect_orphan_by_env(&proc_table);
     if !orphans.is_empty() {
         for meta in &mut raw {
@@ -1310,7 +1310,7 @@ mod env_of_pid_tests {
     /// 取样变量刻意挑"值里没有空白"的那一个：ps 输出里环境变量之间就是用空格
     /// 分隔的，值本身含空格（比如 PATH 里有 `/Library/Application Support/...`）
     /// 根本无法无歧义还原 —— 这是 ps 输出格式的固有限制，不是可修的 bug。
-    /// 唯一的调用方只读 CCS_PTY_ID，值形如 `t_ms5nflsm3a0g`，不受影响。
+    /// 唯一的调用方只读 MAKIT_PTY_ID，值形如 `t_ms5nflsm3a0g`，不受影响。
     #[test]
     fn reads_env_of_the_requested_pid() {
         let me = std::process::id();
@@ -1581,7 +1581,7 @@ mod pty_binding_tests {
     /// 真正需要的事实只有 `(pty_id, session_id)`，claude 启动那一刻就写进了
     /// `~/.claude/sessions/<pid>.json`。这里测的就是"只读那个目录也够"。
     ///
-    /// 实测证据（修之前）：pid 86431 的 CCS_PTY_ID=t_msngclks3eo5、session 32318d5f
+    /// 实测证据（修之前）：pid 86431 的 MAKIT_PTY_ID=t_msngclks3eo5、session 32318d5f
     /// 活了近 2 小时，而 localStorage 里 id 为 t_msngclks3eo5 的 tab 仍是
     /// `kind:"new" / label:"新会话" / sessionId:null` —— 因为 32318d5f.jsonl 不存在。
     fn write(dir: &std::path::Path, file: &str, json: &str) {
@@ -2037,13 +2037,13 @@ fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<PtyBinding> {
             if !pid_alive(pid) {
                 return None;
             }
-            get_env_var_of_pid(pid, "CCS_PTY_ID")
+            get_env_var_of_pid(pid, "MAKIT_PTY_ID")
         },
     )
 }
 
 /// `resolve_pty_bindings` 的纯逻辑部分：目录 + 想要的 pty_ids + 「pid → pty_id」查询。
-/// 抽出来是为了能测 —— 真实实现要一个活着的、带 CCS_PTY_ID 的非 Apple 签名进程，
+/// 抽出来是为了能测 —— 真实实现要一个活着的、带 MAKIT_PTY_ID 的非 Apple 签名进程，
 /// 在单测里造不出来。
 fn resolve_bindings_in(
     dir: &Path,
@@ -2153,7 +2153,7 @@ fn install_claude_hook() -> Result<String, String> {
     let hooks_dir = home.join(".claude").join("hooks");
     fs::create_dir_all(&hooks_dir).map_err(|e| e.to_string())?;
 
-    let hook_script = hooks_dir.join("ccs-hook.sh");
+    let hook_script = hooks_dir.join("makit-hook.sh");
     let sock_path = home.join(".claude").join("makit").join("hook.sock");
     let script = format!(
         "#!/bin/sh\nSOCK=\"{}\"\nif [ -S \"$SOCK\" ]; then\n    cat | nc -U \"$SOCK\" 2>/dev/null\nelse\n    echo '{{}}'\nfi\n",
@@ -2190,7 +2190,7 @@ fn install_claude_hook() -> Result<String, String> {
                         cmds.iter().any(|c| {
                             c.get("command")
                                 .and_then(|v| v.as_str())
-                                .map(|s| s.contains("ccs-hook.sh"))
+                                .map(|s| s.contains("makit-hook.sh"))
                                 .unwrap_or(false)
                         })
                     })

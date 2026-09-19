@@ -44,10 +44,10 @@ check("空 types 不画浮层", !acceptsPaneDrop([]));
 check("types 缺失（防御）不画浮层", !acceptsPaneDrop(undefined));
 
 // 白名单语义：长得像我们的 MIME 但不在名单里，也不认。
-// 否则以后新加一种 x-ccs-* 拖拽，会在 drop 端还没实现时就先把浮层画出来。
+// 否则以后新加一种 x-makit-* 拖拽，会在 drop 端还没实现时就先把浮层画出来。
 check(
-  "白名单：未登记的 x-ccs-* MIME 不画浮层",
-  !acceptsPaneDrop(["application/x-ccs-something-new"]),
+  "白名单：未登记的 x-makit-* MIME 不画浮层",
+  !acceptsPaneDrop(["application/x-makit-something-new"]),
 );
 
 // ---- tab 条的插入线用的是更窄的条件 --------------------------------------
@@ -82,7 +82,7 @@ for (const file of files) {
   readFileSync(file, "utf8")
     .split("\n")
     .forEach((line, i) => {
-      if (line.includes("application/x-ccs-")) dupMime.push(`${file}:${i + 1}`);
+      if (line.includes("application/x-makit-")) dupMime.push(`${file}:${i + 1}`);
     });
 }
 check(

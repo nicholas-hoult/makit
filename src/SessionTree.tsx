@@ -127,16 +127,16 @@ export const SessionTree = memo(function SessionTree({
   searchRef, collapsed, onCollapse, width, onResizeStart, onResizerHover, onNewSessionInDir, onNewShellInDir,
   onOpenSessionInSplit, openedSessionIds, onReturnFocus,
 }: Props) {
-  const [sortKey, setSortKey] = useState<SortKey>(() => (localStorage.getItem("ccs-tree-sort") as SortKey) || "recent");
-  const [showPinnedOnly, setShowPinnedOnly] = useState(() => localStorage.getItem("ccs-tree-pinned-only") === "true");
-  const [showArchived, setShowArchived] = useState(() => localStorage.getItem("ccs-tree-show-archived") === "true");
-  const [showRunningOnly, setShowRunningOnly] = useState(() => localStorage.getItem("ccs-tree-running-only") === "true");
+  const [sortKey, setSortKey] = useState<SortKey>(() => (localStorage.getItem("makit-tree-sort") as SortKey) || "recent");
+  const [showPinnedOnly, setShowPinnedOnly] = useState(() => localStorage.getItem("makit-tree-pinned-only") === "true");
+  const [showArchived, setShowArchived] = useState(() => localStorage.getItem("makit-tree-show-archived") === "true");
+  const [showRunningOnly, setShowRunningOnly] = useState(() => localStorage.getItem("makit-tree-running-only") === "true");
   const [viewMode, setViewMode] = useState<"status" | "project">(
-    () => (localStorage.getItem("ccs-sidebar-view") as "status" | "project") || "status"
+    () => (localStorage.getItem("makit-sidebar-view") as "status" | "project") || "status"
   );
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem("ccs-proj-collapsed");
+      const saved = localStorage.getItem("makit-proj-collapsed");
       return new Set(saved ? JSON.parse(saved) : []);
     } catch {
       return new Set();
@@ -151,12 +151,12 @@ export const SessionTree = memo(function SessionTree({
   // 改文案都静默把用户的折叠状态重置掉。
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem("ccs-group-collapsed");
+      const saved = localStorage.getItem("makit-group-collapsed");
       return new Set<string>(saved ? JSON.parse(saved) : []);
     } catch { return new Set(); }
   });
   useEffect(() => {
-    localStorage.setItem("ccs-group-collapsed", JSON.stringify([...collapsedGroups]));
+    localStorage.setItem("makit-group-collapsed", JSON.stringify([...collapsedGroups]));
   }, [collapsedGroups]);
   function toggleGroup(id: string) {
     setCollapsedGroups((prev) => {
@@ -193,13 +193,13 @@ export const SessionTree = memo(function SessionTree({
   const treeBodyRef = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 
-  useEffect(() => { localStorage.setItem("ccs-tree-sort", sortKey); }, [sortKey]);
-  useEffect(() => { localStorage.setItem("ccs-tree-pinned-only", String(showPinnedOnly)); }, [showPinnedOnly]);
-  useEffect(() => { localStorage.setItem("ccs-tree-show-archived", String(showArchived)); }, [showArchived]);
-  useEffect(() => { localStorage.setItem("ccs-tree-running-only", String(showRunningOnly)); }, [showRunningOnly]);
-  useEffect(() => { localStorage.setItem("ccs-sidebar-view", viewMode); }, [viewMode]);
+  useEffect(() => { localStorage.setItem("makit-tree-sort", sortKey); }, [sortKey]);
+  useEffect(() => { localStorage.setItem("makit-tree-pinned-only", String(showPinnedOnly)); }, [showPinnedOnly]);
+  useEffect(() => { localStorage.setItem("makit-tree-show-archived", String(showArchived)); }, [showArchived]);
+  useEffect(() => { localStorage.setItem("makit-tree-running-only", String(showRunningOnly)); }, [showRunningOnly]);
+  useEffect(() => { localStorage.setItem("makit-sidebar-view", viewMode); }, [viewMode]);
   useEffect(() => {
-    localStorage.setItem("ccs-proj-collapsed", JSON.stringify([...collapsedProjects]));
+    localStorage.setItem("makit-proj-collapsed", JSON.stringify([...collapsedProjects]));
   }, [collapsedProjects]);
 
   useEffect(() => {
@@ -621,7 +621,7 @@ export const SessionTree = memo(function SessionTree({
         // 点了就是选了：鼠标和键盘落在同一个选中态上，点完一行接着按 ↑↓ 是连续的。
         onClick={() => { setSelectedId(s.session_id); onSessionClick(s); }}
         onContextMenu={(e) => { e.preventDefault(); setContextMenu({ kind: "session", x: e.clientX, y: e.clientY, session: s }); }}
-        onMouseEnter={(e) => {const mode = localStorage.getItem("ccs-hover-mode") || "always";
+        onMouseEnter={(e) => {const mode = localStorage.getItem("makit-hover-mode") || "always";
           if (mode === "off") return;
           if (mode === "cmd" && !isCmd(e)) return;
           const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();

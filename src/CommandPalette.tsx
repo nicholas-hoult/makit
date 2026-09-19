@@ -31,9 +31,9 @@ type Props = {
   projects?: string[];      // 全部项目列表（用于侧栏筛选）
 };
 
-const HISTORY_KEY = "ccs-palette-history";
-const COLLAPSED_KEY = "ccs-palette-collapsed";
-const FILTER_KEY = "ccs-palette-filter";
+const HISTORY_KEY = "makit-palette-history";
+const COLLAPSED_KEY = "makit-palette-collapsed";
+const FILTER_KEY = "makit-palette-filter";
 const MAX_HISTORY = 8;
 
 function loadCollapsed(): Set<string> {
@@ -141,7 +141,7 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
   const [filterTime, setFilterTime] = useState<TimeFilter>(initFilter.time ?? "all");
   const [filterStatus, setFilterStatus] = useState<Set<StatusKey>>(() => new Set((initFilter.status ?? []) as StatusKey[]));
   const [filterPinnedOnly, setFilterPinnedOnly] = useState<boolean>(initFilter.pinnedOnly ?? false);
-  const [filterSort, setFilterSort] = useState<string>(() => localStorage.getItem("ccs-palette-sort") || "recent");
+  const [filterSort, setFilterSort] = useState<string>(() => localStorage.getItem("makit-palette-sort") || "recent");
   const [history, setHistory] = useState<string[]>([]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => loadCollapsed());
 
@@ -515,7 +515,7 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
               <div className="palette-filter-label">排序</div>
               {(["recent", "count", "firstMsg"] as const).map((k) => (
                 <label className="palette-filter-row" key={k}>
-                  <input type="radio" name="sort" checked={filterSort === k} onChange={() => { setFilterSort(k); localStorage.setItem("ccs-palette-sort", k); }} />
+                  <input type="radio" name="sort" checked={filterSort === k} onChange={() => { setFilterSort(k); localStorage.setItem("makit-palette-sort", k); }} />
                   {k === "recent" ? "最近活动" : k === "count" ? "消息数" : "首条消息"}
                 </label>
               ))}

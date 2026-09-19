@@ -18,13 +18,13 @@ function makeDefaultWorkspace(): WorkspaceState {
 
 function loadWorkspace(): WorkspaceState {
   try {
-    const raw = localStorage.getItem("ccs-workspace");
+    const raw = localStorage.getItem("makit-workspace");
     if (raw) {
       const parsed = JSON.parse(raw);
       if (isWorkspaceState(parsed)) return parsed;
     }
     // 尝试从旧 openTabs 迁移
-    const oldRaw = localStorage.getItem("ccs-open-tabs");
+    const oldRaw = localStorage.getItem("makit-open-tabs");
     if (oldRaw) {
       const oldTabs = JSON.parse(oldRaw);
       if (Array.isArray(oldTabs) && oldTabs.length > 0) {
@@ -55,7 +55,7 @@ export function useWorkspace() {
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      try { localStorage.setItem("ccs-workspace", JSON.stringify(workspace)); } catch {}
+      try { localStorage.setItem("makit-workspace", JSON.stringify(workspace)); } catch {}
     }, 500);
   }, [workspace]);
 

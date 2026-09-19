@@ -28,10 +28,10 @@ type SessionLike = {
 };
 
 const MAX_RECORDS = 100;
-const STORAGE_KEY = "ccs-notifications";
-const SYSTEM_KEY = "ccs-notif-system";
-const NOTIFY_APPROVAL_KEY = "ccs-notif-approval"; // 等待审批通知开关（默认开）
-const NOTIFY_USER_KEY = "ccs-notif-user";          // 等待回答通知开关（默认关）
+const STORAGE_KEY = "makit-notifications";
+const SYSTEM_KEY = "makit-notif-system";
+const NOTIFY_APPROVAL_KEY = "makit-notif-approval"; // 等待审批通知开关（默认开）
+const NOTIFY_USER_KEY = "makit-notif-user";          // 等待回答通知开关（默认关）
 
 function load(): NotificationRecord[] {
   try {

@@ -305,8 +305,8 @@ export const BUILTIN_THEMES: readonly ThemeSource[] = [
 
 // ---------- 导入的 .itermcolors ----------
 
-const IMPORTED_KEY = "ccs-imported-themes";
-const THEME_KEY = "ccs-theme";
+const IMPORTED_KEY = "makit-imported-themes";
+const THEME_KEY = "makit-theme";
 const STYLE_ID = "theme-vars";
 
 function readImported(): ThemeSource[] {

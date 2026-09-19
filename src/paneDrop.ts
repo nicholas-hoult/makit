@@ -22,10 +22,10 @@
  */
 
 /** container tab 之间拖动（tab 条内重排 / 跨 container 移动 / 拖到边缘分屏） */
-export const CONTAINER_TAB_MIME = "application/x-ccs-container-tab";
+export const CONTAINER_TAB_MIME = "application/x-makit-container-tab";
 
 /** 侧栏 session 卡片拖进工作区（新开一个 pane） */
-export const PANE_SPEC_MIME = "application/x-ccs-pane-spec";
+export const PANE_SPEC_MIME = "application/x-makit-pane-spec";
 
 /**
  * `DataTransfer.types` 在 `dragover` 阶段就可读（`getData()` 不行 —— 拖拽进行中

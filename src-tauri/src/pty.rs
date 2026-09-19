@@ -173,7 +173,7 @@ pub async fn pty_spawn(
     cmd.env("LANG", "en_US.UTF-8");
     cmd.env("LC_ALL", "en_US.UTF-8");
     // 注入标识环境变量：所有从此 PTY fork 的子进程（含 nohup &）都继承
-    cmd.env("CCS_PTY_ID", &id);
+    cmd.env("MAKIT_PTY_ID", &id);
 
     // ===== Shell 集成：自动发 OSC 7 通知 cwd 变化 =====
     // 用 ZDOTDIR 接管 zsh 的 .zshrc 加载点：先 source 用户原 .zshrc，再加 OSC 7 hook
@@ -206,11 +206,11 @@ pub async fn pty_spawn(
             let user_zshrc = home.join(".zshrc");
             write_if_changed(&integ_dir.join(".zshrc"), &format!(
                 "# makit shell integration (auto-generated)\n\
-                 [ -f {user_rc} ] && source {user_rc}\n_ccs_emit_cwd() {{ printf '\\033]7;file://%s%s\\033\\\\' \"$HOST\" \"$PWD\" }}\n\
+                 [ -f {user_rc} ] && source {user_rc}\n_makit_emit_cwd() {{ printf '\\033]7;file://%s%s\\033\\\\' \"$HOST\" \"$PWD\" }}\n\
                  typeset -ga chpwd_functions precmd_functions\n\
-                 chpwd_functions+=(_ccs_emit_cwd)\n\
-                 precmd_functions+=(_ccs_emit_cwd)\n\
-                 _ccs_emit_cwd\n",
+                 chpwd_functions+=(_makit_emit_cwd)\n\
+                 precmd_functions+=(_makit_emit_cwd)\n\
+                 _makit_emit_cwd\n",
                 user_rc = user_zshrc.display(),
             ));
 
@@ -222,7 +222,7 @@ pub async fn pty_spawn(
     if let Some(ref ic) = init_command {
         if let Some(sid) = ic.strip_prefix("claude -r ").map(|s| s.trim()) {
             if !sid.is_empty() {
-                cmd.env("CCS_SESSION_ID", sid);
+                cmd.env("MAKIT_SESSION_ID", sid);
             }
         }
     }
@@ -428,12 +428,12 @@ pub fn kill_all_ptys(state: &PtyState) {
             let _ = handle.child.kill();
         }
     }
-    // 兜底：用 CCS_PTY_ID 环境变量找逃逸进程（setsid 后 PPID=1 的）
+    // 兜底：用 MAKIT_PTY_ID 环境变量找逃逸进程（setsid 后 PPID=1 的）
     #[cfg(unix)]
     kill_by_env_marker(&ids);
 }
 
-/// 兜底清理：靠 CCS_PTY_ID 环境变量找逃逸进程（setsid 之后 PPID=1、进程组已经
+/// 兜底清理：靠 MAKIT_PTY_ID 环境变量找逃逸进程（setsid 之后 PPID=1、进程组已经
 /// 跟我们脱钩的那些）。
 ///
 /// **目前是 dry-run：只打印匹配结果，不发信号。** 原因是这个函数在修掉下面那个
@@ -452,7 +452,7 @@ fn kill_by_env_marker(pty_ids: &[String]) {
     let armed = std::env::var_os("MAKIT_KILL_ESCAPED").is_some();
     // flag 必须是 `-xEww`：显示环境变量的是**大写 `-E`**，小写 `-e` 在 macOS 的 ps
     // 里是 `-A` 的同义词（"显示所有进程"）。老写法 `-xeww` 于是拿到了一张不含任何
-    // 环境变量的全进程表，下面 `CCS_PTY_ID=` 的匹配永远为假 —— 这个兜底一直在空转。
+    // 环境变量的全进程表，下面 `MAKIT_PTY_ID=` 的匹配永远为假 —— 这个兜底一直在空转。
     // 这里 `-x` 是**故意**留的：要找的就是脱离了控制终端的逃逸进程。
     let output = match Command::new("ps").args(["-xEww", "-o", "pid,command"]).output() {
         Ok(o) if o.status.success() => o,
@@ -471,11 +471,11 @@ fn kill_by_env_marker(pty_ids: &[String]) {
             Err(_) => continue,
         };
         if pid == my_pid || pid <= 1 { continue; }
-        // 整 token 相等而不是 contains：`CCS_PTY_ID=t_abc` 会被 `contains` 判成
-        // 命中 `CCS_PTY_ID=t_abcdef`。当前 id 都是等长的所以撞不上，但这是一条
+        // 整 token 相等而不是 contains：`MAKIT_PTY_ID=t_abc` 会被 `contains` 判成
+        // 命中 `MAKIT_PTY_ID=t_abcdef`。当前 id 都是等长的所以撞不上，但这是一条
         // 即将开始真杀的路径，不留这种"靠格式凑巧"的前提。
         for tok in trimmed.split_whitespace() {
-            if let Some(val) = tok.strip_prefix("CCS_PTY_ID=") {
+            if let Some(val) = tok.strip_prefix("MAKIT_PTY_ID=") {
                 if let Some(hit) = pty_ids.iter().find(|p| p.as_str() == val) {
                     hits.push((pid, hit.as_str()));
                 }

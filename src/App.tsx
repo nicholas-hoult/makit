@@ -642,13 +642,13 @@ function App() {
   // 置顶收藏：localStorage 持久化
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => {
     try {
-      const raw = localStorage.getItem("ccs-pinned-sessions");
+      const raw = localStorage.getItem("makit-pinned-sessions");
       return raw ? new Set(JSON.parse(raw)) : new Set();
     } catch { return new Set(); }
   });
   useEffect(() => {
     try {
-      localStorage.setItem("ccs-pinned-sessions", JSON.stringify([...pinnedSessions]));
+      localStorage.setItem("makit-pinned-sessions", JSON.stringify([...pinnedSessions]));
     } catch {}
   }, [pinnedSessions]);
 
@@ -695,14 +695,14 @@ function App() {
 
   // 布局状态：左栏（项目列）/ 中栏（sessions）独立可折叠，持久化到 localStorage
   const [projectListCollapsed, setProjectListCollapsed] = useState<boolean>(
-    () => localStorage.getItem("ccs-project-list-collapsed") === "1"
+    () => localStorage.getItem("makit-project-list-collapsed") === "1"
   );
   useEffect(() => {
-    localStorage.setItem("ccs-project-list-collapsed", projectListCollapsed ? "1" : "0");
+    localStorage.setItem("makit-project-list-collapsed", projectListCollapsed ? "1" : "0");
   }, [projectListCollapsed]);
 
   // 左/中栏宽度可拖拽，min/max 防止拖崩布局；宽度持久化到 localStorage
-  const projectList = useResizable("ccs-project-list-width", 280, 180, 480);
+  const projectList = useResizable("makit-project-list-width", 280, 180, 480);
   const [resizerHovered, setResizerHovered] = useState(false);
 
   async function load(silent = false) {
@@ -807,7 +807,7 @@ function App() {
       }, 800);
     }).then((fn) => { unlisten2 = fn; });
 
-    // 启动补绑：tab.id 是持久化的，也就是 CCS_PTY_ID —— 上一轮没绑成的 tab，只要它的
+    // 启动补绑：tab.id 是持久化的，也就是 MAKIT_PTY_ID —— 上一轮没绑成的 tab，只要它的
     // claude 还活着（逃逸进程／app 重启前就在跑），这一发就能把标题补上，不用等新事件。
     // force：不受 2s 节流约束，否则会被紧随其后的 running-changed 抢掉配额。
     tryBindPtyTabs(true);
@@ -1239,7 +1239,7 @@ function App() {
    *
    * `pty_kill` 只能杀到「还挂在这个 pty 进程组下」的进程；claude 起的工具进程一旦
    * setsid 就脱钩了，`killpg` 和 `pgrep -P` 都够不着，只能靠 session 侧记下来的
-   * `child_processes`（`list_sessions` 里用 `CCS_SESSION_ID` 环境变量捞回来的那批）
+   * `child_processes`（`list_sessions` 里用 `MAKIT_SESSION_ID` 环境变量捞回来的那批）
    * 逐个 kill。
    *
    * 这一步原来只写在 × 按钮的 onTabClose 里，而关 tab 一共有 4 条路径 —— ⌘W、
@@ -1963,7 +1963,7 @@ function App() {
         },
       });
     }
-    const sortKey = (localStorage.getItem("ccs-palette-sort") as SortKey) || "recent";
+    const sortKey = (localStorage.getItem("makit-palette-sort") as SortKey) || "recent";
     const waitingUser = waiting.filter((s) => s.waiting_for === "user");
     const waitingApproval = waiting.filter((s) => s.waiting_for !== "user");
     // 分组名去掉前缀字形。原来是 "? 等待回答" / "⚠ 等待审批" / "▶ 工作中" / "⏱ 最近活跃" /
@@ -2491,7 +2491,7 @@ function App() {
               <section className="settings-section">
                 <div className="settings-label">列表显示</div>
                 <label className="settings-toggle-row">
-                  <input type="checkbox" checked={localStorage.getItem("ccs-show-attention") !== "false"} onChange={(e) => { localStorage.setItem("ccs-show-attention", String(e.target.checked)); forceSettingsRender((n) => n + 1); }} />
+                  <input type="checkbox" checked={localStorage.getItem("makit-show-attention") !== "false"} onChange={(e) => { localStorage.setItem("makit-show-attention", String(e.target.checked)); forceSettingsRender((n) => n + 1); }} />
                   <span>顶部「需要操作」区域</span>
                 </label>
                 <div className="settings-hint">将 waiting 状态的 session 置顶固定显示，方便快速发现需要审批的任务。</div>
@@ -2574,13 +2574,13 @@ function App() {
                 >
                   安装 Claude Code Hook（推送模式）
                 </button>
-                <div className="settings-hint">将 ccs-hook.sh 注册到 ~/.claude/settings.json，Claude Code 发出通知时实时推送（无需轮询）。</div>
+                <div className="settings-hint">将 makit-hook.sh 注册到 ~/.claude/settings.json，Claude Code 发出通知时实时推送（无需轮询）。</div>
               </section>
 
 
               <section className="settings-section">
                 <div className="settings-label">Hover 详情卡片</div>
-                <select className="settings-select" value={localStorage.getItem("ccs-hover-mode") || "always"} onChange={(e) => { localStorage.setItem("ccs-hover-mode", e.target.value); forceSettingsRender((n) => n + 1); }}>
+                <select className="settings-select" value={localStorage.getItem("makit-hover-mode") || "always"} onChange={(e) => { localStorage.setItem("makit-hover-mode", e.target.value); forceSettingsRender((n) => n + 1); }}>
                   <option value="always">始终显示（400ms 延迟）</option>
                   <option value="cmd">仅按住 ⌘ 时显示</option>
                   <option value="off">关闭</option>
