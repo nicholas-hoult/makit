@@ -1,8 +1,9 @@
 [package]
 name = "makit"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "macOS 桌面应用：浏览、恢复、分屏管理本机的 Claude Code / Codex 会话"
+authors = ["hoult"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -28,7 +29,8 @@ debug = "line-tables-only"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["devtools"] }
+# 不开 devtools 特性：Tauri 2 的调试构建默认就有 devtools，这个特性只会把它带进 release 包（#194）
+tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 # 系统通知走官方插件，不再 shell 出去调 osascript。
