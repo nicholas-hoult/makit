@@ -1728,187 +1728,6 @@ mod session_name_tests {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ResumeResult {
-    pub success: bool,
-    pub message: String,
-    pub action: String,
-}
-
-fn session_marker(session_id: &str) -> String {
-    format!("ccs:{}", session_id)
-}
-
-fn resolve_对标产品() -> Result<PathBuf, String> {
-    let mut search: Vec<PathBuf> = Vec::new();
-    if let Ok(path) = std::env::var("PATH") {
-        for dir in path.split(':') {
-            if !dir.is_empty() {
-                search.push(PathBuf::from(dir));
-            }
-        }
-    }
-    let known = [
-        "/Applications/Transporter.app/Contents/Resources/bin",
-        "/Applications/对标产品.app/Contents/Resources/bin",
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-    ];
-    for p in &known {
-        let pb = PathBuf::from(p);
-        if !search.contains(&pb) {
-            search.push(pb);
-        }
-    }
-    if let Some(home) = dirs::home_dir() {
-        let candidates = [
-            home.join(".cargo/bin"),
-            home.join(".local/bin"),
-            home.join(".对标产品/bin"),
-        ];
-        for c in candidates {
-            if !search.contains(&c) {
-                search.push(c);
-            }
-        }
-    }
-    for dir in &search {
-        let candidate = dir.join("对标产品");
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-    // 兜底：调登录 shell 取 PATH
-    if let Ok(out) = Command::new("zsh")
-        .args(["-lic", "command -v 对标产品"])
-        .output()
-    {
-        if out.status.success() {
-            let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !s.is_empty() {
-                let pb = PathBuf::from(&s);
-                if pb.is_file() {
-                    return Ok(pb);
-                }
-            }
-        }
-    }
-    Err(format!(
-        "找不到 对标产品 命令，尝试过的目录: {}",
-        search
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    ))
-}
-
-fn find_existing_workspace(对标产品_path: &Path, session_id: &str) -> Option<String> {
-    let output = Command::new(对标产品_path)
-        .args(["list-workspaces", "--json"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let v: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
-    let ws = v.get("workspaces")?.as_array()?;
-    let marker = session_marker(session_id);
-    for w in ws {
-        if let Some(desc) = w.get("description").and_then(|d| d.as_str()) {
-            if desc == marker {
-                return w.get("ref").and_then(|r| r.as_str()).map(|s| s.to_string());
-            }
-        }
-    }
-    None
-}
-
-#[tauri::command]
-fn resume_session(session_id: String, cwd: String) -> ResumeResult {
-    if session_id.is_empty() || cwd.is_empty() {
-        return ResumeResult {
-            success: false,
-            message: "session_id 或 cwd 为空".into(),
-            action: "error".into(),
-        };
-    }
-
-    let 对标产品_path = match resolve_对标产品() {
-        Ok(p) => p,
-        Err(e) => {
-            return ResumeResult {
-                success: false,
-                message: e,
-                action: "error".into(),
-            }
-        }
-    };
-
-    if let Some(ws_ref) = find_existing_workspace(&对标产品_path, &session_id) {
-        let output = Command::new(&对标产品_path)
-            .args(["select-workspace", "--workspace", &ws_ref])
-            .output();
-        return match output {
-            Ok(o) if o.status.success() => ResumeResult {
-                success: true,
-                message: format!("跳转到现有 workspace {}", ws_ref),
-                action: "focused".into(),
-            },
-            Ok(o) => ResumeResult {
-                success: false,
-                message: format!("对标产品 select 失败: {}", String::from_utf8_lossy(&o.stderr)),
-                action: "error".into(),
-            },
-            Err(e) => ResumeResult {
-                success: false,
-                message: format!("无法调用 对标产品 select: {}", e),
-                action: "error".into(),
-            },
-        };
-    }
-
-    let short_id = session_id.split('-').next().unwrap_or("").to_string();
-    let name = format!("ccs-{}", short_id);
-    let description = session_marker(&session_id);
-    let command_text = format!("claude -r {}", session_id);
-    let output = Command::new(&对标产品_path)
-        .arg("new-workspace")
-        .arg("--name")
-        .arg(&name)
-        .arg("--description")
-        .arg(&description)
-        .arg("--cwd")
-        .arg(&cwd)
-        .arg("--command")
-        .arg(&command_text)
-        .arg("--focus")
-        .arg("true")
-        .output();
-    match output {
-        Ok(o) if o.status.success() => ResumeResult {
-            success: true,
-            message: format!("已在 对标产品 新开 {}", name),
-            action: "created".into(),
-        },
-        Ok(o) => ResumeResult {
-            success: false,
-            message: format!(
-                "对标产品 new-workspace 退出码 {}: {}",
-                o.status,
-                String::from_utf8_lossy(&o.stderr)
-            ),
-            action: "error".into(),
-        },
-        Err(e) => ResumeResult {
-            success: false,
-            message: format!("无法调用 对标产品: {}", e),
-            action: "error".into(),
-        },
-    }
-}
-
 // 按需归因：扫 ~/.claude/projects/*/*.jsonl，找在 tab 启动之后「新建」(birthtime > after_ts) 且 cwd 匹配的
 // 用 birthtime 而非 mtime —— mtime 会被任何写入刷新，旧 session 也会被误命中
 // 用途：new/shell tab 启动后想反查到 claude 写出的 session 文件
@@ -2052,7 +1871,6 @@ fn read_session_meta(session_id: String) -> Result<Option<SessionMeta>, String> 
     Ok(None)
 }
 
-// Zellij 集成：通过 CLI 控制 zellij session
 // 在 macOS 上打开本地路径：默认在 Finder 中显示（reveal），文件用默认 app 打开
 // reveal=true → open -R（Finder 高亮），false → open（用默认 app 打开）
 #[tauri::command]
@@ -2079,66 +1897,6 @@ async fn open_path(path: String, reveal: bool) -> Result<(), String> {
     cmd.arg(&expanded);
     cmd.spawn().map_err(|e| format!("open 失败: {}", e))?;
     Ok(())
-}
-
-#[tauri::command]
-async fn zellij_action(action: String, args: Vec<String>) -> Result<String, String> {
-    let zellij = find_zellij_binary();
-    let mut cmd_args = vec!["action".to_string(), action];
-    cmd_args.extend(args);
-    let output = Command::new(&zellij)
-        .args(&cmd_args)
-        .arg("--session")
-        .arg("ccs-main")
-        .output()
-        .map_err(|e| format!("zellij action failed: {}", e))?;
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(String::from_utf8_lossy(&output.stderr).to_string())
-    }
-}
-
-#[tauri::command]
-async fn zellij_ensure_running() -> Result<String, String> {
-    let zellij = find_zellij_binary();
-    // 检查 session 是否存在
-    let check = Command::new(&zellij)
-        .args(["list-sessions"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let sessions = String::from_utf8_lossy(&check.stdout);
-    if !sessions.contains("ccs-main") {
-        return Err("zellij session 'ccs-main' not running. Please start it manually: zellij --session ccs-main".to_string());
-    }
-    // 检查 web server
-    let web_check = Command::new(&zellij)
-        .args(["web", "--status"])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let web_status = String::from_utf8_lossy(&web_check.stdout);
-    if web_status.contains("offline") {
-        // 启动 web server
-        Command::new(&zellij)
-            .args(["web", "--start", "--port", "8082", "--daemonize"])
-            .output()
-            .map_err(|e| e.to_string())?;
-    }
-    Ok("ok".to_string())
-}
-
-fn find_zellij_binary() -> String {
-    // 优先 PATH，然后常见位置
-    for path in &[
-        "/opt/homebrew/bin/zellij",
-        "/usr/local/bin/zellij",
-        "/usr/bin/zellij",
-    ] {
-        if std::path::Path::new(path).exists() {
-            return path.to_string();
-        }
-    }
-    "zellij".to_string()
 }
 
 // fs.watch 增量推送：
@@ -2508,7 +2266,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_sessions,
-            resume_session,
             read_session_messages,
             archive_session,
             unarchive_session,
@@ -2519,8 +2276,6 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             pty::kill_pids,
-            zellij_action,
-            zellij_ensure_running,
             open_path,
             list_running_sessions,
             resolve_pty_bindings,
