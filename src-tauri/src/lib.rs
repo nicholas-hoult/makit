@@ -1235,9 +1235,12 @@ fn list_sessions_by_paths(
 mod git_head_tests {
     use std::process::Command;
 
+    // 对照用 `symbolic-ref --short -q HEAD` 而不是 `branch --show-current`：后者 git 2.22 才有，
+    // PATH 上排在前面的若是老 git（本机 /usr/local/bin/git 是 2.15）会直接报错返回 None，
+    // 测试就把「对照组坏了」误报成「快路径错了」。两者语义相同：分支名，或 HEAD 游离时为空。
     fn via_subprocess(cwd: &str) -> Option<String> {
         let out = Command::new("git")
-            .args(["-C", cwd, "branch", "--show-current"])
+            .args(["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"])
             .output()
             .ok()?;
         if !out.status.success() {
