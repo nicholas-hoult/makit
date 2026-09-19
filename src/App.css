@@ -279,7 +279,7 @@ body,
   animation: palette-backdrop-in 120ms ease-out;
 }
 
-/* === Cmd+K Palette v2 (层级化) === */
+/* === Cmd+K Palette v2（层级化） === */
 .palette {
   display: flex;
   width: 90%;
@@ -1508,7 +1508,7 @@ body.app-fullscreen .tab {
   pointer-events: none;
 }
 
-/* ── 浮动卡片（对标产品 风格：锚定铃铛位置，相对尺寸）── */
+/* ── 浮动卡片（锚定铃铛位置，相对尺寸）── */
 .notif-drawer {
   position: fixed;
   top: 40px;
@@ -2931,7 +2931,7 @@ body.resizing .resizer {
   pointer-events: none;
 }
 
-/* ===== 对标产品 WorkspaceView ===== */
+/* ===== WorkspaceView ===== */
 .workspace-view {
   position: relative;
   width: 100%;

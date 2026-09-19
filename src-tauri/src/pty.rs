@@ -868,7 +868,7 @@ mod resume_cwd_tests {
             r#"not json"#,
             r#"{"type":"user","cwd":""}"#,
             r#"{"type":"user","cwd":"/Users/me/RustProjects/makit"}"#,
-            r#"{"type":"user","cwd":"/Users/me/IdeaProjects/other-project/docs"}"#,
+            r#"{"type":"user","cwd":"/Users/me/other-project"}"#,
         ]
         .join("\n");
         assert_eq!(
@@ -883,7 +883,7 @@ mod resume_cwd_tests {
     fn corrects_only_to_an_existing_home_that_differs() {
         let home = std::env::temp_dir().to_string_lossy().trim_end_matches('/').to_string();
         // 在别的目录被恢复 → 改回起始目录
-        assert_eq!(corrected_resume_cwd("/Users/me/IdeaProjects/other-project/docs", Some(home.clone())), Some(home.clone()));
+        assert_eq!(corrected_resume_cwd("/Users/me/other-project", Some(home.clone())), Some(home.clone()));
         // 本来就在起始目录 → 不改（不通知前端）
         assert_eq!(corrected_resume_cwd(&home, Some(home.clone())), None);
         // 起始目录已经不在了（目录被移走、用户用「指到新位置」恢复过）→ 不改，

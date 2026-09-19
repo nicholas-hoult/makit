@@ -634,7 +634,7 @@ function App() {
     permission, requestSystemPermission, sendTestNotification } =
     useNotifications(sessions, isSessionOnScreen, flashWindow);
 
-  // 切 tab 时自动标记该 session 的通知为已读（同 对标产品: dismissFocusedPanelNotificationIfActive）
+  // 切 tab 时自动标记该 session 的通知为已读：用户已经在看它了
   useEffect(() => {
     if (activeSessionId) markReadBySession(activeSessionId);
   }, [activeSessionId]);
@@ -1061,7 +1061,7 @@ function App() {
     function handler(e: KeyboardEvent) {
       if (!isCmd(e) || !e.altKey) return;
       const k = e.key.toLowerCase();
-      // ⌘⌥↩ 最大化/还原当前 container（muxy 同款）
+      // ⌘⌥↩ 最大化/还原当前 container
       if (k === "enter" || k === "return") {
         e.preventDefault();
         e.stopPropagation();
@@ -1145,7 +1145,7 @@ function App() {
     window.addEventListener("keydown", handler, true);return () => window.removeEventListener("keydown", handler, true);
   }, [ws.workspace]);
 
-  // Cmd+I = 通知中心（对标产品 同款）
+  // Cmd+I = 通知中心
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if (!isCmd(e) || e.shiftKey || e.altKey) return;

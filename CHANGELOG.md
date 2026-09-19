@@ -15,12 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-06-21
 
 ### Added
-- 🖥 对标产品 风格 Workspace 布局
+- 🖥 树形分屏 Workspace 布局
   - 全局 split 树，支持无限嵌套分屏
   - 拖拽调整分割线，支持方向键导航
   - DOM reparent 架构，PTY 状态永不丢失
 - 🔍 Cmd+K 命令面板
-  - 层级化搜索
+  - 层级化搜索（按项目 / 状态分组）
   - 状态分组（运行中/等待审批/空闲/已停止/已归档）
   - 右侧筛选侧栏（项目/时间/状态）
 - ⚡ 实时状态监控

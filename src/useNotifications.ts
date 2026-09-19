@@ -192,8 +192,8 @@ export function useNotifications(
       }
 
       // 正摆在眼前：只闪一下窗口，不入中心不发横幅 —— 但**不占用** notifiedRef，
-      // 这样等你切走之后它还能正常通知（对标产品 isFocusedPanel 的本意是"别重复告知"，
-      // 不是"这次就算了"）
+      // 这样等你切走之后它还能正常通知（「正在看」的本意是「别重复告知」，
+      // 不是「这次就算了」）
       if (isOnScreenRef.current(s.session_id)) {
         if (!flashedRef.current.has(s.session_id)) {
           flashedRef.current.add(s.session_id);

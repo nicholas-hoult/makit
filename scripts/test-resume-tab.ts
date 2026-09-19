@@ -58,7 +58,7 @@ eq("认领后用 claude 自己写的会话名当标题", bound.label, "改个名
 eq("cwd 不动（PTY 起在哪由它决定）", bound.cwd, "/Users/x/proj");
 eq("tab id 不动", bound.id, "t_1");
 
-// #190：shell 在别的目录（比如继承来的 other-project/docs），用户在里面 `claude -r` 了一个 makit 的会话。
+// #190：shell 在别的目录（比如继承来的 other-project），用户在里面 `claude -r` 了一个 makit 的会话。
 // tab 若继续记着 shell 的目录，从它新开的终端会继承错目录，重启后也会在错目录恢复 ——
 // 会话自己的起始目录已知时，tab 必须改用它。
 const elsewhere = bindSessionToPaneTab(shellTab, SID, "df178096", undefined, "/Users/x/makit");

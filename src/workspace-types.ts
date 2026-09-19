@@ -349,13 +349,13 @@ export function layoutTree(node: LayoutNode, rect: Rect): LayoutResult {
   };
 }
 
-// --- 几何方向导航（对标产品/bonsplit 风格：边界相邻 + 重叠优先） ---
+// --- 几何方向导航（边界相邻 + 重叠优先） ---
 
 export type Direction = "up" | "down" | "left" | "right";
 
 /**
  * 在 layout 结果中，找指定方向上最佳邻居 container。
- * 算法（参考 对标产品/bonsplit findBestNeighbor）：
+ * 算法（参考开源布局库 bonsplit 的 findBestNeighbor）：
  *   1. 过滤：候选边界在当前 container 指定方向外侧
  *   2. 评分：垂直轴重叠量（overlap）+ 边界距离（distance）
  *   3. 排序：overlap 大优先，相同取 distance 小

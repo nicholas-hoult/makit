@@ -1,14 +1,14 @@
 /**
- * 终端触控板滚动的换算，对标 对标产品（#189）。
+ * 终端触控板滚动的换算，照原生终端 对标终端 的做法（#189）。
  *
- * 对标产品（对标终端 内核）的做法，照抄三件事：
+ * 照搬三件事：
  * 1. 「越用力越快」由 macOS 自己给 —— 系统送来的位移已经按手速加速过，终端不再做非线性加速；
- * 2. 精确滚动（触控板，含惯性阶段）位移 × 2 —— 对标产品 `对标终端TerminalScrollBoost.swift` 的
- *    "historical 2x precise-delta boost"；
+ * 2. 精确滚动（触控板，含惯性阶段）位移 × 2 —— 对标终端 macOS 端 `SurfaceView_AppKit.swift` 的做法
+ *    （原注释：这样手感更好）；
  * 3. 像素 → 行：对标终端 `Surface.zig` scrollCallback —— 累积到满一行才滚，截断取整，余数留给下一次，
  *    方向一反丢掉旧余数。
  *
- * 实测 xterm 自己的换算约为 1.25 × 像素 / 行高，只有 对标产品 的六成多，所以精确滚动由我们接管。
+ * 实测 xterm 自己的换算约为 1.25 × 像素 / 行高，只有上述做法的六成多，所以精确滚动由我们接管。
  * 离散滚轮（鼠标一格一格）xterm 已经是每格 3 行、和 对标终端 `discrete:3` 一致，不碰。
  *
  * WKWebView 里分辨两种设备（实测）：离散滚轮 `deltaY = 40 × 格`、`wheelDeltaY` 是 120 的倍数；
@@ -16,7 +16,7 @@
  */
 import type { IDisposable, Terminal } from "@xterm/xterm";
 
-/** 对标产品 对精确滚动的固定放大 */
+/** 精确滚动的固定放大（同 对标终端） */
 const PRECISE_BOOST = 2;
 
 export function isDiscreteWheel(deltaY: number, wheelDeltaY: number): boolean {
@@ -47,7 +47,7 @@ export class WheelClassifier {
 }
 
 /**
- * 对标终端 的精确滚动换算。`speed` 对应 对标产品 的「Scroll Speed」设置（默认 1，范围 0.25–3）。
+ * 对标终端 的精确滚动换算。`speed` 是额外的滚动速度倍率（默认 1），留给以后的设置项。
  * 返回这次要滚的行数（正 = 向下看新内容），和留给下一次的余数（像素）。
  */
 export function precisePixelsToRows(
@@ -73,7 +73,7 @@ export function precisePixelsToRows(
  * xterm 的速度滚）。所以在外层 `.xterm-inner` 的捕获阶段截住、`stopPropagation` 不让它下去。
  * 同元素上的其他捕获监听（terminalScrollbar 的显隐）不受 stopPropagation 影响。
  */
-export function install对标产品Wheel(term: Terminal, el: HTMLElement): IDisposable {
+export function installPreciseWheel(term: Terminal, el: HTMLElement): IDisposable {
   let pending = 0;
   const classifier = new WheelClassifier();
   const onWheel = (e: WheelEvent) => {
