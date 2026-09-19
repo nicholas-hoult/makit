@@ -26,3 +26,9 @@ dist-ssr
 #/patches/
 #/docs/
 #/scripts/
+
+# 私有文档与脚本（独立仓库，推 Gitee 私有）
+/private/
+
+# Claude Code 本地配置
+/.claude/
