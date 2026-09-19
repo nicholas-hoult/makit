@@ -356,13 +356,14 @@ export function useWorkspace() {
     sessionId: string,
     shortId: string,
     label?: string,
+    sessionCwd?: string,
   ) {
     setWorkspace((ws) => ({
       ...ws,
       root: updateContainer(ws.root, containerId, (c) => ({
         ...c,
         tabs: c.tabs.map((t) =>
-          t.id === tabId ? bindSessionToPaneTab(t, sessionId, shortId, label) : t
+          t.id === tabId ? bindSessionToPaneTab(t, sessionId, shortId, label, sessionCwd) : t
         ),
       })),
     }));

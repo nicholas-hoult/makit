@@ -528,6 +528,7 @@ function App() {
               b.session_id,
               b.short_id,
               b.name,
+              sessionsRef.current.find((s) => s.session_id === b.session_id)?.cwd,
             );
           }
         }
@@ -842,7 +843,7 @@ function App() {
           if ((t.kind === "shell" || t.kind === "new") && !t.sessionId) {
             const match = runningSessions.find((s) => s.pty_id === t.id);
             if (match) {
-              ws.bindSessionToTab(c.id, t.id, match.session_id, match.short_id);
+              ws.bindSessionToTab(c.id, t.id, match.session_id, match.short_id, undefined, match.cwd);
             }
           }
         }
@@ -1625,7 +1626,11 @@ function App() {
       }
       openRecoverDialog(paneId, cwd, sessionId);
     };
-    return () => { terminalManager.onCwdMissing = null; };
+    terminalManager.onCwdCorrected = (paneId, cwd) => ws.updateTabCwd(paneId, cwd);
+    return () => {
+      terminalManager.onCwdMissing = null;
+      terminalManager.onCwdCorrected = null;
+    };
   }, []);
 
 

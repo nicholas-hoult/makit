@@ -107,20 +107,23 @@ export function resumeInitCommand(sessionId: string, tool?: string): string {
 /// `~/.claude/sessions/<pid>.json`（见 lib.rs 的 resolve_bindings_in），
 /// 那个文件只有 claude 自己会写，codex 不写。
 ///
-/// 已知不足：tab 的 cwd 还是当初开 shell 时的目录。用户如果先 cd 到别处再敲
-/// claude，恢复时会在错的目录下 `claude -r`（claude 的存储键含 cwd，会找不到会话）。
-/// 修它需要后端把 claude 进程的真实 cwd 一起报上来，不在这次范围内。
+/// cwd：会话的起始目录（`sessionCwd`，来自会话记录）已知时改用它（#190）。shell 的目录
+/// 可能是继承来的别的项目，照它记，从这个 tab 新开的终端和下次恢复都会落到错的仓库。
+/// 新会话的 jsonl 还没写出来时不知道起始目录，这时 shell 的目录就是 claude 刚启动的地方，保留即可。
+/// 重启后的兜底在 pty.rs 的 pty_spawn：resume tab 一律在会话起始目录启动。
 export function bindSessionToPaneTab(
   t: PaneTab,
   sessionId: string,
   shortId: string,
   label?: string,
+  sessionCwd?: string,
 ): PaneTab {
   return {
     ...t,
     kind: "resume",
     sessionId,
     sessionShortId: shortId,
+    cwd: sessionCwd || t.cwd,
     initCommand: resumeInitCommand(sessionId),
     // label 可选：session 的 jsonl 还没生成时 sessions 里查不到 meta，
     // stableGetTabTitle 会回退到 tab.label —— 这时 claude 自己写的会话名

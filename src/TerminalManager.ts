@@ -218,6 +218,10 @@ class TerminalManager {
   /// 关着的时候被删/改名的，而它绕过所有前端入口。
   onCwdMissing: ((paneId: string, cwd: string) => void) | null = null;
 
+  /// 后端把 resume tab 改到会话起始目录启动了（#190，见 pty.rs 的 pty_spawn）。
+  /// App 挂上去改掉持久化的 tab 记录 —— 否则从这个 tab 新开的终端还会继承旧目录。
+  onCwdCorrected: ((paneId: string, cwd: string) => void) | null = null;
+
   constructor() {
     this.themeObserver = new MutationObserver(() => {
       const theme = readTheme();
@@ -542,8 +546,9 @@ class TerminalManager {
     // 用户在恢复对话框里选完之后要能就地重来。放在这里是因为 `pendingInput` / `terminal`
     // 只在这个作用域里 —— 重跑必须接上同一份缓冲输入，不能新起一套。
     const spawnAt = async (spawnCwd: string): Promise<boolean> => {
+      let corrected: string | null = null;
       try {
-        await invoke("pty_spawn", {
+        corrected = await invoke<string | null>("pty_spawn", {
           id: paneId,
           cwd: spawnCwd,
           cols,
@@ -568,7 +573,8 @@ class TerminalManager {
         return false;
       }
 
-      inst.cwd = spawnCwd;
+      inst.cwd = corrected ?? spawnCwd;
+      if (corrected) this.onCwdCorrected?.(paneId, corrected);
       inst.ptyReady = true;
       // spawn 自己就带着 cols/rows，PTY 现在就是这个尺寸 —— 记上账，否则第一次 doFit
       // 会白发一次 SIGWINCH。若期间 xterm 已经又变了，第一次 doFit 会发现不同并补发
