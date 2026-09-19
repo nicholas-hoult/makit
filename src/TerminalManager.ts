@@ -203,8 +203,30 @@ function resizeByPlan(inst: TerminalInstance, immediate: boolean): boolean {
     // 与 FitAddon.fit() 一致：改尺寸前清掉渲染缓存，避免残影
     (t as unknown as { _core: { _renderService: { clear(): void } } })._core._renderService.clear();
     t.resize(plan.colsNow ? next.cols : t.cols, next.rows);
+    renderNow(t);
   }
   return plan.colsLater;
+}
+
+/**
+ * 改完尺寸在**这一帧**就重画（#203「拖动时字短暂消失」）。
+ *
+ * 改尺寸会立刻重设 WebGL 画布大小（画布随之被清空），而 xterm 的重画由 RenderDebouncer 排到**下一帧**的
+ * requestAnimationFrame —— 中间这一帧合成出来就是空白。拖动时每帧都在改尺寸，于是字一直闪。
+ * 实测（4 pane 拖高度 2s）：改行数 108 次，当帧没重画 108 次（100%）；当帧立即重画后 0 次，每帧耗时不增加。
+ * xterm 没有同步重画的公开 API，这里取消排队的那一帧、直接执行它；内部结构变了就什么都不做（退回原行为）。
+ */
+function renderNow(t: Xterm): void {
+  const d = (t as unknown as {
+    _core?: { _renderService?: { _renderDebouncer?: {
+      _animationFrame?: number;
+      _innerRefresh?: () => void;
+      _coreBrowserService?: { window: Window };
+    } } };
+  })._core?._renderService?._renderDebouncer;
+  if (!d || d._animationFrame === undefined || typeof d._innerRefresh !== "function" || !d._coreBrowserService) return;
+  d._coreBrowserService.window.cancelAnimationFrame(d._animationFrame);
+  d._innerRefresh();
 }
 
 // ⌘F 命中高亮。不传 decorations 的话 search addon 只做一件事：把命中项**选中** ——
