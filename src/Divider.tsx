@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { terminalManager } from "./TerminalManager";
 
 type DividerProps = {
   direction: "horizontal" | "vertical";
@@ -41,12 +42,14 @@ export function Divider({ direction, onResize }: DividerProps) {
       }
       div.classList.remove("is-dragging");
       document.body.classList.remove("pane-resizing");
+      terminalManager.flushResize(); // 松手：延后的列数重排立即做掉（#203）
     };
 
     const onPointerCancel = () => {
       dragging = false;
       div.classList.remove("is-dragging");
       document.body.classList.remove("pane-resizing");
+      terminalManager.flushResize(); // 松手：延后的列数重排立即做掉（#203）
     };
 
     div.addEventListener("pointerdown", onPointerDown);

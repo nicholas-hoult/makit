@@ -105,7 +105,8 @@ export function WorkspaceView({
     fitTimerRef.current = requestAnimationFrame(() => {
       // 第二帧确保 CSS reflow 完成
       fitTimerRef.current = requestAnimationFrame(() => {
-        terminalManager.fitAll();
+        // 拖分割线时布局每帧都在变：列数重排延后到松手（flushResize），否则每帧重排全部 pane 的回滚（#203）
+        terminalManager.fitAll(!document.body.classList.contains("pane-resizing"));
       });
     });
     return () => { if (fitTimerRef.current) cancelAnimationFrame(fitTimerRef.current); };
@@ -343,6 +344,7 @@ function SplitResizer({ info, onResize }: { info: SplitInfo; onResize: (ratio: n
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.body.classList.remove("pane-resizing");
+      terminalManager.flushResize(); // 松手：延后的列数重排立即做掉（#203）
       div.classList.remove("is-dragging");
     };
 
@@ -351,6 +353,7 @@ function SplitResizer({ info, onResize }: { info: SplitInfo; onResize: (ratio: n
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.body.classList.remove("pane-resizing");
+      terminalManager.flushResize(); // 松手：延后的列数重排立即做掉（#203）
       div.classList.remove("is-dragging");
     };
 

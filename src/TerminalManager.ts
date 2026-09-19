@@ -14,6 +14,7 @@ import { isCmd } from "./keys";
 import { DEFAULT_FONT_SIZE, nextFontSize, type ZoomAction } from "./fontZoom";
 import { installTerminalScrollbar } from "./terminalScrollbar";
 import { installPreciseWheel } from "./terminalWheel";
+import { COLS_DEBOUNCE_MS, createTrailingDebounce, planResize } from "./resizePlan";
 
 export type TerminalInstance = {
   terminal: Xterm;
@@ -45,6 +46,8 @@ export type TerminalInstance = {
   scrollbarActivity: { dispose: () => void };
   /// 触控板滚动按 对标终端 算法换算（#189，见 terminalWheel.ts）
   preciseWheel: { dispose: () => void };
+  /// 延后的列数重排（#203）：拖动中攒着，停手 100ms 或松手（flushResize）时做一次
+  colsResize: { schedule(): void; flush(): void; dispose(): void };
 };
 
 // 匹配本地路径（支持中文文件名 + 目录）：
@@ -184,6 +187,24 @@ function fitSize(terminal: Xterm): { cols: number; rows: number } {
     terminal.resize(size.cols, size.rows);
   }
   return size;
+}
+
+/**
+ * 按行列分离策略把 xterm 调到容器的尺寸（#203，见 resizePlan.ts）：行数立即，列数（要重排整段回滚）
+ * 除非 `immediate` 或缓冲区很小，否则延后。返回列数是否还欠着 —— 欠着的由调用方交给 `colsResize` 防抖。
+ * 替代直接 `fitAddon.fit()`：那个一次就把行列一起调，列数的重排代价全压在拖动的每一帧上。
+ */
+function resizeByPlan(inst: TerminalInstance, immediate: boolean): boolean {
+  const next = inst.fitAddon.proposeDimensions();
+  if (!next || !Number.isFinite(next.cols) || !Number.isFinite(next.rows)) return false;
+  const t = inst.terminal;
+  const plan = planResize({ cols: t.cols, rows: t.rows }, next, t.buffer.active.length, immediate);
+  if (plan.colsNow || plan.rowsNow) {
+    // 与 FitAddon.fit() 一致：改尺寸前清掉渲染缓存，避免残影
+    (t as unknown as { _core: { _renderService: { clear(): void } } })._core._renderService.clear();
+    t.resize(plan.colsNow ? next.cols : t.cols, next.rows);
+  }
+  return plan.colsLater;
 }
 
 // ⌘F 命中高亮。不传 decorations 的话 search addon 只做一件事：把命中项**选中** ——
@@ -362,6 +383,7 @@ class TerminalManager {
       unlistenExit: null,
       resizeObserver: null,
       themeObserver: null,
+      colsResize: createTrailingDebounce(() => this.applyDeferredCols(paneId), COLS_DEBOUNCE_MS),
       detachShiftFix,
       detachImeGate: imeGate.detach,
       detachImeTrace,
@@ -514,8 +536,7 @@ class TerminalManager {
     // 用户恢复后走 `retrySpawn` 重来 —— 挂载点必须跟着成功的那一次走，
     // 否则恢复出来的 pane 不跟随尺寸变化。
     const attachResize = () => {
-      let lastFitAt = 0;
-      let pendingFitTimeout: ReturnType<typeof setTimeout> | null = null;
+      let framePending = false;
       const doFit = () => {
         if (inst.disposed) return;
         const el = inst.element;
@@ -523,19 +544,18 @@ class TerminalManager {
         const rect = el.getBoundingClientRect();
         if (rect.width < 50 || rect.height < 20) return;
         try {
-          fitAddon.fit();
+          const colsLater = resizeByPlan(inst, false);
           const { cols, rows } = fitSize(terminal);
           sendResize(paneId, "doFit", cols, rows, terminal);
+          if (colsLater) inst.colsResize.schedule();
         } catch {}
       };
-      const fitNow = () => { lastFitAt = performance.now(); doFit(); };
+      // 每帧最多一次（#203）。原来是「距上次 >200ms 才 fit + 200ms 尾随」—— 为了躲开列数重排的代价，
+      // 结果拖动时终端每 200ms 跳一下。现在列数的代价由 resizeByPlan 延后，行数每帧跟手也只要 ~1ms。
       inst.resizeObserver = new ResizeObserver(() => {
-        if (inst.disposed) return;
-        // leading：burst 起始（>200ms 没 fit 过）立即响应
-        if (performance.now() - lastFitAt > 200) fitNow();
-        // trailing：burst 结束 200ms 后再 fit 一次校准
-        if (pendingFitTimeout != null) clearTimeout(pendingFitTimeout);
-        pendingFitTimeout = setTimeout(() => { pendingFitTimeout = null; fitNow(); }, 200);
+        if (inst.disposed || framePending) return;
+        framePending = true;
+        requestAnimationFrame(() => { framePending = false; doFit(); });
       });
       // 观察 .container-terminal（containing block），WebKit 对 absolute 子元素的 ResizeObserver 不可靠
       const observeTarget = inst.element.closest(".container-terminal") ?? inst.element.parentElement ?? inst.element;
@@ -670,7 +690,12 @@ class TerminalManager {
     this.fit(paneId);
   }
 
-  fitAll() {
+  /**
+   * 布局变了（分屏、关 pane、最大化、拖分割线）时调所有终端。
+   * `immediate = false` 用于拖分割线的过程中：布局每帧都在变，这里每帧都会被调 ——
+   * 列数重排延后到松手（flushResize）或停手 100ms（#203）。
+   */
+  fitAll(immediate = true) {
     for (const [id, inst] of this.instances) {
       if (inst.disposed) continue;
       const el = inst.element;
@@ -681,7 +706,7 @@ class TerminalManager {
       const rect = el.getBoundingClientRect();
       if (rect.width < 50 || rect.height < 20) continue;
       try {
-        inst.fitAddon.fit();
+        if (resizeByPlan(inst, immediate)) inst.colsResize.schedule();
         const { cols, rows } = fitSize(inst.terminal);
         // fitAll 不看 ptyReady：还没 spawn 的 pane 这次 invoke 必然被拒，站点名里标出来，
         // 免得把「无害的早发」和「真的漏了一次 resize」记成同一件事
@@ -689,6 +714,26 @@ class TerminalManager {
         sendResize(id, site, cols, rows, inst.terminal);
       } catch {}
     }
+  }
+
+  /** 拖分割线松手：延后的列数重排立即做掉，不等 100ms（#203） */
+  flushResize() {
+    for (const inst of this.instances.values()) {
+      if (!inst.disposed) inst.colsResize.flush();
+    }
+  }
+
+  /** colsResize 防抖到点：把欠着的列数补上（此时按立即处理，行列一起到位） */
+  private applyDeferredCols(paneId: string) {
+    const inst = this.instances.get(paneId);
+    if (!inst || inst.disposed) return;
+    const rect = inst.element.getBoundingClientRect();
+    if (rect.width < 50 || rect.height < 20) return;
+    try {
+      resizeByPlan(inst, true);
+      const { cols, rows } = fitSize(inst.terminal);
+      if (inst.ptyReady) sendResize(paneId, "colsDeferred", cols, rows, inst.terminal);
+    } catch {}
   }
 
   // 局内搜索 API
@@ -760,6 +805,7 @@ class TerminalManager {
     inst.linkProviderDisposable?.dispose();
     inst.scrollbarActivity.dispose();
     inst.preciseWheel.dispose();
+    inst.colsResize.dispose();
     inst.unlistenData?.();
     inst.unlistenExit?.();
     inst.resizeObserver?.disconnect();
