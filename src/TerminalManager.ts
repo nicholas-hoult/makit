@@ -12,6 +12,7 @@ import { claimResize, revertResize, forgetPane, clampSize } from "./ptySize";
 import { activateUnicodeProvider } from "./terminal/unicode-provider";
 import { isCmd } from "./keys";
 import { DEFAULT_FONT_SIZE, nextFontSize, type ZoomAction } from "./fontZoom";
+import { installTerminalScrollbar } from "./terminalScrollbar";
 
 export type TerminalInstance = {
   terminal: Xterm;
@@ -39,6 +40,8 @@ export type TerminalInstance = {
   detachImeTrace: (() => void) | null;
   isComposing: () => boolean;
   linkProviderDisposable: { dispose: () => void } | null;
+  /// 滚动条「滚时显形、停手淡出」（#188，见 terminalScrollbar.ts）
+  scrollbarActivity: { dispose: () => void };
 };
 
 // 匹配本地路径（支持中文文件名 + 目录）：
@@ -357,6 +360,7 @@ class TerminalManager {
       detachImeTrace,
       isComposing: imeGate.isComposing,
       linkProviderDisposable: null,
+      scrollbarActivity: installTerminalScrollbar(terminal, element),
     };
 
     // OSC 7：shell 通过 \033]7;file://host/path\033\\ 通知 cwd 变化
@@ -744,6 +748,7 @@ class TerminalManager {
     inst.detachImeGate?.();
     inst.detachImeTrace?.();
     inst.linkProviderDisposable?.dispose();
+    inst.scrollbarActivity.dispose();
     inst.unlistenData?.();
     inst.unlistenExit?.();
     inst.resizeObserver?.disconnect();

@@ -3341,6 +3341,17 @@ body.pane-resizing .xterm-inner {
 .xterm-inner .xterm-viewport::-webkit-scrollbar { display: none; }
 .xterm-inner .xterm-viewport { scrollbar-width: none; }
 
+/* xterm 6 自己画的覆盖层滚动条（`.xterm-scrollable-element > .scrollbar`，不占布局宽度）：
+   和全局那套同一时序 —— 只在人在翻的时候显形，停手淡出（#188）。它自带的 VS Code
+   Auto 可见性是「指针在终端上就显示」，终端又是一直被指着的地方，等于常驻；这里在
+   没滚的时候强制压住，`.is-scrolling`（terminalScrollbar.ts 挂）期间交回 xterm 自己判断
+   （没有回滚内容时它本来就不画）。长度按比例，xterm 内置最小 20px。 */
+.xterm-inner:not(.is-scrolling) .xterm-scrollable-element > .scrollbar {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 300ms linear;
+}
+
 /* 拖拽进行时让 xterm 不拦截鼠标事件，drop 能到 container-terminal 这一层
    用 * 全后代（含 xterm canvas / textarea），不能只用 >* 因为 xterm 是孙子 */
 body.dragging .container-terminal *,
