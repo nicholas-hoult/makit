@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition } fr
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { homeDir } from "@tauri-apps/api/path";
 import { confirm as confirmDialog, message as messageDialog } from "@tauri-apps/plugin-dialog";
 import { TerminalView } from "./Terminal";
 import { terminalManager } from "./TerminalManager";
@@ -20,6 +21,7 @@ import { SessionTree } from "./SessionTree";
 import { useNotifications } from "./useNotifications";
 import { applyRunningMeta, type RunningMeta } from "./running-merge";
 import { installScrollActivity } from "./scrollActivity";
+import { shortenHome } from "./homePath";
 import {
   PANE_ICON_SETS, paneIconsFor, savedPaneIconSetId, savePaneIconSetId,
 } from "./paneIcons";
@@ -434,6 +436,9 @@ function App() {
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
   const terminalSearchInputRef = useRef<HTMLInputElement>(null);
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  // 路径显示时把 home 缩写成 ~（#192：原来写死成开发者本机的 home）
+  const [home, setHome] = useState("");
+  useEffect(() => { homeDir().then(setHome).catch(() => {}); }, []);
   const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1735,8 +1740,7 @@ function App() {
     if (contextRoot && cwd === contextRoot) {
       return "./";
     }
-    const home = "/Users/me";
-    return cwd.startsWith(home) ? "~" + cwd.slice(home.length) : cwd;
+    return shortenHome(cwd, home);
   }
 
   function renderSessionCard(s: SessionMeta, keyPrefix = "", projectRoot = "") {
