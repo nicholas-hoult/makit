@@ -13,23 +13,53 @@
  * 一个可滚动面板都要记得补一次，漏掉就是"这里的条子又不会自己藏"。
  *
  * 直接改 classList 而不走 state：纯装饰，不值得每次 scroll 触发一轮 React 渲染。
- * 重复 add 同一个 token 是 no-op（不写属性、不引起 invalidation），所以终端输出
- * 刷屏时这里也不会一帧一帧地重算样式。
+ * 只在「没在滚 → 在滚」和「在滚 → 停手」两个边沿动 DOM，中间的 scroll 事件只续定时器，
+ * 所以终端输出刷屏时这里也不会一帧一帧地重算样式。
+ *
+ * 光挂 class 不够（#185）：macOS 26 的 WebKit 在滚动容器换 class 后**不会重算**
+ * `::-webkit-scrollbar-thumb` 的样式 —— `is-scrolling` 挂上了，滑块照样透明，于是
+ * 「自动隐藏的滚动条」变成了「永远不出现的滚动条」。用真 WKWebView 对照测过：改
+ * scrollbar 宽度不触发重建；把 overflow 切 hidden 再切回能触发，但会销毁滚动节点、
+ * 可能打断触控板惯性；**把 `auto` 切成 `scroll`** 能触发，而且两者都可滚、滚动节点
+ * 不重建。只切「确实溢出且当前是 auto」的那个轴：溢出时 auto 本来就有滚动条，切成
+ * scroll 布局一像素不变；横向的 tab 条不会因此多出一条竖轨。
  */
 export function installScrollActivity(idleMs = 900): () => void {
-  // 用 WeakMap 存定时器：元素卸载后自己就被回收，不需要在任何地方注销
+  // 用 WeakMap 存定时器和被改前的 inline overflow：元素卸载后自己就被回收，不需要在任何地方注销
   const timers = new WeakMap<Element, number>();
+  const saved = new WeakMap<HTMLElement, { x: string; y: string }>();
+
+  function show(el: HTMLElement) {
+    el.classList.add("is-scrolling");
+    const cs = getComputedStyle(el);
+    const y = cs.overflowY === "auto" && el.scrollHeight > el.clientHeight;
+    const x = cs.overflowX === "auto" && el.scrollWidth > el.clientWidth;
+    if (!x && !y) return;
+    saved.set(el, { x: el.style.overflowX, y: el.style.overflowY });
+    if (y) el.style.overflowY = "scroll";
+    if (x) el.style.overflowX = "scroll";
+  }
+
+  function hide(el: HTMLElement) {
+    el.classList.remove("is-scrolling");
+    const prev = saved.get(el);
+    if (!prev) return;
+    // 切回 auto 同样逼 WebKit 重建滚动条，滑块才会跟着 class 一起消失
+    el.style.overflowX = prev.x;
+    el.style.overflowY = prev.y;
+    saved.delete(el);
+  }
 
   function onScroll(e: Event) {
     const el = e.target;
     if (!(el instanceof HTMLElement)) return; // document / window 的 scroll 不管
-    el.classList.add("is-scrolling");
     const prev = timers.get(el);
     if (prev !== undefined) clearTimeout(prev);
+    else show(el);
     timers.set(
       el,
       window.setTimeout(() => {
-        el.classList.remove("is-scrolling");
+        hide(el);
         timers.delete(el);
       }, idleMs),
     );
