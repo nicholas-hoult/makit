@@ -3341,6 +3341,33 @@ body.pane-resizing .xterm-inner {
 .xterm-inner .xterm-viewport::-webkit-scrollbar { display: none; }
 .xterm-inner .xterm-viewport { scrollbar-width: none; }
 
+/* 「回到最新」浮层按钮（#205）：往回翻历史时浮出，点一下回到底部。
+   放在终端右下角、避开右侧滚动条；默认不接收指针事件，免得贴底隐藏时挡住终端上的点击 / 选中。 */
+.terminal-jump-latest {
+  position: absolute;
+  right: 18px;
+  bottom: 12px;
+  z-index: 5;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 150ms linear, transform 150ms ease-out;
+}
+.terminal-jump-latest.is-visible {
+  opacity: 0.92;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.terminal-jump-latest:hover { opacity: 1; background: var(--bg-hover); }
+
 /* xterm 6 自己画的覆盖层滚动条（`.xterm-scrollable-element > .scrollbar`，不占布局宽度）：
    和全局那套同一时序 —— 只在人在翻的时候显形，停手淡出（#188）。它自带的 VS Code
    Auto 可见性是「指针在终端上就显示」，终端又是一直被指着的地方，等于常驻；这里在

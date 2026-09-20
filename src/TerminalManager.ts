@@ -13,6 +13,7 @@ import { activateUnicodeProvider } from "./terminal/unicode-provider";
 import { isCmd } from "./keys";
 import { DEFAULT_FONT_SIZE, nextFontSize, type ZoomAction } from "./fontZoom";
 import { installTerminalScrollbar } from "./terminalScrollbar";
+import { installJumpLatest } from "./terminalJumpLatest";
 import { installPreciseWheel } from "./terminalWheel";
 import { COLS_FOLLOW_MS, createColsFollower, planResize } from "./resizePlan";
 
@@ -48,6 +49,8 @@ export type TerminalInstance = {
   preciseWheel: { dispose: () => void };
   /// 列数重排的跟随节流（#203）：拖动中每 COLS_FOLLOW_MS 跟一次，停手补最后一次，松手（flushResize）立即
   colsResize: { request(): void; flush(): void; dispose(): void };
+  /// 「回到最新」浮层按钮（#205，见 terminalJumpLatest.ts）
+  jumpLatest: { dispose: () => void };
 };
 
 // 匹配本地路径（支持中文文件名 + 目录）：
@@ -416,6 +419,7 @@ class TerminalManager {
       linkProviderDisposable: null,
       scrollbarActivity: installTerminalScrollbar(terminal, element),
       preciseWheel: installPreciseWheel(terminal, element),
+      jumpLatest: installJumpLatest(terminal, element),
     };
 
     // OSC 7：shell 通过 \033]7;file://host/path\033\\ 通知 cwd 变化
@@ -831,6 +835,7 @@ class TerminalManager {
     inst.scrollbarActivity.dispose();
     inst.preciseWheel.dispose();
     inst.colsResize.dispose();
+    inst.jumpLatest.dispose();
     inst.unlistenData?.();
     inst.unlistenExit?.();
     inst.resizeObserver?.disconnect();
