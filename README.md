@@ -1,204 +1,238 @@
-# Makit
+# makit
 
-**让 AI 编码助手成为你的开发团队**
+**Make It Happen ——  让任务成真**
 
-Makit 是一个原生 macOS 应用，专为管理多个 AI 编码会话而设计。当你同时运行多个 Claude Code、Codex 或 Gemini 实例时，Makit 帮你组织、切换和恢复它们，就像管理一个分布式的开发团队。
+一个 macOS 原生应用，把你散落在各个终端窗口里的 AI 编码会话收进一个界面：看得到哪个在跑、哪个在等你、哪个早就停了，点一下就能回到任何一个。
 
-![macOS](https://img.shields.io/badge/macOS-11.0+-000000?logo=apple)
-![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?logo=tauri)
-![License](https://img.shields.io/badge/license-MIT-blue)
+支持 **Claude Code** 和 **Codex**。
 
----
-
-## 为什么需要 Makit？
-
-### 问题：AI 会话管理的混乱
-
-当你的开发流程依赖 AI 助手时：
-- **项目 A** 正在等待你审批一个复杂重构
-- **项目 B** 的 agent 刚跑完测试，需要查看结果
-- **项目 C** 的紧急 bug 修复正在进行中
-- 但你的终端窗口散落各处，不知道哪个在干什么
-
-你需要在多个终端标签页之间疯狂切换，不知道哪个 session 还活着，哪个已经完成，哪个需要你的注意。
-
-### 解决方案：统一的会话中心
-
-Makit 将所有 AI 会话集中到一个界面：
-
-**🔍 一眼看到所有状态**  
-实时显示每个 session 的状态：运行中、等待审批、已完成、空闲
-
-**⚡ 快速恢复和切换**  
-`Cmd+K` 打开搜索，输入项目名或任务描述，回车即可恢复任何历史会话
-
-**📊 分屏工作区**  
-同时监控多个 AI agent：左边跑测试，右边写代码，上边审查，下边调试
-
-**🎯 零打断**  
-AI 完成任务或遇到问题时，桌面通知立即提醒你，无需轮询
+> **0.1，先说清楚三件事**
+> - 只发 macOS（Intel + Apple Silicon 通用包）。Linux 计划 0.2，Windows beta 计划 0.3。
+> - **没有签名**，第一次打开需要手动放行（下面有步骤）。签名和公证要等有了开发者账号。
+> - 需要你本机已经装好 Claude Code 或 Codex。makit 不代替它们，只是管理它们的会话。
 
 ---
 
-## 核心特性
+## 它解决什么
 
-### 智能会话管理
-- **自动发现**：扫描 `~/.claude/projects/` 下所有会话，实时同步状态
-- **状态标识**：五种状态一目了然（运行中 / 等待审批 / 空闲 / 已停止 / 已归档）
-- **快速搜索**：按项目、任务、时间、状态筛选，支持模糊搜索
+开三个项目，每个项目挂着一个 AI 会话：A 在等你批一个重构，B 刚跑完测试，C 的 bug 还在修。终端窗口散在四处，哪个还活着、哪个在等你，只能一个个点开看。
 
-### 专业级终端
-- **分屏布局**：树形分屏，支持拖拽调整和方向键导航
-- **多标签管理**：每个分屏独立 tab bar，可重排序和跨屏拖拽
-- **路径识别**：`Cmd+点击` 直接打开文件和目录（支持相对路径、中文、~）
-- **持久化 PTY**：会话不丢失，分屏移动时终端状态完整保留
+makit 把这件事变成一屏：
 
-### 实时通知
-- 集成 Claude Code 的 hook 系统，会话状态变化立即推送
-- 支持多 AI provider（Claude、Codex、Gemini）
+- **会话列表** — 扫描本机已有的会话，按项目归组，显示每个的状态（运行中 / 等待审批 / 空闲 / 已停止 / 已归档）
+- **一键恢复** — 选中历史会话直接接着聊，回到它原来的工作目录（Claude Code 的会话即使原目录被删也能救回来）
+- **分屏终端** — 树形分屏，可拖拽调整，一屏盯住多个会话
+- **状态通知** — 会话在等你时弹桌面通知（仅 Claude Code，需手动装一个 hook）
+
+---
+
+## 安装
+
+### 下载
+
+0.1 只有 macOS 通用包，Intel 和 Apple Silicon 共用同一个文件。
+
+**[→ 前往 Releases 下载最新版](https://gitee.com/nicholas-hoult/makit/releases)**
+
+下载 `.dmg`，打开后把 makit 拖进「应用程序」。
+
+### 第一次打开（未签名，必须这一步）
+
+因为包没有签名，直接双击会被 macOS 拦下来。任选一种：
+
+**方式一：系统设置放行**
+
+1. 双击 `makit.app`，会看到「无法打开」的提示，点「完成」
+2. 打开 **系统设置 → 隐私与安全性**，往下拉，会看到「已阻止 makit」
+3. 点 **仍要打开**，再确认一次
+
+**方式二：命令行去掉隔离标记**
+
+如果提示的是「**已损坏，无法打开**」（从浏览器下载的包常见），执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/makit.app
+```
+
+然后正常双击打开。
+
+> 这两步是所有未签名 app 都要做的，不是 makit 特有。不放心的话，源码全在这儿，可以自己构建（见文末）。
+
+### 前置依赖
+
+makit 管理的是**你已经装好的** AI CLI，所以至少要有其中一个：
+
+- [Claude Code](https://claude.ai/code)
+- [Codex](https://github.com/openai/codex)
+
+一个都没装的话，makit 打开后会是空的。
 
 ---
 
 ## 快速开始
 
-### 安装
-
-**方式 1：下载发行版**（推荐）
-```bash
-# 下载最新 .dmg
-open https://github.com/yourusername/makit/releases/latest
-
-# 拖拽到应用程序文件夹
-```
-
-**方式 2：从源码构建**
-```bash
-git clone https://github.com/yourusername/makit.git
-cd makit
-pnpm install
-
-# 开发模式
-pnpm dev
-
-# 构建生产版本
-pnpm tauri build
-```
-
-### 使用
-
-1. **启动 Makit**  
-   应用会自动扫描你的 Claude Code sessions
-
-2. **打开命令面板**  
-   按 `Cmd+K`，搜索项目或任务
-
-3. **创建新会话**  
-   选择项目 → 点击 "新会话" → 自动启动 `claude` 或 `codex`
-
-4. **分屏工作**  
-   `Cmd+D` 左右分屏，`Cmd+Shift+D` 上下分屏
+1. 打开 makit，左侧会列出扫描到的会话
+2. `⌘K` 搜项目或任务，回车恢复
+3. `⌘T` 开一个新终端标签，在里面直接敲 `claude` 或 `codex` 也行
+4. `⌘D` 左右分屏，一屏看两个会话
 
 ---
 
 ## 快捷键
 
-| 按键 | 功能 |
-|------|------|
-| `Cmd+K` | 全局搜索 / 命令面板 |
-| `Cmd+T` | 新建 Shell 标签 |
-| `Cmd+W` | 关闭当前标签 |
-| `Cmd+D` | 左右分屏 |
-| `Cmd+Shift+D` | 上下分屏 |
-| `Cmd+Opt+方向键` | 切换到相邻分屏 |
-| `Cmd+1~9` | 切换到第 N 个分屏 |
-| `Cmd+F` | 在当前终端内搜索 |
-| `Cmd+B` | 折叠/展开项目列表 |
+**会话**
+
+| 按键 | 作用 |
+|---|---|
+| `⌘K` | 命令面板：搜项目 / 任务，回车恢复会话 |
+| `⌘⇧F` | 聚焦侧栏搜索框 |
+| `⌘L` | 在侧栏里定位当前标签对应的会话 |
+| `⌘B` | 折叠 / 展开侧栏 |
+| `⌘I` | 通知中心 |
+| `⌘R` | 重新扫描会话列表 |
+
+**标签**
+
+| 按键 | 作用 |
+|---|---|
+| `⌘T` | 新建终端标签 |
+| `⌘W` | 关闭当前标签（连同里面跑着的进程） |
+| `⌘1` ~ `⌘9` | 切到当前分屏的第 N 个标签 |
+| `⌘[` `⌘]`、`⌘←` `⌘→` | 上一个 / 下一个标签（循环） |
+| `⌃Tab`、`⌃⇧Tab` | 同上 |
+
+**分屏**
+
+| 按键 | 作用 |
+|---|---|
+| `⌘D` | 左右分屏 |
+| `⌘⇧D` | 上下分屏 |
+| `⌥⌘1` ~ `⌥⌘9` | 切到第 N 个分屏 |
+| `⌥⌘` + 方向键 | 切到相邻分屏 |
+| `⌥⌘↩` | 最大化 / 还原当前分屏 |
+
+**终端内**
+
+| 按键 | 作用 |
+|---|---|
+| `⌘F` | 在当前终端里搜索 |
+| `⌘=` `⌘-` `⌘0` | 字号放大 / 缩小 / 恢复 |
+| `⌘` + 点击路径 | 打开那个文件或目录（相对路径按当前目录解析） |
+
+> **`⌃` 开头的组合一律不拦**：`⌃C`、`⌃R`、`⌃L`、`⌃D` 等原样交给终端里的程序，makit 不截。唯一的例外是 `⌃Tab` 切标签。
+
+完整列表在 app 内的设置面板里。
 
 ---
 
-## 技术栈
+## 支持哪些 AI CLI
 
-**前端**：React + TypeScript + Vite  
-**终端**：xterm.js + 自定义增强（路径识别、OSC 7 跟踪）  
-**后端**：Tauri 2 + Rust  
-**PTY 管理**：portable-pty + tokio  
-**文件监听**：notify (fsevents)
+两种，但**能力不一样**，装之前请看清楚：
 
-**零运行时依赖** — 构建产物为自包含的 `.app`，不需要安装 Node.js 或 Rust
+| | Claude Code | Codex |
+|---|---|---|
+| 扫描本机已有会话 | ✅ | ✅ |
+| 恢复历史会话 | ✅ | ✅ |
+| 新建会话 | ✅ | ✅ |
+| 运行 / 等待状态 | ✅ | ❌ 一律显示「已停止」 |
+| 桌面通知 | ✅（需手动装 hook） | ❌ |
+| 会话内容预览 | ✅ | ❌ 点开会报错 |
+| 启动目录被删后的恢复 | ✅ | 不适用（Codex 不按目录索引会话） |
+
+**为什么不对称**：makit 的运行状态不是自己探测出来的，是读 Claude Code 写在 `~/.claude/sessions/<pid>.json` 里的状态。Codex 没有等价的东西，所以它的会话能管、能恢复，但看不出「在跑还是在等你」。
+
+Codex 这条路还没在真机上全面验证，0.1 当它是**已知限制**而不是成品。
+
+其他 CLI（Gemini 等）暂不支持。
 
 ---
 
-## 架构概览
+## 它会碰你哪些东西
 
-```
-┌─ 侧栏 ──────────────┬─── Workspace ────────────────────────┐
-│ 📁 项目列表          │ ┌─ Container A ─┬─ Container B ───┐  │
-│   · ai-project      │ │ [tab1][tab2]  │ [tab1][tab2×]   │  │
-│   · web-app         │ │ 🖥 Terminal   │ 🖥 Terminal     │  │
-│ ───────────────────  │ ├─ Container C ─┤                 │  │
-│ 🔍 搜索  ⚡ 筛选    │ │ [tab1×]       │                 │  │
-│ Session 列表         │ │ 🖥 Terminal   │                 │  │
-│   ▶ 运行中 (2)      │ └───────────────┴─────────────────┘  │
-│   ⚠ 等待审批 (1)    │                                      │
-│   ⏱ 最近活跃 (5)    │                                      │
-└──────────────────────┴──────────────────────────────────────┘
-```
+一个未签名的、要读 `~/.claude` 的 app，你有权知道它具体干什么。全部如下：
+
+**读取（只读）**
+
+- `~/.claude/projects/`、`~/.claude/sessions/` — 扫描已有会话，用来生成列表和状态
+
+**写入**
+
+- `~/.claude/makit/` — makit 自己的数据：归档记录、图标缓存、hook 通信用的 socket。删掉它不会影响你的会话
+- `~/.claude/settings.json` — **只有你点了「安装 hook」按钮才会写**。不装 hook，makit 一个字都不会改它
+
+**网络**
+
+- 只有一个请求：第一次显示工具图标时下载 `anthropic.com` / `openai.com` 的 favicon，存在本地，以后不再请求
+- 不上传任何东西，没有遥测，没有账号
+
+**进程**
+
+- 你在 makit 里开的终端，**关掉标签页就会关掉里面的一切** —— 包括你在那个标签里手动起的后台进程（dev server 之类）。这是刻意的：一个标签就是一个会话，不该在你关掉之后还在后台烧内存和 token。要留着的进程请在 makit 之外跑。
+
+---
+
+## 已知问题
+
+0.1 还带着这些毛病，都在修：
+
+- **中英文输入法快速切换时会重复输入**（#137）—— WKWebView 的 keydown 和 beforeinput 重复触发
+- **浅色主题下终端提示符里的用户名看不清**（#150）
+- **Retina 屏上终端列数偏少**（#111）—— xterm.js 上游的问题，跟进中
+
+碰到别的问题欢迎提 issue，请附上 makit 版本和 macOS 版本。
 
 ---
 
 ## 路线图
 
-- [x] 基础会话管理和终端
-- [x] 分屏布局和拖拽
-- [x] 实时状态监控
+- [x] 会话扫描、恢复、状态显示
+- [x] 分屏终端、标签拖拽
 - [x] 命令面板和搜索
-- [ ] **OSC 9999 状态感知**（Agent 主动上报状态）
-- [ ] Session 生命周期管理（关闭 tab 清理 PTY）
-- [ ] 会话持久化和恢复（跨应用重启）
-- [ ] 多 AI provider 统一接口
-- [ ] 跨设备同步（云端会话）
-- [ ] Windows/Linux 支持
+- [x] 关掉标签页彻底清理会话进程
+- [ ] 首次启动引导
+- [ ] 版本更新提示
+- [ ] Linux（0.2）
+- [ ] Windows beta（0.3）
 
 ---
 
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-开发环境要求：
-- macOS 11.0+
-- Rust 1.70+
-- Node.js 18+
-- pnpm 8+
+## 从源码构建
 
 ```bash
-# 安装依赖
+git clone https://gitee.com/nicholas-hoult/makit.git
+cd makit
 pnpm install
 
-# 启动开发服务器
-pnpm dev
+# 开发模式（会起 Vite + Rust，第一次编译要几分钟）
+pnpm tauri dev
 
-# 运行测试
-pnpm test
+# 构建 .app
+pnpm tauri build --bundles app
+# 产物在 src-tauri/target/release/bundle/macos/makit.app
+```
 
-# 构建
-pnpm tauri build
+环境要求：macOS、Rust stable、Node.js 18+、pnpm。
+
+跑测试：
+
+```bash
+pnpm test        # 前端
+pnpm test:rust   # Rust
 ```
 
 ---
 
-## 许可证
+## 技术栈
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+Tauri 2 + Rust 后端，React 19 + TypeScript 前端，终端是 xterm.js。构建产物是自包含的 `.app`，装完不需要 Node 或 Rust。
 
 ---
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。
 
 ## 致谢
 
-- [xterm.js](https://xtermjs.org/) - 强大的终端模拟器
-- [Tauri](https://tauri.app/) - 轻量级桌面应用框架
-- [Claude Code](https://claude.ai/code) - 启发了这个项目的诞生
-
----
-
-**Made with ❤️ for developers who work with AI assistants**
+- [Tauri](https://tauri.app/)、[xterm.js](https://xtermjs.org/) —— 这个 app 的地基
+- [Claude Code](https://claude.ai/code) —— 先有了它带来的工作方式，才有管理这种工作方式的需求
