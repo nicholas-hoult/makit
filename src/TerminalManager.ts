@@ -14,7 +14,7 @@ import { isCmd } from "./keys";
 import { DEFAULT_FONT_SIZE, nextFontSize, type ZoomAction } from "./fontZoom";
 import { installTerminalScrollbar } from "./terminalScrollbar";
 import { installPreciseWheel } from "./terminalWheel";
-import { COLS_DEBOUNCE_MS, createTrailingDebounce, planResize } from "./resizePlan";
+import { COLS_FOLLOW_MS, createColsFollower, planResize } from "./resizePlan";
 
 export type TerminalInstance = {
   terminal: Xterm;
@@ -46,8 +46,8 @@ export type TerminalInstance = {
   scrollbarActivity: { dispose: () => void };
   /// 触控板滚动按 对标终端 算法换算（#189，见 terminalWheel.ts）
   preciseWheel: { dispose: () => void };
-  /// 延后的列数重排（#203）：拖动中攒着，停手 100ms 或松手（flushResize）时做一次
-  colsResize: { schedule(): void; flush(): void; dispose(): void };
+  /// 列数重排的跟随节流（#203）：拖动中每 COLS_FOLLOW_MS 跟一次，停手补最后一次，松手（flushResize）立即
+  colsResize: { request(): void; flush(): void; dispose(): void };
 };
 
 // 匹配本地路径（支持中文文件名 + 目录）：
@@ -322,7 +322,10 @@ class TerminalManager {
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace, 'Apple SD Gothic Neo', 'Hiragino Sans GB', 'PingFang SC', 'Microsoft YaHei'",
       fontSize: DEFAULT_FONT_SIZE,
       cursorBlink: true,
-      scrollback: 5000,
+      // 2000 而不是 5000（#203）：改宽度要把整段回滚按新列数重排，耗时与回滚行数成正比
+      // （实测 5000 行 ~21ms/次、2000 行 ~8ms）。5000 行时「文字跟着手走」和「不掉帧」无法兼得，
+      // 用户选了「跟手」：降到 2000 行，配合 33ms 跟随节奏，2 pane 快拖每帧忙碌中位 15ms。
+      scrollback: 2000,
       theme: readTheme(),
       // 终端"内容"的颜色不归 theme.ts 的推导管：那边的 readable() 只兜派生的 UI 变量，
       // ANSI 16 色是照抄上游配色原封不动交给 xterm 的（theme.ts:95）。上游浅色配色里
@@ -405,7 +408,7 @@ class TerminalManager {
       unlistenExit: null,
       resizeObserver: null,
       themeObserver: null,
-      colsResize: createTrailingDebounce(() => this.applyDeferredCols(paneId), COLS_DEBOUNCE_MS),
+      colsResize: createColsFollower(() => this.applyDeferredCols(paneId), COLS_FOLLOW_MS),
       detachShiftFix,
       detachImeGate: imeGate.detach,
       detachImeTrace,
@@ -569,7 +572,7 @@ class TerminalManager {
           const colsLater = resizeByPlan(inst, false);
           const { cols, rows } = fitSize(terminal);
           sendResize(paneId, "doFit", cols, rows, terminal);
-          if (colsLater) inst.colsResize.schedule();
+          if (colsLater) inst.colsResize.request();
         } catch {}
       };
       // 每帧最多一次（#203）。原来是「距上次 >200ms 才 fit + 200ms 尾随」—— 为了躲开列数重排的代价，
@@ -728,7 +731,7 @@ class TerminalManager {
       const rect = el.getBoundingClientRect();
       if (rect.width < 50 || rect.height < 20) continue;
       try {
-        if (resizeByPlan(inst, immediate)) inst.colsResize.schedule();
+        if (resizeByPlan(inst, immediate)) inst.colsResize.request();
         const { cols, rows } = fitSize(inst.terminal);
         // fitAll 不看 ptyReady：还没 spawn 的 pane 这次 invoke 必然被拒，站点名里标出来，
         // 免得把「无害的早发」和「真的漏了一次 resize」记成同一件事
@@ -738,14 +741,14 @@ class TerminalManager {
     }
   }
 
-  /** 拖分割线松手：延后的列数重排立即做掉，不等 100ms（#203） */
+  /** 拖分割线松手：欠着的那次列数重排立即做掉，不等下一个节奏点（#203） */
   flushResize() {
     for (const inst of this.instances.values()) {
       if (!inst.disposed) inst.colsResize.flush();
     }
   }
 
-  /** colsResize 防抖到点：把欠着的列数补上（此时按立即处理，行列一起到位） */
+  /** 跟随节奏到点：把欠着的列数补上（此时按立即处理，行列一起到位） */
   private applyDeferredCols(paneId: string) {
     const inst = this.instances.get(paneId);
     if (!inst || inst.disposed) return;
