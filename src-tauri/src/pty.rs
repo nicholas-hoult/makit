@@ -543,7 +543,7 @@ mod kill_matrix_tests {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 
-    const MARKER: &str = "MAKIT_KILL_MATRIX";
+    pub(super) const MARKER: &str = "MAKIT_KILL_MATRIX";
 
     /// 六种形态：名字 + 它相对「killpg + pgrep -P 递归」这套机制处在什么位置。
     const SHAPES: [(&str, &str); 6] = [
@@ -557,7 +557,7 @@ mod kill_matrix_tests {
 
     /// 活着的 pid 集合。用 `ps` 的 state 而不是 `kill(pid, 0)`：被杀掉的子进程会先变成
     /// 僵尸，`kill(pid, 0)` 对僵尸照样返回 0，会把"已经杀掉"误报成"还活着"。
-    fn live_pids(pids: &[u32]) -> HashSet<u32> {
+    pub(super) fn live_pids(pids: &[u32]) -> HashSet<u32> {
         let mut live = HashSet::new();
         if pids.is_empty() {
             return live;
@@ -583,7 +583,7 @@ mod kill_matrix_tests {
 
     /// 兜底清扫：按 nonce 环境变量找所有还活着的合成进程并 SIGKILL。返回清掉的 pid。
     /// 这条路径不能依赖前面收集到的 pid —— 逃逸进程的 pid 有可能就是没记上的那个。
-    fn sweep_by_nonce(nonce: &str) -> Vec<u32> {
+    pub(super) fn sweep_by_nonce(nonce: &str) -> Vec<u32> {
         let my_pid = std::process::id();
         let out = match Command::new("ps").args(["-axEww", "-o", "pid=,command="]).output() {
             Ok(o) => o,
@@ -877,6 +877,151 @@ mod kill_matrix_tests {
              逃逸形态靠 MAKIT_PTY_ID 兜底，活下来说明兜底没生效 —— \
              先确认 ps 用的是大写 -E（小写 -e 在 macOS 上是「全部进程」，拿不到环境变量）。"
         );
+    }
+}
+
+
+/// 真 pty 端到端（#3）：这条和 `kill_matrix_tests` 的区别是**没有任何模拟**——
+/// 用生产代码同一个 `portable_pty::native_pty_system()` 开一个真 pty，起真 shell，
+/// 在里面用 node（claude 就是 node）起一个 detached 孙进程后父进程立刻退出，
+/// 于是孙进程 reparent 到 1 —— 这就是用户关不掉的那个东西的真实形状。
+///
+/// 它验的是三件光靠合成树验不到的事：
+///   1. `killpg(pid)` 的前提成立：portable-pty 起的 shell 真的 `pid == pgid`；
+///   2. `MAKIT_PTY_ID` 真的一路继承到逃逸的孙进程（pty → shell → node → detached node）；
+///   3. node 进程的环境变量在 `ps -xEww` 里真的看得见 —— SIP 保护的平台二进制
+///      （/bin/sh、/bin/sleep）是看不见的，兜底认不出它们。claude 是 node，所以这条成立。
+#[cfg(all(test, unix))]
+mod real_pty_close_tests {
+    use super::kill_matrix_tests::{live_pids, sweep_by_nonce, MARKER};
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use std::fs;
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    fn have_node() -> bool {
+        Command::new("node").arg("-v").output().map(|o| o.status.success()).unwrap_or(false)
+    }
+
+    /// 读一个进程的 (ppid, pgid)，进程没了返回 None
+    fn ppid_pgid(pid: u32) -> Option<(u32, u32)> {
+        let out = Command::new("ps").args(["-o", "ppid=,pgid=", "-p", &pid.to_string()]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut it = text.split_whitespace();
+        Some((it.next()?.parse().ok()?, it.next()?.parse().ok()?))
+    }
+
+    #[test]
+    fn closing_real_pty_kills_detached_node_grandchild() {
+        if !have_node() {
+            eprintln!("[#3] 没有 node，跳过（逃逸孙进程造不出来）");
+            return;
+        }
+
+        let nonce = format!("n{}xrealpty", std::process::id());
+        let pty_id = format!("t_realpty_{}", std::process::id());
+        let dir = std::env::temp_dir().join(format!("makit-real-pty-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 父 node：起一个 detached（= setsid）孙进程，然后自己立刻退出 → 孙被 reparent 到 1
+        fs::write(
+            dir.join("escape.js"),
+            "const { spawn } = require('child_process');\n\
+             const d = process.env.MK_D;\n\
+             const code = `require('fs').writeFileSync(process.env.MK_D + '/escaped.pid', String(process.pid)); setTimeout(() => {}, 300000)`;\n\
+             const c = spawn(process.execPath, ['-e', code], { detached: true, stdio: 'ignore' });\n\
+             c.unref();\n\
+             process.exit(0);\n",
+        )
+        .unwrap();
+
+        // ===== 和 pty_spawn 走同一套：openpty + CommandBuilder + MAKIT_PTY_ID =====
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .expect("openpty 失败");
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-c");
+        cmd.arg("node \"$MK_D/escape.js\"; sleep 300");
+        cmd.cwd(&dir);
+        cmd.env("MK_D", dir.to_string_lossy().to_string());
+        cmd.env(MARKER, &nonce);
+        cmd.env("MAKIT_PTY_ID", &pty_id); // 生产代码 pty_spawn 里设的就是这一行
+        let mut child = pair.slave.spawn_command(cmd).expect("pty 里起 shell 失败");
+        drop(pair.slave);
+        let shell_pid = child.process_id().expect("拿不到 pty 子进程 pid");
+
+        // 等孙进程写下自己的 pid
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let escaped_pid = loop {
+            if let Ok(t) = fs::read_to_string(dir.join("escaped.pid")) {
+                if let Ok(p) = t.trim().parse::<u32>() {
+                    break p;
+                }
+            }
+            if Instant::now() >= deadline {
+                sweep_by_nonce(&nonce);
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("20s 内 detached 孙进程没起来");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
+
+        // 前置测量：它是不是真的逃了，以及 killpg 的前提成不成立
+        let shell_pgid = unsafe { libc::getpgid(shell_pid as libc::pid_t) };
+        let escaped = ppid_pgid(escaped_pid);
+        let visible = {
+            let out = Command::new("ps").args(["-xEww", "-o", "pid=,command="]).output().unwrap();
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .any(|l| {
+                    l.split_whitespace().next().and_then(|s| s.parse::<u32>().ok()) == Some(escaped_pid)
+                        && l.split_whitespace().any(|t| t == format!("MAKIT_PTY_ID={pty_id}"))
+                })
+        };
+        let pre_err = match escaped {
+            None => Some("孙进程在发信号前就没了".to_string()),
+            Some((ppid, pgid)) if shell_pgid != shell_pid as libc::pid_t => Some(format!(
+                "portable-pty 起的 shell 没有自己的进程组: pid={shell_pid} pgid={shell_pgid}（killpg 会打到别人身上）；孙 ppid={ppid} pgid={pgid}"
+            )),
+            Some((ppid, pgid)) if ppid != 1 || pgid == shell_pgid as u32 => Some(format!(
+                "孙进程没真的逃出去: ppid={ppid}（期望 1）pgid={pgid}（shell 组 {shell_pgid}）—— 那这条测试证明不了兜底有用"
+            )),
+            Some(_) if !visible => Some(format!(
+                "逃逸的 node 孙进程 pid={escaped_pid} 在 `ps -xEww` 里看不到 MAKIT_PTY_ID=<id> —— 兜底认不出它"
+            )),
+            Some(_) => None,
+        };
+        if let Some(msg) = pre_err {
+            sweep_by_nonce(&nonce);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = fs::remove_dir_all(&dir);
+            panic!("前置条件不成立，已中止: {msg}");
+        }
+        let (ppid, pgid) = escaped.unwrap();
+        eprintln!(
+            "[#3] 真 pty：shell pid={shell_pid} pgid={shell_pgid}；逃逸孙进程 pid={escaped_pid} ppid={ppid} pgid={pgid}，MAKIT_PTY_ID 可见"
+        );
+
+        // ===== 被测行为：关这个 tab =====
+        super::kill_pty_by_pid(shell_pid, &pty_id);
+        let _ = child.kill();
+        let _ = child.wait();
+
+        std::thread::sleep(Duration::from_millis(600));
+        let still_alive = live_pids(&[shell_pid, escaped_pid]);
+
+        let swept = sweep_by_nonce(&nonce);
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(
+            !still_alive.contains(&escaped_pid),
+            "关掉 pty 之后逃逸的 node 孙进程 pid={escaped_pid} 还活着（已兜底清掉 {swept:?}）—— \
+             这就是用户看到的 #3：tab 没了，claude 还在烧内存和 token"
+        );
+        assert!(!still_alive.contains(&shell_pid), "pty 里的 shell pid={shell_pid} 还活着");
     }
 }
 
