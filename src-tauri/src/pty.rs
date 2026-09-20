@@ -39,7 +39,7 @@ fn resolve_existing_cwd(cwd: &str) -> String {
 }
 
 /// 这个 pane 该不该拒绝启动。收成一个纯谓词只为了能测 —— `pty_spawn` 本体要
-/// `Window` + `State`，测试里造不出来（和 `kill_tree` 从 `kill_process_group` 里
+/// `Window` + `State`，测试里造不出来（和 `kill_tree` 从 `kill_pty` 里
 /// 抽出来是同一个理由）。
 fn must_refuse_cwd(cwd: &str, allow_fallback: Option<bool>) -> bool {
     allow_fallback == Some(false) && resolve_existing_cwd(cwd) != expand_tilde(cwd)
@@ -340,18 +340,35 @@ pub async fn pty_resize(
     Ok(())
 }
 
-// 杀进程组 + 递归杀所有后代进程
-// portable-pty 给子 shell setsid()，但 Claude 启动的工具进程可能又 setsid 了新组
-// 所以除了 killpg，还要用 pgrep 找后代进程逐个杀
+/// 关一个 pty 的唯一入口：进程树 + 逃逸进程，两步缺一不可（#3）。
+///
+/// `kill_tree` 只保证杀掉「还够得着」的四种形态；reparent 到 pid 1 的那两种
+/// （orphan_setsid / double_fork —— claude 起的工具进程正是这个形状）PPID 链断了、
+/// 进程组也换了，`killpg` 和 `pgrep -P` 都打不到，只能靠 `MAKIT_PTY_ID` 环境变量认出来。
+/// 六种形态各是什么、谁能被谁覆盖，见下面的 `kill_matrix_tests`（#142）。
 #[cfg(unix)]
-fn kill_process_group(child: &dyn portable_pty::Child) {
-    if let Some(pid) = child.process_id() {
-        kill_tree(pid);
+fn kill_pty(child: &dyn portable_pty::Child, pty_id: &str) {
+    match child.process_id() {
+        Some(pid) => kill_pty_by_pid(pid, pty_id),
+        // 子进程已经被收走了也照样扫一遍：逃逸进程活得比它爹久，这正是要兜的情况
+        None => kill_by_env_marker(&[pty_id]),
     }
 }
 
-/// 关一个 pty 时真正干活的那段。按 pid 收口出来是为了能测（#142）——
-/// `kill_process_group` 拿的是 portable-pty 的 `Child`，测试里造不出来。
+/// 按 pid 收口出来是为了能测（#142）——`kill_pty` 拿的是 portable-pty 的 `Child`，
+/// 测试里造不出来。关 tab 走的就是这两句。
+#[cfg(unix)]
+fn kill_pty_by_pid(pid: u32, pty_id: &str) {
+    kill_tree(pid);
+    kill_by_env_marker(&[pty_id]);
+}
+
+#[cfg(not(unix))]
+fn kill_pty(_child: &dyn portable_pty::Child, _pty_id: &str) {}
+
+/// 杀进程树：killpg 打主进程组 + `pgrep -P` 递归逐个杀后代。
+/// 覆盖 plain / nohup / setsid_child / nested 四种形态；reparent 到 1 的那两种够不着，
+/// 交给 `kill_by_env_marker`（#142 的矩阵测试把这条分界线钉住了）。
 #[cfg(unix)]
 fn kill_tree(pid: u32) {
     // 1) 先递归找所有后代进程（在发 signal 前收集，避免进程退出后丢失）
@@ -392,9 +409,6 @@ fn find_descendants(root_pid: u32) -> Vec<u32> {
     all
 }
 
-#[cfg(not(unix))]
-fn kill_process_group(_child: &dyn portable_pty::Child) {}
-
 #[tauri::command]
 pub fn kill_pids(pids: Vec<u32>) -> Result<(), String> {
     #[cfg(unix)]
@@ -412,7 +426,7 @@ pub fn kill_pids(pids: Vec<u32>) -> Result<(), String> {
 pub async fn pty_kill(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     let mut map = state.inner.lock().unwrap();
     if let Some(mut handle) = map.remove(&id) {
-        kill_process_group(handle.child.as_ref());
+        kill_pty(handle.child.as_ref(), &id);
         let _ = handle.child.kill();
     }
     Ok(())
@@ -424,32 +438,39 @@ pub fn kill_all_ptys(state: &PtyState) {
     let ids: Vec<String> = map.keys().cloned().collect();
     for id in &ids {
         if let Some(mut handle) = map.remove(id) {
-            kill_process_group(handle.child.as_ref());
+            #[cfg(unix)]
+            if let Some(pid) = handle.child.process_id() {
+                kill_tree(pid);
+            }
             let _ = handle.child.kill();
         }
     }
-    // 兜底：用 MAKIT_PTY_ID 环境变量找逃逸进程（setsid 后 PPID=1 的）
+    // 逃逸进程一次 ps 扫完所有 id（不走 `kill_pty`：那是一个 id 一次 ps）
     #[cfg(unix)]
-    kill_by_env_marker(&ids);
+    kill_by_env_marker(&ids.iter().map(|s| s.as_str()).collect::<Vec<_>>());
 }
 
-/// 兜底清理：靠 MAKIT_PTY_ID 环境变量找逃逸进程（setsid 之后 PPID=1、进程组已经
-/// 跟我们脱钩的那些）。
+/// 按 `MAKIT_PTY_ID` 环境变量杀掉逃逸进程 —— setsid / double-fork 之后 PPID=1、
+/// 进程组也跟我们脱钩的那些（#3）。这是它们唯一还认得出来的印记：环境变量是
+/// fork 时复制的，逃到哪都带着，而 PPID 链和进程组都已经断了。
 ///
-/// **目前是 dry-run：只打印匹配结果，不发信号。** 原因是这个函数在修掉下面那个
-/// flag 之前从来没有生效过（见注释），一旦生效就是一条"真杀"的路径，先观察一轮
-/// 匹配集合是否就是预期的逃逸进程、有没有误伤，再放开。放开方式不需要重新编译：
-/// 设 `MAKIT_KILL_ESCAPED=1`（和 `MAKIT_TIMING` 同一套做法）。
+/// **默认真杀**。取证时设 `MAKIT_KILL_ESCAPED=0` 退回 dry-run（只打印不发信号），
+/// 和 `MAKIT_TIMING` 同一套做法，不用重新编译。
+///
+/// 为什么敢默认杀：匹配的是整 token `MAKIT_PTY_ID=<这个 tab 的 id>`，id 是本进程
+/// 生成的、只可能出现在这个 tab 拉起来的进程上；别的 tab、别的 app、用户自己的进程
+/// 都不带。误伤面只有一种 —— 用户在这个 tab 里主动 nohup/setsid 出去、指望它活过关
+/// tab 的进程；这条取舍写在 #3 里（tab 的语义是一个 claude 会话，不是通用终端）。
 ///
 /// 日志看法：dev 下直接打在 `pnpm tauri dev` 的终端里；release 的 .app 要从终端
-/// 起（`open` 出来的看不到 stderr）。没有匹配也会打一行 —— "跑了但没找到" 和
-/// "根本没跑" 是两件必须分得开的事，这个 bug 本身就是被后者掩盖了三个月。
+/// 起（`open` 出来的看不到 stderr）。
 #[cfg(unix)]
-fn kill_by_env_marker(pty_ids: &[String]) {
+fn kill_by_env_marker(pty_ids: &[&str]) {
     use std::process::Command;
     if pty_ids.is_empty() { return; }
     let my_pid = std::process::id();
-    let armed = std::env::var_os("MAKIT_KILL_ESCAPED").is_some();
+    // 只有显式写 0 才退回 dry-run；没设 = 真杀
+    let dry_run = std::env::var("MAKIT_KILL_ESCAPED").map(|v| v == "0").unwrap_or(false);
     // flag 必须是 `-xEww`：显示环境变量的是**大写 `-E`**，小写 `-e` 在 macOS 的 ps
     // 里是 `-A` 的同义词（"显示所有进程"）。老写法 `-xeww` 于是拿到了一张不含任何
     // 环境变量的全进程表，下面 `MAKIT_PTY_ID=` 的匹配永远为假 —— 这个兜底一直在空转。
@@ -473,26 +494,29 @@ fn kill_by_env_marker(pty_ids: &[String]) {
         if pid == my_pid || pid <= 1 { continue; }
         // 整 token 相等而不是 contains：`MAKIT_PTY_ID=t_abc` 会被 `contains` 判成
         // 命中 `MAKIT_PTY_ID=t_abcdef`。当前 id 都是等长的所以撞不上，但这是一条
-        // 即将开始真杀的路径，不留这种"靠格式凑巧"的前提。
+        // 真杀的路径，不留这种"靠格式凑巧"的前提。
         for tok in trimmed.split_whitespace() {
             if let Some(val) = tok.strip_prefix("MAKIT_PTY_ID=") {
-                if let Some(hit) = pty_ids.iter().find(|p| p.as_str() == val) {
-                    hits.push((pid, hit.as_str()));
+                if let Some(hit) = pty_ids.iter().find(|p| **p == val) {
+                    hits.push((pid, hit));
                 }
                 break;
             }
         }
     }
     if hits.is_empty() {
+        // 没命中只在 dev 里打一行 —— 关 tab 是每天几十次的路径，release 不该刷屏；
+        // 但"跑了但没找到"和"根本没跑"必须分得开，这个 bug 本身就是被后者掩盖了三个月。
+        #[cfg(debug_assertions)]
         eprintln!("[escaped-pty] 扫了 {} 个 pty id，没有逃逸进程", pty_ids.len());
         return;
     }
     for (pid, pty_id) in &hits {
-        if armed {
+        if dry_run {
+            eprintln!("[escaped-pty] dry-run 命中 pid={pid} pty_id={pty_id}（MAKIT_KILL_ESCAPED=0，未发信号）");
+        } else {
             eprintln!("[escaped-pty] SIGKILL pid={pid} pty_id={pty_id}");
             unsafe { libc::kill(*pid as libc::pid_t, libc::SIGKILL); }
-        } else {
-            eprintln!("[escaped-pty] dry-run 命中 pid={pid} pty_id={pty_id}（未发信号；设 MAKIT_KILL_ESCAPED=1 放开）");
         }
     }
 }
@@ -667,15 +691,47 @@ mod kill_matrix_tests {
         }
     }
 
-    #[test]
-    fn kill_tree_covers_all_child_shapes() {
-        if !have_python3() {
-            eprintln!("[#142] 没有 python3，跳过（setsid / double-fork 形态造不出来）");
-            return;
+    /// 一棵活着的六形态合成树。两个测试各造一棵，靠 `tag` 区分 —— nonce / 临时目录 /
+    /// `MAKIT_PTY_ID` 都带上它，否则 cargo 并发跑两个测试时，一个的兜底清扫会把另一个的
+    /// 进程扫掉，症状是随机绿/随机红。
+    struct Matrix {
+        root: std::process::Child,
+        dir: PathBuf,
+        nonce: String,
+        pty_id: String,
+        leaves: Vec<(&'static str, u32)>,
+    }
+
+    impl Matrix {
+        fn pids(&self) -> Vec<u32> {
+            self.leaves.iter().map(|(_, p)| *p).collect()
         }
 
-        let nonce = format!("n{}", std::process::id());
-        let dir = std::env::temp_dir().join(format!("makit-kill-matrix-{}", std::process::id()));
+        /// 哪些叶子还活着（名字 + pid）
+        fn survivors(&self) -> Vec<(&'static str, u32)> {
+            let live = live_pids(&self.pids());
+            self.leaves.iter().filter(|(_, p)| live.contains(p)).cloned().collect()
+        }
+
+        /// 收尾：按 nonce 兜底清扫 + 杀根 + 删临时目录。返回兜底清掉的 pid。
+        /// **必须跑在断言之前** —— 断言 panic 了也不能给机器留下一堆 python。
+        fn finish(mut self) -> Vec<u32> {
+            let swept = sweep_by_nonce(&self.nonce);
+            let _ = self.root.kill();
+            let _ = self.root.wait();
+            let _ = fs::remove_dir_all(&self.dir);
+            swept
+        }
+    }
+
+    /// 造一棵合成树并立住安全边界（这里在动真信号，一个写错的 pgid 能把用户正在跑的 claude 全带走）：
+    ///   1. 根用 `setsid()` 起 —— 必须有**自己的进程组**，否则 `killpg` 打的就是 cargo test 自己所在的组；
+    ///   2. 返回前断言 `pgid(root) == root` 且 `!= pgid(self)` 且 `root > 1`，不满足就先清理再 panic；
+    ///   3. 六个叶子都得先活着，否则后面的"死了"没有意义。
+    fn spawn_matrix(tag: &str) -> Matrix {
+        let nonce = format!("n{}x{}", std::process::id(), tag);
+        let pty_id = format!("t_killmatrix_{}_{}", std::process::id(), tag);
+        let dir = std::env::temp_dir().join(format!("makit-kill-matrix-{}-{}", std::process::id(), tag));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         write_scripts(&dir);
@@ -684,10 +740,11 @@ mod kill_matrix_tests {
         cmd.arg(dir.join("root.sh"))
             .env("MK_D", &dir)
             .env(MARKER, &nonce)
+            // 真实 pty 起的进程都带这个（pty.rs 里 spawn 时设的），逃逸兜底就认它
+            .env("MAKIT_PTY_ID", &pty_id)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        // 安全边界 1：根必须自成进程组，否则下面的 killpg 打的是 cargo test 自己的组。
         unsafe {
             cmd.pre_exec(|| {
                 if libc::setsid() == -1 {
@@ -696,23 +753,23 @@ mod kill_matrix_tests {
                 Ok(())
             });
         }
-        let mut root = cmd.spawn().expect("合成树的根起不来");
+        let root = cmd.spawn().expect("合成树的根起不来");
         let root_pid = root.id();
-
         let leaves = wait_for_pids(&dir);
-        let pids: Vec<u32> = leaves.iter().map(|(_, p)| *p).collect();
+        let m = Matrix { root, dir, nonce, pty_id, leaves };
 
-        // 前置：六个都得先活着，否则后面的"死了"没有意义。
-        let before = live_pids(&pids);
-        let dead_early: Vec<&str> = leaves.iter().filter(|(_, p)| !before.contains(p)).map(|(n, _)| *n).collect();
-        if !dead_early.is_empty() {
-            sweep_by_nonce(&nonce);
-            let _ = root.kill();
-            let _ = root.wait();
+        let alive = m.survivors();
+        if alive.len() != SHAPES.len() {
+            let dead_early: Vec<&str> = m
+                .leaves
+                .iter()
+                .filter(|(n, _)| !alive.iter().any(|(a, _)| a == n))
+                .map(|(n, _)| *n)
+                .collect();
+            m.finish();
             panic!("发信号之前就已经死了: {dead_early:?}");
         }
 
-        // 安全边界 2：pgid 三连断言。不满足就先清理再 panic，绝不带着错的 pgid 往下走。
         let my_pgid = unsafe { libc::getpgid(0) };
         let root_pgid = unsafe { libc::getpgid(root_pid as libc::pid_t) };
         let guard_err = if root_pid <= 1 {
@@ -725,49 +782,48 @@ mod kill_matrix_tests {
             None
         };
         if let Some(msg) = guard_err {
-            sweep_by_nonce(&nonce);
-            let _ = root.kill();
-            let _ = root.wait();
+            m.finish();
             panic!("安全边界不满足，已中止发信号: {msg}");
         }
+        m
+    }
 
-        // ===== 被测行为：关一个 pty 时走的就是这一句 =====
-        super::kill_tree(root_pid);
+    /// 哪些还活着的合成进程能被 `ps` 的环境变量看见（兜底认得出来的那批）
+    fn visible_by_env(nonce: &str, among: &[(&'static str, u32)]) -> Vec<u32> {
+        let out = Command::new("ps").args(["-axEww", "-o", "pid=,command="]).output();
+        let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        let needle = format!("{MARKER}={nonce}");
+        text.lines()
+            .filter(|l| l.contains(&needle))
+            .filter_map(|l| l.split_whitespace().next().and_then(|s| s.parse::<u32>().ok()))
+            .filter(|p| among.iter().any(|(_, sp)| sp == p))
+            .collect()
+    }
+
+    /// 机制测量（#142）：单靠 `kill_tree`（killpg + `pgrep -P` 递归）能覆盖到哪几种形态。
+    ///
+    /// 这不是"该有的行为"，是**机制上限**：reparent 到 1 的两种必然逃掉。它存在的意义是
+    /// 钉住「哪四种是白纸黑字保证死的」，以及「逃掉的那两种至少还看得见」——
+    /// 看得见，兜底就有救（`kill_by_env_marker`）；看不见，#3 就彻底没抓手了。
+    #[test]
+    fn kill_tree_covers_all_child_shapes() {
+        if !have_python3() {
+            eprintln!("[#142] 没有 python3，跳过（setsid / double-fork 形态造不出来）");
+            return;
+        }
+        let m = spawn_matrix("mech");
+        let nonce = m.nonce.clone();
+
+        // ===== 被测行为 =====
+        super::kill_tree(m.root.id());
 
         // 信号是异步的，给内核一点时间把进程收走
         std::thread::sleep(Duration::from_millis(600));
-        let after = live_pids(&pids);
-
-        let survivors: Vec<(&str, u32)> = leaves
-            .iter()
-            .filter(|(_, p)| after.contains(p))
-            .map(|(n, p)| (*n, *p))
-            .collect();
-
-        // 逃逸进程还活着的这一刻，先量一件事：环境变量兜底（kill_by_env_marker 用的
-        // `ps -axEww` + 标记匹配）能不能看见它们。看不见的话，#3「关 tab 后 claude 不退」
-        // 就**没有任何**可用的清理机制，那是个比"少杀两种形态"严重得多的结论。
-        let visible_by_env: Vec<u32> = {
-            let out = Command::new("ps").args(["-axEww", "-o", "pid=,command="]).output();
-            let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
-            let needle = format!("{MARKER}={nonce}");
-            text.lines()
-                .filter(|l| l.contains(&needle))
-                .filter_map(|l| l.split_whitespace().next().and_then(|s| s.parse::<u32>().ok()))
-                .filter(|p| survivors.iter().any(|(_, sp)| sp == p))
-                .collect()
-        };
-
-        // 收尾一定要跑在断言之前：断言 panic 了也不能给机器留下一堆 sleep。
-        let swept = sweep_by_nonce(&nonce);
-        let _ = root.kill();
-        let _ = root.wait();
-        let _ = fs::remove_dir_all(&dir);
+        let survivors = m.survivors();
+        let visible = visible_by_env(&nonce, &survivors);
+        let swept = m.finish();
 
         let dead = |name: &str| !survivors.iter().any(|(n, _)| *n == name);
-
-        // ===== 断言 1：killpg + pgrep -P 递归**保证**覆盖的四种，必须死 =====
-        // 这四种是 kill_tree 的真实契约。任何一种活下来都是回归。
         for name in ["plain", "nohup", "setsid_child", "nested"] {
             assert!(
                 dead(name),
@@ -777,28 +833,50 @@ mod kill_matrix_tests {
             );
         }
 
-        // ===== 断言 2：逃掉的那些，必须至少能被环境变量兜底看见 =====
-        // orphan_setsid / double_fork 会 reparent 到 pid 1：PPID 链断了（pgrep -P 找不到）、
-        // 进程组也换了（killpg 打不到）。这是 kill_tree 的机制上限，不是 bug ——
-        // 但"杀不掉"和"连看都看不见"是两件事。能看见，兜底就有救（kill_by_env_marker，
-        // 目前还是 dry-run，见那个函数的注释）；看不见就彻底没抓手。
-        let escaped: Vec<&str> = survivors.iter().map(|(n, _)| *n).collect();
-        if !escaped.is_empty() {
+        if !survivors.is_empty() {
+            let escaped: Vec<&str> = survivors.iter().map(|(n, _)| *n).collect();
             eprintln!(
-                "[#142] kill_tree 机制上限：{:?} 逃掉了（reparent 到 1 → PPID 链断 + 新进程组）；\
+                "[#142] kill_tree 机制上限：{escaped:?} 逃掉了（reparent 到 1 → PPID 链断 + 新进程组）；\
                  环境变量兜底可见 {}/{} 个",
-                escaped,
-                visible_by_env.len(),
+                visible.len(),
                 survivors.len()
             );
             assert_eq!(
-                visible_by_env.len(),
+                visible.len(),
                 survivors.len(),
                 "逃逸进程 {escaped:?} 里有 {} 个连 `ps -axEww` 的环境变量都扫不到 —— \
-                 那么 #3 没有任何可用的兜底路径。可见的: {visible_by_env:?}",
-                survivors.len() - visible_by_env.len()
+                 那么 #3 没有任何可用的兜底路径。可见的: {visible:?}",
+                survivors.len() - visible.len()
             );
         }
+    }
+
+    /// 关 tab 真正走的那条路（#3）：`kill_tree` + 按 `MAKIT_PTY_ID` 扫逃逸进程。
+    /// 契约比上面那条强一档 —— **六种全死**，一个都不许剩。
+    ///
+    /// 这条是用户能看见的那件事：关掉 tab 之后，这个会话不能还在后台烧内存和 token。
+    #[test]
+    fn close_path_kills_every_child_shape() {
+        if !have_python3() {
+            eprintln!("[#3] 没有 python3，跳过（setsid / double-fork 形态造不出来）");
+            return;
+        }
+        let m = spawn_matrix("close");
+        let pty_id = m.pty_id.clone();
+
+        // ===== 被测行为：`pty_kill` 拿到 Child 之后干的就是这一句 =====
+        super::kill_pty_by_pid(m.root.id(), &pty_id);
+
+        std::thread::sleep(Duration::from_millis(600));
+        let survivors = m.survivors();
+        let swept = m.finish();
+
+        assert!(
+            survivors.is_empty(),
+            "关 tab 之后还活着: {survivors:?}（已兜底清掉 {swept:?}）。\n\
+             逃逸形态靠 MAKIT_PTY_ID 兜底，活下来说明兜底没生效 —— \
+             先确认 ps 用的是大写 -E（小写 -e 在 macOS 上是「全部进程」，拿不到环境变量）。"
+        );
     }
 }
 
