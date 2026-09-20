@@ -10,10 +10,14 @@
  * 2. `createActivity` 的价值全在边沿：连续 ping 只能 show 一次、停手 idleMs 后 hide 一次、
  *    hide 之后再 ping 要能重新 show。错一个就是「条子闪烁」「永远不藏」「藏了就回不来」。
  *
- * 3. `capSlider`（#188 追加）：滑块最长只占轨道 1/4。截短后可移动距离变长，位置必须按比例重映射 ——
+ * 3. `isInScrollbarGutter`（#206）：指针落在右侧这条窄区域时滚动条要显形，否则没法直接抓住滑块拖
+ *    —— 之前隐藏时还设了 pointer-events: none，必须先滚一下才能拖，「想直接拖到底」反而做不到。
+ *    判据错了就是「条子乱冒」或「还是抓不住」。
+ *
+ * 4. `capSlider`（#188 追加）：滑块最长只占轨道 1/4。截短后可移动距离变长，位置必须按比例重映射 ——
  *    否则滚到底时滑块停在半空、或者冲出轨道。错了在 UI 上就是「滚到底了条子还没到底」。
  */
-import { capSlider, createActivity, isUserScroll } from "../src/terminalScrollbar.ts";
+import { GUTTER_PX, capSlider, createActivity, isInScrollbarGutter, isUserScroll } from "../src/terminalScrollbar.ts";
 
 let n = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -77,5 +81,12 @@ eq("整条轨道（不可滚）：截短但贴顶，不除零", capSlider(400, 4
 eq("轨道很短：上限低于最小值时取最小值 20", capSlider(60, 50, 5), { size: 20, top: 20 });
 eq("轨道为 0（未布局）：原样", capSlider(0, 0, 0), { size: 0, top: 0 });
 eq("自定义上限 1/2", capSlider(400, 320, 80, 0.5), { size: 200, top: 200 });
+
+// ── isInScrollbarGutter：终端右边缘 GUTTER_PX 宽的一条 ──
+eq("正好在右边缘：在", isInScrollbarGutter(800, 800), true);
+eq(`离右边缘 ${GUTTER_PX - 1}px：在`, isInScrollbarGutter(800 - (GUTTER_PX - 1), 800), true);
+eq(`离右边缘 ${GUTTER_PX}px：不在（刚好在界外）`, isInScrollbarGutter(800 - GUTTER_PX, 800), false);
+eq("终端中间：不在", isInScrollbarGutter(400, 800), false);
+eq("指针跑到终端右侧之外：不在", isInScrollbarGutter(820, 800), false);
 
 console.log(`✓ 终端滚动条显隐时序与滑块上限全部通过（${n} 项）`);

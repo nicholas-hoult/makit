@@ -27,6 +27,17 @@ export function isUserScroll(viewportY: number, baseY: number): boolean {
   return viewportY < baseY;
 }
 
+/**
+ * 滚动条那一条命中区的宽度（#206）：指针落在终端右边缘这么宽的一条里就让滚动条显形，
+ * 这样不用先滚一下也能直接抓住滑块拖。取 14px —— xterm 的 overlay 条宽 ~10px，留一点余量好按。
+ */
+export const GUTTER_PX = 14;
+
+/** 指针在不在滚动条那一条里。`x` 是指针的 clientX，`right` 是终端的右边缘 */
+export function isInScrollbarGutter(x: number, right: number): boolean {
+  return x > right - GUTTER_PX && x <= right;
+}
+
 /** xterm（VS Code ScrollbarState）自己的滑块最小长度，封顶时不能比它还短 */
 const MIN_SLIDER = 20;
 
@@ -120,6 +131,16 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
   );
   const onWheel = () => activity.ping();
   el.addEventListener("wheel", onWheel, { capture: true, passive: true });
+
+  // 指针移到右边缘那一条 → 显形并可抓（#206）。用 JS 判定而不是 CSS :hover：
+  // :hover 只由真实指针驱动，自动化测试里派发的事件不会触发它，等于没法验证。
+  const onPointerMove = (e: PointerEvent) => {
+    const inGutter = isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
+    el.classList.toggle("gutter-hover", inGutter);
+  };
+  const onPointerLeave = () => el.classList.remove("gutter-hover");
+  el.addEventListener("pointermove", onPointerMove, { passive: true });
+  el.addEventListener("pointerleave", onPointerLeave, { passive: true });
   const sub = term.onScroll(() => {
     const b = term.buffer.active;
     if (isUserScroll(b.viewportY, b.baseY)) activity.ping();
@@ -128,6 +149,9 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
   return {
     dispose() {
       el.removeEventListener("wheel", onWheel, { capture: true });
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerleave", onPointerLeave);
+      el.classList.remove("gutter-hover");
       sub.dispose();
       unwatch();
       activity.dispose();

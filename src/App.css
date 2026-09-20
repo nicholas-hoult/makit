@@ -3375,8 +3375,14 @@ body.pane-resizing .xterm-inner {
    （没有回滚内容时它本来就不画）。长度按比例，xterm 内置最小 20px。 */
 .xterm-inner:not(.is-scrolling) .xterm-scrollable-element > .scrollbar {
   opacity: 0 !important;
-  pointer-events: none !important;
   transition: opacity 300ms linear;
+}
+/* 隐藏时**仍然可点**（#206）：一开始这里还写了 `pointer-events: none`，结果必须先滚一下让条子显形
+   才能抓住滑块拖 —— 想直接拖到底反而做不到。现在指针移到右边缘那一条（terminalScrollbar.ts 挂
+   `gutter-hover`）就显形，和 对标终端 的 overlay 条一样「滚动或悬停轨道时显示」，移开照常淡出。
+   xterm 自己在「没有回滚内容」时会挂 .invisible 并关掉 pointer-events，所以空终端的右边缘不会吃掉点击。 */
+.xterm-inner.gutter-hover .xterm-scrollable-element > .scrollbar {
+  opacity: 1 !important;
 }
 
 /* 拖拽进行时让 xterm 不拦截鼠标事件，drop 能到 container-terminal 这一层
