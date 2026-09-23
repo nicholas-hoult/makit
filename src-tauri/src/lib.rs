@@ -904,7 +904,19 @@ fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessage>,
             }
         }
     }
-    let path = found_path.ok_or_else(|| format!("找不到 session: {}", session_id))?;
+    let path = match found_path {
+        Some(p) => p,
+        None => {
+            // 不是 Claude 的会话，再去 Codex 那边找（#209）。以前只找 Claude，Codex 会话一点开详情就报错
+            if let Some(codex_dir) = ai_provider::AiTool::Codex.sessions_dir() {
+                if let Some(p) = ai_provider::find_codex_session_file(&codex_dir, &session_id) {
+                    let file = fs::File::open(&p).map_err(|e| e.to_string())?;
+                    return Ok(ai_provider::parse_codex_messages(BufReader::new(file)));
+                }
+            }
+            return Err(format!("找不到 session: {}", session_id));
+        }
+    };
     let file = fs::File::open(&path).map_err(|e| e.to_string())?;
     let reader = BufReader::new(file);
     let mut out: Vec<ConversationMessage> = Vec::new();
