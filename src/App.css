@@ -3387,6 +3387,14 @@ body.pane-resizing .xterm-inner {
 .xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar {
   opacity: 1 !important;
 }
+/* 显形的同时必须把**命中**也抢回来（#111 升 6.1 后才需要这条）：6.0 里「指针在终端上」
+   会让 xterm 一直保持 `.visible`，我们只需管 opacity；6.1 改成主动挂 `.xterm-invisible`，
+   而它自带 `pointer-events: none`。只盖 opacity 的话结果是**看得见却抓不住**，
+   比压根不显示还难受。显隐判据已经由我们接管（is-scrolling / gutter-hover），命中也一并接管。 */
+.xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar,
+.xterm-inner.is-scrolling .xterm-scrollable-element > .xterm-scrollbar {
+  pointer-events: auto;
+}
 
 /* 拖拽进行时让 xterm 不拦截鼠标事件，drop 能到 container-terminal 这一层
    用 * 全后代（含 xterm canvas / textarea），不能只用 >* 因为 xterm 是孙子 */

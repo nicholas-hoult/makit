@@ -139,7 +139,11 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
   // 指针移到右边缘那一条 → 显形并可抓（#206）。用 JS 判定而不是 CSS :hover：
   // :hover 只由真实指针驱动，自动化测试里派发的事件不会触发它，等于没法验证。
   const onPointerMove = (e: PointerEvent) => {
-    const inGutter = isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
+    // 没有回滚内容就没有滑块可抓，这时既不该显形也不该吃掉右边缘的点击。
+    // 以前这层由 xterm 的 `.invisible`（自带 pointer-events: none）兜着，6.1 起我们自己把命中
+    // 抢了回来（App.css），兜底也就得自己做 —— 否则空终端的右边缘会白白吞掉选字、点击。
+    const hasScrollback = term.buffer.active.baseY > 0;
+    const inGutter = hasScrollback && isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
     el.classList.toggle("gutter-hover", inGutter);
   };
   const onPointerLeave = () => el.classList.remove("gutter-hover");
