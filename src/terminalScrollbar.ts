@@ -21,7 +21,6 @@
  * 不受影响。
  */
 import type { IDisposable, Terminal } from "@xterm/xterm";
-
 /** 视口不在底部 = 有人在看回滚；贴底的 onScroll 是新输出把视口往下带 */
 export function isUserScroll(viewportY: number, baseY: number): boolean {
   return viewportY < baseY;
@@ -133,19 +132,13 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
     () => el.classList.remove("is-scrolling"),
     idleMs,
   );
-  // 没有回滚内容时滚轮不该让条子显形：那是一条空轨道，显出来还会吃掉右边缘的点击。
-  // 这层原先由 xterm 的 `.invisible`（自带 pointer-events: none）兜，6.1 起命中归我们管，兜底也归我们。
-  const onWheel = () => { if (term.buffer.active.baseY > 0) activity.ping(); };
+  const onWheel = () => activity.ping();
   el.addEventListener("wheel", onWheel, { capture: true, passive: true });
 
   // 指针移到右边缘那一条 → 显形并可抓（#206）。用 JS 判定而不是 CSS :hover：
   // :hover 只由真实指针驱动，自动化测试里派发的事件不会触发它，等于没法验证。
   const onPointerMove = (e: PointerEvent) => {
-    // 没有回滚内容就没有滑块可抓，这时既不该显形也不该吃掉右边缘的点击。
-    // 以前这层由 xterm 的 `.invisible`（自带 pointer-events: none）兜着，6.1 起我们自己把命中
-    // 抢了回来（App.css），兜底也就得自己做 —— 否则空终端的右边缘会白白吞掉选字、点击。
-    const hasScrollback = term.buffer.active.baseY > 0;
-    const inGutter = hasScrollback && isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
+    const inGutter = isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
     el.classList.toggle("gutter-hover", inGutter);
   };
   const onPointerLeave = () => el.classList.remove("gutter-hover");
