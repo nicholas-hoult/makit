@@ -132,13 +132,21 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
     () => el.classList.remove("is-scrolling"),
     idleMs,
   );
-  const onWheel = () => activity.ping();
+  // 没有可滚内容就不显形。判据是 `baseY > 0`（= 缓冲区比视口高，真的有历史可翻）。
+  //
+  // 这条不是"优化"，是**防止显示一个假滚动条**：跑 claude / vim / top 时终端在 alternate buffer 上，
+  // 那里没有回滚历史（`baseY` 恒为 0），xterm 自己的 `_isNeeded` 会把滚动条藏起来。而我们接管了
+  // opacity 和命中（见 App.css），不判这一下就会把它强行画出来 —— 更糟的是 `capSlider` 还会把
+  // 「占满整条轨道」的滑块截短成 1/4，看着就像个正常滑块，**按住却纹丝不动**，因为可滚范围是 0（#210）。
+  const onWheel = () => { if (term.buffer.active.baseY > 0) activity.ping(); };
   el.addEventListener("wheel", onWheel, { capture: true, passive: true });
 
   // 指针移到右边缘那一条 → 显形并可抓（#206）。用 JS 判定而不是 CSS :hover：
   // :hover 只由真实指针驱动，自动化测试里派发的事件不会触发它，等于没法验证。
   const onPointerMove = (e: PointerEvent) => {
-    const inGutter = isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
+    // 同 onWheel：没有可滚内容时不显形，也就不会吃掉右边缘的点击（#211）
+    const inGutter = term.buffer.active.baseY > 0
+      && isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
     el.classList.toggle("gutter-hover", inGutter);
   };
   const onPointerLeave = () => el.classList.remove("gutter-hover");
@@ -149,6 +157,7 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
     if (isUserScroll(b.viewportY, b.baseY)) activity.ping();
   });
   const unwatch = watchSlider(el);
+
   return {
     dispose() {
       el.removeEventListener("wheel", onWheel, { capture: true });
