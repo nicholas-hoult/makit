@@ -173,63 +173,6 @@
   padding: 0 0 4px;
 }
 
-/* 控制行：左边视图切换（常驻），右边生效中的筛选。
-   这一行常驻存在（因为视图切换常驻），换来 .tree-header 里搜索框吃满整宽。
-   26px 的固定高度换 90px 的横向宽度，在一条几百 px 高、280px 宽的侧栏里划算。
-   漏斗也在这一行的右端：筛选的输入和输出（chip）放在一起，
-   position: relative 是给向下弹的 .tree-filter-panel 当定位参照。 */
-.tree-list-controls {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 8px 6px;
-}
-/* 推到最右：中间的 chip 区会换行，靠 margin-left:auto 而不是靠它撑满。
-   类名不叫 .tree-filter-btn —— 这个文件下面（.tree-filter-bar 那段死代码里）
-   已经有一份同名规则，且排在 .tree-icon-btn 之后，会把这个扁平图标按钮
-   变成 24px 带边框的方块。 */
-.tree-controls-filter {
-  margin-left: auto;
-}
-
-/* 生效中的筛选。放在这一行、列表正上方是有意的：它解释的是「下面这个列表为什么
-   是这些」，必须和列表在同一视线里。之前这件事只由 .tree-footer 里那个变色的漏斗
-   图标表达 —— 开着「仅运行中」的时候，用户看到的是"我的 session 少了一半"。
-   一条筛选都没生效时整块不渲染（视图切换器仍在，所以行不会塌）。 */
-.tree-active-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-width: 0;
-}
-/* 左右内边距不对称：右边要放 ×，它自己带视觉留白 */
-.tree-filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 4px 1px 6px;
-  font-size: 10px;
-  font-family: inherit;
-  color: var(--fg-muted);
-  background: var(--bg-hover);
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-}
-.tree-filter-chip:hover {
-  color: var(--fg);
-  background: var(--bg-active);
-}
-.tree-filter-chip-x {
-  font-size: 11px;
-  line-height: 1;
-  opacity: 0.6;
-}
-.tree-filter-chip:hover .tree-filter-chip-x {
-  opacity: 1;
-}
-
 /* 分组间距代替发丝线（为什么见 SessionTree.tsx 的 renderGroup 注释） */
 .tree-group + .tree-group {
   margin-top: 10px;
@@ -540,47 +483,11 @@
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-
 .tree-empty {
   padding: 20px;
   text-align: center;
   color: var(--fg-muted);
   font-size: 12px;
-}
-
-.tree-load-more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 5px 12px;
-  margin: 2px 8px 6px;
-  font-size: 11px;
-  color: var(--fg-muted);
-  opacity: 0.55;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: opacity 0.1s;
-}
-.tree-load-more::before {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-  opacity: 0.5;
-}
-.tree-load-more::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-  opacity: 0.5;
-}
-.tree-load-more:hover {
-  opacity: 1;
-  color: var(--fg);
 }
 
 /* 监控段（waiting/running）头部图标着色 */
@@ -589,68 +496,10 @@
   color: var(--warning);
 }
 
-/* Filter panel (floating popover) */
-/* footer bar */
-/* 不再 position: relative —— 筛选面板搬到控制行去了，footer 里已经没有绝对定位的东西 */
-.tree-footer {
-  display: flex;
-  align-items: center;
-  /* 2px 的时候三个 22px 图标按钮几乎贴着，读成一个连体控件；而它们是三件
-     互不相干的事（筛选 / 刷新 / 设置）。6px 让 hover 高亮各自独立、也和
-     .tree-header 里 8px 的内边距是同一档节奏。 */
-  gap: 6px;
-  padding: 4px 8px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
 .tree-filter-backdrop {
   position: fixed;
   inset: 0;
   z-index: 99;
-}
-.tree-filter-panel {
-  position: absolute;
-  top: 100%;
-  right: 8px;
-  z-index: 100;
-  padding: 8px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-soft);
-  box-shadow: 0 4px 12px var(--shadow);
-  font-size: 11px;
-  min-width: 150px;
-}
-.tree-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.tree-filter-label {
-  color: var(--fg-muted);
-  min-width: 30px;
-}
-.tree-filter-select {
-  flex: 1;
-  background: var(--bg-soft);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 2px 4px;
-  font-size: 11px;
-}
-.tree-filter-check {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  padding: 2px 0;
-  color: var(--fg);
-}
-.tree-filter-check input {
-  accent-color: var(--accent);
 }
 
 /* Icon button in header */
@@ -710,40 +559,6 @@
 
 .tree-filter-btn:hover {
   background: var(--bg-hover);
-  color: var(--fg);
-}
-
-/* 视图模式分段控件。底色用 --bg（比侧栏的 --bg-soft 更沉）+ 1px 边框做成一条
-   凹进去的轨道，选中项用 --bg-active 浮起来 —— 「两个互斥选项、当前在哪个」
-   靠位置和明度同时说明，不需要额外的图标或文字状态。
-   这套样式本来就在这个文件里（早先写好没接线），这次接上而不是新造一套。 */
-.tree-view-toggle {
-  display: flex;
-  flex-shrink: 0;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1px;
-  gap: 1px;
-}
-.tree-view-toggle-btn {
-  padding: 0 8px;
-  height: 20px;
-  font-size: 11px;
-  font-family: inherit;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--fg-subtle);
-  cursor: pointer;
-  outline: none;
-  transition: background 0.1s, color 0.1s;
-}
-.tree-view-toggle-btn:hover {
-  color: var(--fg);
-}
-.tree-view-toggle-btn.active {
-  background: var(--bg-active);
   color: var(--fg);
 }
 
@@ -870,4 +685,68 @@
   width: 16px;
   text-align: center;
   flex-shrink: 0;
+}
+
+/* 「显示选项」（#187）：搜索框右边唯一的按钮，弹出里收着视图 / 排序 / 已归档 / 行信息 / 刷新 / 设置 */
+.tree-options-btn {
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+/* 菜单本体：原生菜单的样子（#187），每行同高、左侧 ✓ 列、浅色分段标题 */
+.tree-menu {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  z-index: 100;
+  min-width: 176px;
+  padding: 4px 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-soft);
+  box-shadow: 0 4px 12px var(--shadow);
+  font-size: 12px;
+}
+.tree-menu-title {
+  padding: 6px 12px 2px 28px;
+  font-size: 10px;
+  color: var(--fg-muted);
+}
+.tree-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 24px;
+  padding: 0 12px 0 0;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.tree-menu-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.tree-menu-item:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+/* ✓ 列固定宽度：勾与不勾的行，文字都落在同一条竖线上 */
+.tree-menu-check {
+  width: 28px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+}
+.tree-menu-label {
+  flex: 1;
+}
+.tree-menu-kbd {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+.tree-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }

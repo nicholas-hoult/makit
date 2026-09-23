@@ -1157,6 +1157,17 @@ function App() {
     return () => window.removeEventListener("keydown", handler, true);
   }, []);
 
+  // Cmd+, = 设置（#187）：齿轮挪进侧栏「显示选项」菜单后多一步点击，补上 macOS 通用的设置快捷键
+  useEffect(() => {
+    function handler(e: KeyboardEvent) {
+      if (!isCmd(e) || e.shiftKey || e.altKey || e.key !== ",") return;
+      e.preventDefault();
+      setSettingsOpen(true);
+    }
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, []);
+
   // Cmd+R = 刷新 session 列表（Tauri WKWebView 不原生支持 Cmd+R reload，手动拦截）
   //
   // 必须挂在**捕获阶段**并 stopPropagation：xterm.js 的 keydown 监听在自己的
@@ -2097,6 +2108,7 @@ function App() {
              答不了「我手上开着哪几个」—— 而那正是用户一天几十次要做的切换。 */
           openedSessionIds={openedSessionIds}
           onReturnFocus={focusActiveTerminal}
+          onOpenDetail={openDetail}
           onOpenSessionInSplit={(s, dir) => {
             // 和命令面板里 ⌘/⇧ 回车走的是同一条路（上面 action(modifier)），
             // 免得"分屏打开一个会话"这件事出现第二种拼法。
@@ -2599,6 +2611,7 @@ function App() {
                     <div><span className="keys"><kbd>⌘⇧F</kbd></span><span>聚焦侧栏 session 搜索</span></div>
                     <div><span className="keys"><kbd>⌘I</kbd></span><span>通知中心</span></div>
                     <div><span className="keys"><kbd>⌘R</kbd></span><span>刷新 session 列表</span></div>
+                    <div><span className="keys"><kbd>⌘,</kbd></span><span>设置</span></div>
                   </div>
                 </div>
                 <div className="settings-shortcut-group">
@@ -2627,7 +2640,7 @@ function App() {
                 <div className="settings-shortcut-group">
                   <div className="settings-shortcut-group-title">侧栏 / 视图</div>
                   <div className="settings-shortcuts">
-                    <div><span className="keys"><kbd>⌘B</kbd></span><span>折叠项目列表</span></div>
+                    <div><span className="keys"><kbd>⌘B</kbd></span><span>折叠 / 展开侧栏</span></div>
                     <div><span className="keys"><kbd>⌘L</kbd></span><span>在侧栏定位当前 session</span></div>
                   </div>
                 </div>

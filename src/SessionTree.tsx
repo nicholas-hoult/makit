@@ -72,6 +72,9 @@ type Props = {
   onNewShellInDir?: (cwd: string) => void;
   /// 右键「在左右/上下分屏打开」。可选：没传就在菜单里灰掉那两项。
   onOpenSessionInSplit?: (s: SessionMeta, dir: "h" | "v") => void;
+  /// 右键「查看对话」：打开会话详情面板（完整对话）。之前唯一的入口在一段已无调用方的旧卡片代码里，
+  /// 界面上根本打不开（#187 / #209）。
+  onOpenDetail?: (s: SessionMeta) => void;
   /// 在 tab 里开着的会话 id，按屏幕上的空间顺序（App 传 openedOrder(ws.workspace)）。
   /// 「打开中」段的唯一数据源。activeSessionId 只有一条，答不了「我手上开着哪几个」。
   openedSessionIds: string[];
@@ -125,12 +128,13 @@ export const SessionTree = memo(function SessionTree({
   onSessionClick, onSessionDragStart,
   onTogglePin, onArchive, onRefresh, onSettings, refreshing, revealTrigger, clearFilterTrigger,
   searchRef, collapsed, onCollapse, width, onResizeStart, onResizerHover, onNewSessionInDir, onNewShellInDir,
-  onOpenSessionInSplit, openedSessionIds, onReturnFocus,
+  onOpenSessionInSplit, onOpenDetail, openedSessionIds, onReturnFocus,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>(() => (localStorage.getItem("makit-tree-sort") as SortKey) || "recent");
-  const [showPinnedOnly, setShowPinnedOnly] = useState(() => localStorage.getItem("makit-tree-pinned-only") === "true");
   const [showArchived, setShowArchived] = useState(() => localStorage.getItem("makit-tree-show-archived") === "true");
-  const [showRunningOnly, setShowRunningOnly] = useState(() => localStorage.getItem("makit-tree-running-only") === "true");
+  // 行上的次要信息：短 ID、分支。默认不显示（#187 精简），悬停卡里始终有，需要时在「显示选项」里打开
+  const [showShortId, setShowShortId] = useState(() => localStorage.getItem("makit-row-short-id") === "true");
+  const [showBranch, setShowBranch] = useState(() => localStorage.getItem("makit-row-branch") === "true");
   const [viewMode, setViewMode] = useState<"status" | "project">(
     () => (localStorage.getItem("makit-sidebar-view") as "status" | "project") || "status"
   );
@@ -194,9 +198,9 @@ export const SessionTree = memo(function SessionTree({
   const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => { localStorage.setItem("makit-tree-sort", sortKey); }, [sortKey]);
-  useEffect(() => { localStorage.setItem("makit-tree-pinned-only", String(showPinnedOnly)); }, [showPinnedOnly]);
   useEffect(() => { localStorage.setItem("makit-tree-show-archived", String(showArchived)); }, [showArchived]);
-  useEffect(() => { localStorage.setItem("makit-tree-running-only", String(showRunningOnly)); }, [showRunningOnly]);
+  useEffect(() => { localStorage.setItem("makit-row-short-id", String(showShortId)); }, [showShortId]);
+  useEffect(() => { localStorage.setItem("makit-row-branch", String(showBranch)); }, [showBranch]);
   useEffect(() => { localStorage.setItem("makit-sidebar-view", viewMode); }, [viewMode]);
   useEffect(() => {
     localStorage.setItem("makit-proj-collapsed", JSON.stringify([...collapsedProjects]));
@@ -204,9 +208,7 @@ export const SessionTree = memo(function SessionTree({
 
   useEffect(() => {
     if (!clearFilterTrigger) return;
-    setShowPinnedOnly(false);
     setShowArchived(false);
-    setShowRunningOnly(false);
     setVisibleRecent(RECENT_PAGE);
     onQueryChange("");
   }, [clearFilterTrigger]);
@@ -225,8 +227,6 @@ export const SessionTree = memo(function SessionTree({
     const q = query.trim().toLowerCase();
     return sessions.filter((s) => {
       if (!showArchived && s.archived) return false;
-      if (showRunningOnly && !s.running && s.status !== "waiting") return false;
-      if (showPinnedOnly && !pinnedSessions.has(s.session_id)) return false;
       if (q) {
         const hit =
           s.display_name?.toLowerCase().includes(q) ||
@@ -239,7 +239,7 @@ export const SessionTree = memo(function SessionTree({
       }
       return true;
     });
-  }, [sessions, query, showArchived, showRunningOnly, showPinnedOnly, pinnedSessions]);
+  }, [sessions, query, showArchived]);
 
   // 「在 tab 里开着」的会话 → 排位。用 Map 而不是 Set：这一组的排序键就是它。
   const openedIndex = useMemo(() => {
@@ -438,23 +438,9 @@ export const SessionTree = memo(function SessionTree({
   // 折叠时整条侧栏隐藏（拖窗/红绿黄占位由全局 .app-titlebar 负责）
   if (collapsed) return null;
 
-  // 生效中的筛选/排序，摊给控制行的 chip。每渲染重算一遍就够：最多 4 个字符串，
-  // 比一个 useMemo 的依赖数组还便宜。顺序按「对看到的结果影响从大到小」：
-  // 先是藏掉了什么，再是怎么排的。
-  //
-  // viewMode 刻意**不在**这里：chip 的 × 语义是「移除这个筛选」，而视图模式没有
-  // 「移除」只有「切换」—— 拿 × 表达"切回按状态"既错义又容易误触（点一下就把
-  // 视图打回默认并写进 localStorage）。它归旁边那个常驻的分段控件。
-  const activeFilters: { label: string; clear: () => void }[] = [];
-  if (showRunningOnly) activeFilters.push({ label: "仅运行中", clear: () => setShowRunningOnly(false) });
-  if (showPinnedOnly) activeFilters.push({ label: "只看收藏", clear: () => setShowPinnedOnly(false) });
-  if (showArchived) activeFilters.push({ label: "含已归档", clear: () => setShowArchived(false) });
-  if (sortKey !== "recent") {
-    activeFilters.push({
-      label: sortKey === "count" ? "按消息数" : "按首条消息",
-      clear: () => setSortKey("recent"),
-    });
-  }
+  // 「显示选项」偏离默认时按钮高亮：控制行和筛选标签都去掉之后（#187），这是唯一提示
+  // 「列表被改过」的地方 —— 否则开着「显示已归档」时用户会以为归档没生效。
+  const optionsChanged = showArchived || sortKey !== "recent";
 
   // 侧栏两个菜单的菜单项。每次渲染重算：菜单开着的时候后台在刷 sessions，
   // 「收藏 / 取消收藏」这种带状态的文案得跟着现在的状态走。
@@ -465,7 +451,6 @@ export const SessionTree = memo(function SessionTree({
         { label: "在 Finder 中显示", onClick: () => { invoke("open_path", { path: m.cwd, reveal: true }).catch(() => {}); } },
         { label: "复制路径", onClick: () => { navigator.clipboard.writeText(m.cwd).catch(() => {}); } },
         { sep: true },
-        { label: "新建 session", disabled: !onNewSessionInDir, onClick: () => onNewSessionInDir?.(m.cwd) },
         { label: "新建 shell", disabled: !onNewShellInDir, onClick: () => onNewShellInDir?.(m.cwd) },
         { sep: true },
         // 只有一个组时这项没有意义（点了什么也不变），灰掉而不是让它假装能用。
@@ -483,8 +468,7 @@ export const SessionTree = memo(function SessionTree({
       { label: pinnedSessions.has(s.session_id) ? "取消收藏" : "收藏", onClick: () => onTogglePin(s.session_id) },
       { label: s.archived ? "取消归档" : "归档", onClick: () => onArchive(s.session_id) },
       { sep: true },
-      { label: "在左右分屏打开", disabled: !onOpenSessionInSplit, onClick: () => onOpenSessionInSplit?.(s, "v") },
-      { label: "在上下分屏打开", disabled: !onOpenSessionInSplit, onClick: () => onOpenSessionInSplit?.(s, "h") },
+      { label: "查看对话", disabled: !onOpenDetail, onClick: () => onOpenDetail?.(s) },
       { sep: true },
       { label: "在 Finder 中显示", onClick: () => { invoke("open_path", { path: cwd, reveal: true }).catch(() => {}); } },
       { label: "复制路径", onClick: () => { navigator.clipboard.writeText(cwd).catch(() => {}); } },
@@ -661,9 +645,11 @@ export const SessionTree = memo(function SessionTree({
             {/* busy 的文字说明降到 row2 —— 这一行本来就有 ~90px 空闲，不和标题争 */}
             {s.status === "busy" && <span className="tree-session-busy">工作中</span>}
             <span className="tree-session-sub">{projectName}</span>
-            <span className="tree-session-sub">·</span>
-            <span className="tree-session-sub">[{s.short_id}]</span>
-            {s.git_branch && <>
+            {showShortId && <>
+              <span className="tree-session-sub">·</span>
+              <span className="tree-session-sub">[{s.short_id}]</span>
+            </>}
+            {showBranch && s.git_branch && <>
               <span className="tree-session-sub">·</span>
               <span className="tree-session-branch">⑂{s.git_branch}</span>
             </>}
@@ -789,72 +775,62 @@ export const SessionTree = memo(function SessionTree({
           />
           {query && <button className="tree-search-clear" onClick={() => onQueryChange("")}>×</button>}
         </div>
-      </div>
-
-      {/* 控制行：左边「这个列表怎么组织」，右边「现在被怎么筛了」。
-          视图切换从 header 里那个 select 换成常驻的分段控件 ——
-          它是**视图模式**不是筛选：用户会来回切（找某个项目下的会话 → 按项目，
-          看谁在跑 → 按状态），所以必须一眼看得见自己在哪个视图、一次点击切换。
-          换成分段控件之后 header 里只剩搜索框，能吃满整条宽度（原来那个 select
-          按最长选项 + 箭头占约 90px，把 280px 侧栏里的搜索框压到 ~170px）。 */}
-      <div className="tree-list-controls">
-        <div className="tree-view-toggle" role="group" aria-label="分组方式">
-          {([["status", "状态"], ["project", "项目"]] as const).map(([mode, label]) => (
-            <button
-              key={mode}
-              className={"tree-view-toggle-btn" + (viewMode === mode ? " active" : "")}
-              onClick={() => setViewMode(mode)}
-              title={mode === "status" ? "按状态：需要回应 / 收藏 / 其余" : "按项目分组"}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {activeFilters.length > 0 && (
-          <div className="tree-active-filters">
-            {activeFilters.map((f) => (
-              <button key={f.label} className="tree-filter-chip" onClick={f.clear} title="点击移除">
-                {f.label}<span className="tree-filter-chip-x">×</span>
-              </button>
-            ))}
-          </div>
-        )}
-        {/* 漏斗从 footer 搬上来：筛选的**输入**（这个面板）和**输出**（左边的 chip）
-            原来分居屏幕两端，改筛选要跑到底部、看结果要回到顶部。同一行之后面板
-            向下弹、紧贴着它要影响的那个列表。 */}
+        {/* 「显示选项」：视图切换、排序、已归档、行信息、刷新、设置全收在这一个按钮里（#187）。
+            原来分散在三处 —— 控制行（视图切换 + 筛选标签 + 漏斗）、底部栏（刷新 + 设置）——
+            为了几个偶尔才动的开关常驻占掉两行高度。 */}
         <button
-          className={"tree-icon-btn tree-controls-filter" + (showPinnedOnly || showArchived || showRunningOnly ? " active" : "")}
+          className={"tree-icon-btn tree-options-btn" + (optionsChanged ? " active" : "")}
           onClick={() => setFilterOpen((v) => !v)}
-          title="筛选"
+          title="显示选项"
         >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12l-4.5 6v4l-3 1V9L2 3z"/></svg>
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M2 3.5h12v1.5H2zM2 7.25h12v1.5H2zM2 11h12v1.5H2z"/></svg>
         </button>
         {filterOpen && (
           <>
             <div className="tree-filter-backdrop" onClick={() => setFilterOpen(false)} />
-            <div className="tree-filter-panel">
-              {/* 这里不放「分组」：视图切换已经常驻在控制行左边了，
-                  一件事两个入口比一个放错的入口更糟 */}
-              <div className="tree-filter-row">
-                <span className="tree-filter-label">排序</span>
-                <select className="tree-filter-select" value={sortKey} onChange={(e) => setSortKey(e.target.value as SortKey)}>
-                  <option value="recent">最近活动</option>
-                  <option value="count">消息数</option>
-                  <option value="firstMsg">首条消息</option>
-                </select>
-              </div>
-              <label className="tree-filter-check">
-                <input type="checkbox" checked={showRunningOnly} onChange={(e) => setShowRunningOnly(e.target.checked)} />
-                仅运行中
-              </label>
-              <label className="tree-filter-check">
-                <input type="checkbox" checked={showPinnedOnly} onChange={(e) => setShowPinnedOnly(e.target.checked)} />
-                只看收藏
-              </label>
-              <label className="tree-filter-check">
-                <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-                显示已归档
-              </label>
+            {/* 统一成 macOS 原生菜单的样子：每行同高、选中打 ✓、分段靠浅色小标题（#187）。
+                第一版混了分段按钮 / 原生下拉 / 复选框三种控件，五种长相、左边也对不齐。
+                选项类的行点了不关菜单（常常要连着改几项），刷新、设置点了就关。 */}
+            <div className="tree-menu" role="menu">
+              <div className="tree-menu-title">分组</div>
+              {([["status", "按状态"], ["project", "按项目"]] as const).map(([mode, label]) => (
+                <button key={mode} className="tree-menu-item" role="menuitemradio" aria-checked={viewMode === mode} onClick={() => setViewMode(mode)}>
+                  <span className="tree-menu-check">{viewMode === mode ? "✓" : ""}</span>
+                  <span className="tree-menu-label">{label}</span>
+                </button>
+              ))}
+              {/* 项目视图里组内固定按修改时间排，排序选了也不起作用，干脆不给 */}
+              {viewMode === "status" && <>
+                <div className="tree-menu-title">排序</div>
+                {([["recent", "最近活动"], ["count", "消息数"], ["firstMsg", "首条消息"]] as const).map(([key, label]) => (
+                  <button key={key} className="tree-menu-item" role="menuitemradio" aria-checked={sortKey === key} onClick={() => setSortKey(key)}>
+                    <span className="tree-menu-check">{sortKey === key ? "✓" : ""}</span>
+                    <span className="tree-menu-label">{label}</span>
+                  </button>
+                ))}
+              </>}
+              <div className="tree-menu-sep" />
+              {([
+                ["显示已归档", showArchived, setShowArchived],
+                ["显示短 ID", showShortId, setShowShortId],
+                ["显示分支", showBranch, setShowBranch],
+              ] as const).map(([label, on, set]) => (
+                <button key={label} className="tree-menu-item" role="menuitemcheckbox" aria-checked={on} onClick={() => set(!on)}>
+                  <span className="tree-menu-check">{on ? "✓" : ""}</span>
+                  <span className="tree-menu-label">{label}</span>
+                </button>
+              ))}
+              <div className="tree-menu-sep" />
+              <button className="tree-menu-item" role="menuitem" disabled={refreshing} onClick={() => { setFilterOpen(false); onRefresh(); }}>
+                <span className="tree-menu-check" />
+                <span className="tree-menu-label">{refreshing ? "刷新中…" : "刷新"}</span>
+                <span className="tree-menu-kbd">⌘R</span>
+              </button>
+              <button className="tree-menu-item" role="menuitem" onClick={() => { setFilterOpen(false); onSettings(); }}>
+                <span className="tree-menu-check" />
+                <span className="tree-menu-label">设置…</span>
+                <span className="tree-menu-kbd">⌘,</span>
+              </button>
             </div>
           </>
         )}
@@ -885,13 +861,8 @@ export const SessionTree = memo(function SessionTree({
                 中间插任何元素都会把相邻关系断掉。key 放在 renderGroup 返回的 section 上。 */}
             {labeledGroups.map(renderGroup)}
             {renderGroup({ label: "", list: historyVisible })}
-            {historyVisible.length < history.length && (
-              <div className="tree-load-more" onClick={() => setVisibleRecent((v) => Math.min(v + RECENT_PAGE, history.length))}>
-                加载更多（{history.length - historyVisible.length} 个）
-              </div>
-            )}
             {filtered.length === 0 && (
-              <div className="tree-empty">{loading ? "加载中…" : (query || showPinnedOnly || showRunningOnly ? "无匹配 session" : "无 session")}</div>
+              <div className="tree-empty">{loading ? "加载中…" : (query ? "无匹配 session" : "无 session")}</div>
             )}
           </>
         ) : (
@@ -899,22 +870,6 @@ export const SessionTree = memo(function SessionTree({
         )}
       </div>
 
-      <div className="tree-footer">
-        <button
-          className={"tree-icon-btn" + (refreshing ? " spinning" : "")}
-          onClick={onRefresh}
-          disabled={refreshing}
-          title="刷新 (⌘R)"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 014.9 4h-2l3 3 3-3h-2A7 7 0 008 1v2zm0 10a5 5 0 01-4.9-4h2l-3-3-3 3h2a7 7 0 0011.7 4l-1.4-1.4A5 5 0 018 13z"/></svg>
-        </button>
-        <button className="tree-icon-btn" onClick={onSettings} title="设置">
-          {/* 实心 16 网格齿轮，和左边筛选/刷新同一套。原来这里用的是 24 网格 stroke-2 的
-              描边齿轮缩到 12px 渲染：线宽掉到 1px 以下，8 个齿和内圈糊成一团噪点，
-              而且和相邻两个实心图标明显不是一个图标家族。 */}
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"/></svg>
-        </button>
-      </div>
     </aside>
     <div
       className="resizer"
