@@ -1,5 +1,4 @@
 import { Terminal as Xterm } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -15,12 +14,11 @@ import { DEFAULT_FONT_SIZE, nextFontSize, type ZoomAction } from "./fontZoom";
 import { installTerminalScrollbar } from "./terminalScrollbar";
 import { installJumpLatest } from "./terminalJumpLatest";
 import { installPreciseWheel } from "./terminalWheel";
-import { COLS_FOLLOW_MS, createColsFollower, planResize } from "./resizePlan";
+import { COLS_FOLLOW_MS, createColsFollower, planResize, proposeGeometry } from "./resizePlan";
 
 export type TerminalInstance = {
   terminal: Xterm;
   element: HTMLDivElement;
-  fitAddon: FitAddon;
   searchAddon: SearchAddon;
   paneId: string;
   cwd: string;
@@ -195,15 +193,39 @@ function fitSize(terminal: Xterm): { cols: number; rows: number } {
 /**
  * 按行列分离策略把 xterm 调到容器的尺寸（#203，见 resizePlan.ts）：行数立即，列数（要重排整段回滚）
  * 除非 `immediate` 或缓冲区很小，否则延后。返回列数是否还欠着 —— 欠着的由调用方交给 `colsResize` 防抖。
- * 替代直接 `fitAddon.fit()`：那个一次就把行列一起调，列数的重排代价全压在拖动的每一帧上。
+ * 不用 `FitAddon.fit()`（#111 之后连这个 addon 都不装了）：它一次把行列一起调，
+ * 列数的重排代价全压在拖动的每一帧上。
  */
+/**
+ * 量出容器现在能放下多少行列。取代 `fitAddon.proposeDimensions()` —— 少减一条滚动条宽度（#111），
+ * 原因和取舍见 `proposeGeometry` 的注释。读 DOM 的部分留在这里，算的部分是纯函数，能单测。
+ */
+function proposeSize(inst: TerminalInstance): { cols: number; rows: number } | undefined {
+  const t = inst.terminal;
+  const el = t.element;
+  const parent = el?.parentElement;
+  if (!el || !parent) return undefined;
+  const cell = (t as unknown as {
+    _core: { _renderService: { dimensions?: { css?: { cell?: { width: number; height: number } } } } };
+  })._core._renderService.dimensions?.css?.cell;
+  if (!cell?.width || !cell?.height) return undefined;   // 还没测出字符尺寸，这一轮不动
+  const es = window.getComputedStyle(el);
+  const ps = window.getComputedStyle(parent);
+  const num = (v: string) => parseInt(v) || 0;
+  return proposeGeometry(
+    num(ps.getPropertyValue("width")), num(ps.getPropertyValue("height")),
+    num(es.paddingLeft) + num(es.paddingRight), num(es.paddingTop) + num(es.paddingBottom),
+    cell.width, cell.height,
+  );
+}
+
 function resizeByPlan(inst: TerminalInstance, immediate: boolean): boolean {
-  const next = inst.fitAddon.proposeDimensions();
+  const next = proposeSize(inst);
   if (!next || !Number.isFinite(next.cols) || !Number.isFinite(next.rows)) return false;
   const t = inst.terminal;
   const plan = planResize({ cols: t.cols, rows: t.rows }, next, t.buffer.active.length, immediate);
   if (plan.colsNow || plan.rowsNow) {
-    // 与 FitAddon.fit() 一致：改尺寸前清掉渲染缓存，避免残影
+    // 和上游 `FitAddon.fit()` 一样：改尺寸前清掉渲染缓存，避免残影
     (t as unknown as { _core: { _renderService: { clear(): void } } })._core._renderService.clear();
     t.resize(plan.colsNow ? next.cols : t.cols, next.rows);
     renderNow(t);
@@ -349,8 +371,6 @@ class TerminalManager {
       minimumContrastRatio: 4.5,
     });
 
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
     const searchAddon = new SearchAddon();
     terminal.loadAddon(searchAddon);
     try {
@@ -398,7 +418,6 @@ class TerminalManager {
     const inst: TerminalInstance = {
       terminal,
       element,
-      fitAddon,
       searchAddon,
       paneId,
       cwd,
@@ -478,7 +497,7 @@ class TerminalManager {
   }
 
   private async _spawnPty(inst: TerminalInstance) {
-    const { terminal, fitAddon, paneId, cwd, initCommand } = inst;
+    const { terminal, paneId, cwd, initCommand } = inst;
     const pendingInput: string[] = [];
 
     terminal.onData((data) => {
@@ -518,15 +537,7 @@ class TerminalManager {
 
     if (inst.disposed) return;
 
-    try {
-      const proposed = fitAddon.proposeDimensions();
-      fitAddon.fit();
-      const rect = inst.element.getBoundingClientRect();
-      // 调试 #111：详细记录尺寸计算
-      console.log(`[#111 Debug] paneId=${paneId}, containerWidth=${rect.width}, DPR=${window.devicePixelRatio}, proposed=${JSON.stringify(proposed)}, actual cols=${terminal.cols}, rows=${terminal.rows}`);
-    } catch (e) {
-      console.warn(`[#111 Debug] fit failed:`, e);
-    }
+    resizeByPlan(inst, true);
     const { cols, rows } = fitSize(terminal);
     terminal.onResize(({ cols: c, rows: r }) => traceXtermResize(paneId, c, r));
 
@@ -690,7 +701,7 @@ class TerminalManager {
     const rect = inst.element.getBoundingClientRect();
     if (rect.width < 50 || rect.height < 20) return;
     try {
-      inst.fitAddon.fit();
+      resizeByPlan(inst, true);
       if (inst.ptyReady) {
         const { cols, rows } = fitSize(inst.terminal);
         sendResize(paneId, "fit", cols, rows, inst.terminal);

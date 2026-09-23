@@ -61,21 +61,25 @@ export function capSlider(track: number, size: number, top: number, maxRatio = 0
  * 和「我们刚写的」靠记住上一次写入的值。
  */
 function watchSlider(root: HTMLElement): () => void {
-  const slider = root.querySelector<HTMLElement>(".xterm-scrollable-element > .scrollbar.vertical > .slider");
+  const slider = root.querySelector<HTMLElement>(".xterm-scrollable-element > .xterm-scrollbar.xterm-vertical > .xterm-slider");
   const track = slider?.parentElement;
   if (!slider || !track) return () => {};
   let xtermSize = 0, xtermTop = 0;   // xterm 想要的
-  let ourSize = "", ourTop = "";      // 我们上次写的
+  let ourSize = -1, ourTop = -1;      // 我们上次写的（数值，-1 = 还没写过）
   const px = (v: string) => parseFloat(v) || 0;
+  // 比数值而不是比字符串：浏览器会把 transform 重新序列化（空格、单位写法都可能变），
+  // 拿我们写进去的字符串去比对读回来的，永远不相等 —— MutationObserver 会被自己的写入喂成死循环。
+  const same = (a: number, b: number) => Math.abs(a - b) < 0.5;
   const apply = () => {
-    const h = slider.style.height, t = slider.style.top;
-    if (h !== ourSize) xtermSize = px(h);
-    if (t !== ourTop) xtermTop = px(t);
+    const h = px(slider.style.height);
+    const t = px(slider.style.top);
+    if (!same(h, ourSize)) xtermSize = h;   // 不是我们写的 → 就是 xterm 写的
+    if (!same(t, ourTop)) xtermTop = t;
     const c = capSlider(track.clientHeight, xtermSize, xtermTop);
-    ourSize = `${c.size}px`;
-    ourTop = `${c.top}px`;
-    if (h !== ourSize) slider.style.height = ourSize;
-    if (t !== ourTop) slider.style.top = ourTop;
+    ourSize = c.size;
+    ourTop = c.top;
+    if (!same(h, c.size)) slider.style.height = `${c.size}px`;
+    if (!same(t, c.top)) slider.style.top = `${c.top}px`;
   };
   const mo = new MutationObserver(apply);
   mo.observe(slider, { attributes: true, attributeFilter: ["style"] });

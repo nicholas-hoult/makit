@@ -93,3 +93,32 @@ export function createColsFollower(
     },
   };
 }
+
+/** 和上游 `FitAddon` 一致的下限：少于 2 列会让宽字符出问题 */
+const MINIMUM_COLS = 2;
+const MINIMUM_ROWS = 1;
+
+/**
+ * 容器能放下多少行列（#111）。
+ *
+ * 公式照抄 `FitAddon.proposeDimensions()`，**只少减一项**：上游会无条件扣掉一条滚动条的宽度
+ * （`scrollback !== 0` 时恒为 16px），而我们的滚动条是 overlay —— `position: absolute` +
+ * 平时 `opacity: 0`（#188 / #206），一个像素的布局宽度都不占，那 16px 是白扣的，
+ * 换算下来每个终端少 2 列（实测 720px 容器：上游 87 列，应有 89 列）。
+ *
+ * xterm 6.1 新增的 `scrollbar.showScrollbar` / `scrollbar.width` 看着正是为这事准备的，但那两个值
+ * 同时控制「FitAddon 预留多少」和「滚动条渲染多宽」：关掉预留的同时滚动条也变成 0 宽 / invisible，
+ * #188 / #206 全废。所以不用它们，自己算（见 trd/111-升级xterm6.1beta.md）。
+ */
+export function proposeGeometry(
+  parentWidth: number, parentHeight: number,
+  paddingHor: number, paddingVer: number,
+  cellWidth: number, cellHeight: number,
+): { cols: number; rows: number } {
+  const availableWidth = Math.max(0, parentWidth - paddingHor);
+  const availableHeight = Math.max(0, parentHeight - paddingVer);
+  return {
+    cols: Math.max(MINIMUM_COLS, Math.floor(availableWidth / cellWidth)),
+    rows: Math.max(MINIMUM_ROWS, Math.floor(availableHeight / cellHeight)),
+  };
+}

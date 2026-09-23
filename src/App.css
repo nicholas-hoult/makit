@@ -3368,20 +3368,23 @@ body.pane-resizing .xterm-inner {
 }
 .terminal-jump-latest:hover { opacity: 1; background: var(--bg-hover); }
 
-/* xterm 6 自己画的覆盖层滚动条（`.xterm-scrollable-element > .scrollbar`，不占布局宽度）：
+/* xterm 自己画的覆盖层滚动条（`.xterm-scrollable-element > .xterm-scrollbar`，不占布局宽度）：
+   ⚠️ 类名跟 xterm 大版本走：6.1 是 `.xterm-scrollbar` / `.xterm-slider` / `.xterm-invisible`，
+   6.0 及以前是 `.scrollbar` / `.slider` / `.invisible`（无前缀）。升级时这里静默失效过一次 —— 
+   选择器不匹配不会报错，只会让滚动条变回常驻，很难一眼看出来（#111）。
    和全局那套同一时序 —— 只在人在翻的时候显形，停手淡出（#188）。它自带的 VS Code
    Auto 可见性是「指针在终端上就显示」，终端又是一直被指着的地方，等于常驻；这里在
    没滚的时候强制压住，`.is-scrolling`（terminalScrollbar.ts 挂）期间交回 xterm 自己判断
    （没有回滚内容时它本来就不画）。长度按比例，xterm 内置最小 20px。 */
-.xterm-inner:not(.is-scrolling) .xterm-scrollable-element > .scrollbar {
+.xterm-inner:not(.is-scrolling) .xterm-scrollable-element > .xterm-scrollbar {
   opacity: 0 !important;
   transition: opacity 300ms linear;
 }
 /* 隐藏时**仍然可点**（#206）：一开始这里还写了 `pointer-events: none`，结果必须先滚一下让条子显形
    才能抓住滑块拖 —— 想直接拖到底反而做不到。现在指针移到右边缘那一条（terminalScrollbar.ts 挂
    `gutter-hover`）就显形，和 对标终端 的 overlay 条一样「滚动或悬停轨道时显示」，移开照常淡出。
-   xterm 自己在「没有回滚内容」时会挂 .invisible 并关掉 pointer-events，所以空终端的右边缘不会吃掉点击。 */
-.xterm-inner.gutter-hover .xterm-scrollable-element > .scrollbar {
+   xterm 自己在「没有回滚内容」时会挂 .xterm-invisible 并关掉 pointer-events，所以空终端的右边缘不会吃掉点击。 */
+.xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar {
   opacity: 1 !important;
 }
 
