@@ -3368,31 +3368,25 @@ body.pane-resizing .xterm-inner {
 }
 .terminal-jump-latest:hover { opacity: 1; background: var(--bg-hover); }
 
-/* xterm 自己画的覆盖层滚动条（`.xterm-scrollable-element > .xterm-scrollbar`，不占布局宽度）：
-   ⚠️ 类名跟 xterm 大版本走：6.1 是 `.xterm-scrollbar` / `.xterm-slider` / `.xterm-invisible`，
-   6.0 及以前是 `.scrollbar` / `.slider` / `.invisible`（无前缀）。升级时这里静默失效过一次 —— 
-   选择器不匹配不会报错，只会让滚动条变回常驻，很难一眼看出来（#111）。
-   和全局那套同一时序 —— 只在人在翻的时候显形，停手淡出（#188）。它自带的 VS Code
-   Auto 可见性是「指针在终端上就显示」，终端又是一直被指着的地方，等于常驻；这里在
-   没滚的时候强制压住，`.is-scrolling`（terminalScrollbar.ts 挂）期间交回 xterm 自己判断
-   （没有回滚内容时它本来就不画）。长度按比例，xterm 内置最小 20px。 */
-/* 显隐**完全由我们说了算**，不再「交回 xterm 判断」（#111 升 6.1 后必须这样）：
-   6.0 的 Auto 可见性是「指针在终端上就显示」，所以那时只要在没滚时压住、滚动时松手即可；
-   6.1 改成主动挂 `.xterm-invisible`（`opacity: 0` + `pointer-events: none`），松手就等于不显示 ——
-   症状是滚动时**压根看不见条子**。两边的判据（is-scrolling / gutter-hover）本来就在我们手里，
-   索性把 opacity 和命中一起接管，不留「看 xterm 脸色」的分支。 */
-.xterm-inner.is-scrolling .xterm-scrollable-element > .xterm-scrollbar,
-.xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar {
-  opacity: 1 !important;
-  pointer-events: auto;
-}
-/* 其余时候藏起来。隐藏时**不关命中**（#206）：一开始这里写过 `pointer-events: none`，结果必须先滚
-   一下让条子显形才能抓住滑块 —— 想直接拖到底反而做不到。空终端的兜底改在 JS 里（没有回滚内容时
-   既不挂 is-scrolling 也不挂 gutter-hover），因为 6.1 起我们把命中抢了回来，不能再靠 xterm 的
-   `.xterm-invisible` 关命中来兜。 */
-.xterm-inner:not(.is-scrolling):not(.gutter-hover) .xterm-scrollable-element > .xterm-scrollbar {
+/* xterm 自己画的覆盖层滚动条（`.xterm-scrollable-element > .xterm-scrollbar`，不占布局宽度）。
+   ⚠️ 类名跟 xterm 大版本走：6.1 是 `.xterm-scrollbar` / `.xterm-slider` / `.xterm-visible` / `.xterm-invisible`，
+   6.0 及以前没有 `xterm-` 前缀。选择器失配不报错，只会让条子静默变回常驻（#111）。
+
+   分工（#210）：
+   - **有没有内容可滚**由 xterm 说了算：没有就挂 `.xterm-invisible`（自带 opacity 0 + pointer-events none），
+     我们一律不碰 —— 之前强行把它画出来，得到的是一条在 claude / vim 里拖不动的假滚动条。
+   - **要不要显形**由我们说了算，只作用在 `.xterm-visible` 上：只在人在翻（`.is-scrolling`，
+     terminalScrollbar.ts 挂）或指针停在右边缘（`.gutter-hover`，#206）时显形，其余时候透明。
+   - 命中不在这里动：terminalScrollbar.ts 把 xterm 的可见性钉成 VISIBLE，所以 `.xterm-visible` 的
+     pointer-events 一直是 auto —— 隐藏时也能直接抓住滑块拖（#206），不用先滚一下让它显形。
+   长度按比例，xterm 内置最小 20px，我们再封顶 1/4 轨道（terminalScrollbar.ts 的 capSlider）。 */
+.xterm-inner .xterm-scrollable-element > .xterm-scrollbar.xterm-visible {
   opacity: 0 !important;
   transition: opacity 300ms linear;
+}
+.xterm-inner.is-scrolling .xterm-scrollable-element > .xterm-scrollbar.xterm-visible,
+.xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar.xterm-visible {
+  opacity: 1 !important;
 }
 
 /* 拖拽进行时让 xterm 不拦截鼠标事件，drop 能到 container-terminal 这一层

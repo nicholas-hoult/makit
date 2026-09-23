@@ -125,6 +125,25 @@ export function createActivity(
   };
 }
 
+/**
+ * 把 xterm 滚动条的可见性从 `AUTO` 钉成 `VISIBLE`（#210，xterm 6.1 起必须）。
+ *
+ * 6.1 的 `AUTO` 会在停止滚动约一秒后把条子切成 `.xterm-invisible`，而那个类自带
+ * `pointer-events: none` —— 用户移过去再按，按的是一条已经被关掉命中的条子，滑块纹丝不动。
+ * 钉成 `VISIBLE` 后 xterm 只在**没有可滚内容**（`_isNeeded=false`，包括 claude / vim / top
+ * 的 alternate buffer）时才挂 `.xterm-invisible`；其余时候命中一直开着。看得见与否交给我们的
+ * CSS 管 opacity（App.css，只作用在 `.xterm-visible` 上），这样「有没有内容」由 xterm 说了算，
+ * 「要不要显形」由我们说了算，两件事不再互相踩。
+ *
+ * 走的是私有 API，结构对不上就什么都不做 —— 退化成「拖不动」，不能把终端搞崩。
+ */
+function pinScrollbarVisible(term: Terminal): void {
+  const se = (term as unknown as {
+    _core?: { _viewport?: { _scrollableElement?: { updateOptions?(o: { vertical: number }): void } } };
+  })._core?._viewport?._scrollableElement;
+  se?.updateOptions?.({ vertical: 3 });   // ScrollbarVisibility.VISIBLE（AUTO=1，HIDDEN=2）
+}
+
 /** 给一个终端挂上显隐时序：`el` 是包住 xterm 的 `.xterm-inner` */
 export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs = 900): IDisposable {
   const activity = createActivity(
@@ -132,21 +151,15 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
     () => el.classList.remove("is-scrolling"),
     idleMs,
   );
-  // 没有可滚内容就不显形。判据是 `baseY > 0`（= 缓冲区比视口高，真的有历史可翻）。
-  //
-  // 这条不是"优化"，是**防止显示一个假滚动条**：跑 claude / vim / top 时终端在 alternate buffer 上，
-  // 那里没有回滚历史（`baseY` 恒为 0），xterm 自己的 `_isNeeded` 会把滚动条藏起来。而我们接管了
-  // opacity 和命中（见 App.css），不判这一下就会把它强行画出来 —— 更糟的是 `capSlider` 还会把
-  // 「占满整条轨道」的滑块截短成 1/4，看着就像个正常滑块，**按住却纹丝不动**，因为可滚范围是 0（#210）。
-  const onWheel = () => { if (term.buffer.active.baseY > 0) activity.ping(); };
+  const onWheel = () => activity.ping();
   el.addEventListener("wheel", onWheel, { capture: true, passive: true });
 
   // 指针移到右边缘那一条 → 显形并可抓（#206）。用 JS 判定而不是 CSS :hover：
   // :hover 只由真实指针驱动，自动化测试里派发的事件不会触发它，等于没法验证。
   const onPointerMove = (e: PointerEvent) => {
-    // 同 onWheel：没有可滚内容时不显形，也就不会吃掉右边缘的点击（#211）
-    const inGutter = term.buffer.active.baseY > 0
-      && isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
+    // 没有可滚内容时 xterm 自己会挂 .xterm-invisible（我们的 CSS 只作用在 .xterm-visible 上），
+    // 所以这里不用再判 baseY —— 那个判据在 alternate buffer 里恒为 0，之前误伤过（#210 / #211）
+    const inGutter = isInScrollbarGutter(e.clientX, el.getBoundingClientRect().right);
     el.classList.toggle("gutter-hover", inGutter);
   };
   const onPointerLeave = () => el.classList.remove("gutter-hover");
@@ -157,6 +170,7 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
     if (isUserScroll(b.viewportY, b.baseY)) activity.ping();
   });
   const unwatch = watchSlider(el);
+  pinScrollbarVisible(term);
 
   return {
     dispose() {
