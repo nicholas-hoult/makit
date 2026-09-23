@@ -3376,24 +3376,23 @@ body.pane-resizing .xterm-inner {
    Auto 可见性是「指针在终端上就显示」，终端又是一直被指着的地方，等于常驻；这里在
    没滚的时候强制压住，`.is-scrolling`（terminalScrollbar.ts 挂）期间交回 xterm 自己判断
    （没有回滚内容时它本来就不画）。长度按比例，xterm 内置最小 20px。 */
-.xterm-inner:not(.is-scrolling) .xterm-scrollable-element > .xterm-scrollbar {
-  opacity: 0 !important;
-  transition: opacity 300ms linear;
-}
-/* 隐藏时**仍然可点**（#206）：一开始这里还写了 `pointer-events: none`，结果必须先滚一下让条子显形
-   才能抓住滑块拖 —— 想直接拖到底反而做不到。现在指针移到右边缘那一条（terminalScrollbar.ts 挂
-   `gutter-hover`）就显形，和 对标终端 的 overlay 条一样「滚动或悬停轨道时显示」，移开照常淡出。
-   xterm 自己在「没有回滚内容」时会挂 .xterm-invisible 并关掉 pointer-events，所以空终端的右边缘不会吃掉点击。 */
+/* 显隐**完全由我们说了算**，不再「交回 xterm 判断」（#111 升 6.1 后必须这样）：
+   6.0 的 Auto 可见性是「指针在终端上就显示」，所以那时只要在没滚时压住、滚动时松手即可；
+   6.1 改成主动挂 `.xterm-invisible`（`opacity: 0` + `pointer-events: none`），松手就等于不显示 ——
+   症状是滚动时**压根看不见条子**。两边的判据（is-scrolling / gutter-hover）本来就在我们手里，
+   索性把 opacity 和命中一起接管，不留「看 xterm 脸色」的分支。 */
+.xterm-inner.is-scrolling .xterm-scrollable-element > .xterm-scrollbar,
 .xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar {
   opacity: 1 !important;
-}
-/* 显形的同时必须把**命中**也抢回来（#111 升 6.1 后才需要这条）：6.0 里「指针在终端上」
-   会让 xterm 一直保持 `.visible`，我们只需管 opacity；6.1 改成主动挂 `.xterm-invisible`，
-   而它自带 `pointer-events: none`。只盖 opacity 的话结果是**看得见却抓不住**，
-   比压根不显示还难受。显隐判据已经由我们接管（is-scrolling / gutter-hover），命中也一并接管。 */
-.xterm-inner.gutter-hover .xterm-scrollable-element > .xterm-scrollbar,
-.xterm-inner.is-scrolling .xterm-scrollable-element > .xterm-scrollbar {
   pointer-events: auto;
+}
+/* 其余时候藏起来。隐藏时**不关命中**（#206）：一开始这里写过 `pointer-events: none`，结果必须先滚
+   一下让条子显形才能抓住滑块 —— 想直接拖到底反而做不到。空终端的兜底改在 JS 里（没有回滚内容时
+   既不挂 is-scrolling 也不挂 gutter-hover），因为 6.1 起我们把命中抢了回来，不能再靠 xterm 的
+   `.xterm-invisible` 关命中来兜。 */
+.xterm-inner:not(.is-scrolling):not(.gutter-hover) .xterm-scrollable-element > .xterm-scrollbar {
+  opacity: 0 !important;
+  transition: opacity 300ms linear;
 }
 
 /* 拖拽进行时让 xterm 不拦截鼠标事件，drop 能到 container-terminal 这一层

@@ -133,7 +133,9 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
     () => el.classList.remove("is-scrolling"),
     idleMs,
   );
-  const onWheel = () => activity.ping();
+  // 没有回滚内容时滚轮不该让条子显形：那是一条空轨道，显出来还会吃掉右边缘的点击。
+  // 这层原先由 xterm 的 `.invisible`（自带 pointer-events: none）兜，6.1 起命中归我们管，兜底也归我们。
+  const onWheel = () => { if (term.buffer.active.baseY > 0) activity.ping(); };
   el.addEventListener("wheel", onWheel, { capture: true, passive: true });
 
   // 指针移到右边缘那一条 → 显形并可抓（#206）。用 JS 判定而不是 CSS :hover：
