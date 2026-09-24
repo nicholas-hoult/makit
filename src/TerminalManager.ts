@@ -10,7 +10,9 @@ import { traceXtermResize, traceResizeSent, traceResizeAck } from "./sizeTrace";
 import { claimResize, revertResize, forgetPane, clampSize } from "./ptySize";
 import { activateUnicodeProvider } from "./terminal/unicode-provider";
 import { isCmd } from "./keys";
-import { PATH_REGEX, isLikelyPath, parsePathText, resolvePath } from "./terminalLinks";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { osc8Target, WORD_SEPARATORS } from "./terminalLinks";
+import { installTerminalLinks } from "./terminalLinkInstall";
 import { DEFAULT_FONT_SIZE, nextFontSize, type ZoomAction } from "./fontZoom";
 import { installTerminalScrollbar } from "./terminalScrollbar";
 import { installJumpLatest } from "./terminalJumpLatest";
@@ -296,6 +298,19 @@ class TerminalManager {
 
     const terminal = new Xterm({
       allowProposedApi: true,
+      // 双击选词的分隔符照 对标终端（#214）：双击 `foo.ts:12` 只选 `foo.ts`，路径里的 / 和 . 不算分隔
+      wordSeparator: WORD_SEPARATORS,
+      // OSC 8 超链接（程序主动嵌在输出里的链接）。不设这个，xterm 会用 confirm() 弹窗确认，
+      // 而这个 WebView 里 confirm 恒为 false，结果是一个都点不开；默认还只放行 http(s)，file:// 被丢掉（#214）
+      linkHandler: {
+        allowNonHttpProtocols: true,
+        activate: (e: MouseEvent, uri: string) => {
+          if (!isCmd(e)) return;   // 和网址、路径一样 ⌘+点击才开（同 对标终端）
+          const t = osc8Target(uri);
+          if (t?.kind === "url") openUrl(t.url).catch(() => {});
+          else if (t?.kind === "file") invoke("open_path", { path: t.path, reveal: false }).catch(() => {});
+        },
+      },
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace, 'Apple SD Gothic Neo', 'Hiragino Sans GB', 'PingFang SC', 'Microsoft YaHei'",
       fontSize: DEFAULT_FONT_SIZE,
       cursorBlink: true,
@@ -408,39 +423,9 @@ class TerminalManager {
       });
     } catch {}
 
-    // 注册路径 link provider：扫描每行匹配本地路径，点击 → 用 open 打开
-    inst.linkProviderDisposable = terminal.registerLinkProvider({
-      provideLinks: (lineNumber, callback) => {
-        const buffer = terminal.buffer.active;
-        const line = buffer.getLine(lineNumber - 1);
-        if (!line) { callback(undefined); return; }
-        const text = line.translateToString(true);
-        const links = [];
-        let m: RegExpExecArray | null;
-        const re = new RegExp(PATH_REGEX.source, "g");
-        while ((m = re.exec(text)) !== null) {
-          const matched = m[0];
-          if (!isLikelyPath(matched)) continue;
-          // 默认不显示下划线/pointer，只有按住 Cmd 时才作为链接（class 由全局 keydown 切换）
-          const cmdPressed = document.body.classList.contains("cmd-pressed");
-          links.push({
-            range: {
-              start: { x: m.index + 1, y: lineNumber },
-              end: { x: m.index + matched.length, y: lineNumber },
-            },
-            text: matched,
-            decorations: { underline: cmdPressed, pointerCursor: cmdPressed },
-            activate: (e: MouseEvent, t: string) => {
-              if (!isCmd(e)) return;
-              const { path } = parsePathText(t);
-              const abs = resolvePath(path, inst.cwd);
-              invoke("open_path", { path: abs, reveal: false }).catch(() => {});
-            },
-          });
-        }
-        callback(links.length ? links : undefined);
-      },
-    });
+    // 链接识别 + 双击选链接 / 中文按词选（#214），见 terminalLinkInstall.ts
+    const links = installTerminalLinks(terminal, element, () => inst.cwd);
+    inst.linkProviderDisposable = links;
 
     this.instances.set(paneId, inst);
     // 不在 create 时 spawn PTY — 等 mount() 把 element 放进 DOM 后再 spawn
