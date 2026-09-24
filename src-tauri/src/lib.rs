@@ -1911,6 +1911,53 @@ async fn open_path(path: String, reveal: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// 一批路径各自存不存在（#214）。终端里的裸目录名、不带斜杠结尾的相对目录，字面上和普通单词分不开，
+/// 由这里查磁盘说了算：存在才画成链接。`~` 按 home 展开；相对路径由前端先按终端当前目录拼好。
+fn paths_exist_in(paths: &[String], home: &std::path::Path) -> Vec<bool> {
+    paths
+        .iter()
+        .map(|p| {
+            let expanded = if p == "~" {
+                home.to_path_buf()
+            } else if let Some(rest) = p.strip_prefix("~/") {
+                home.join(rest)
+            } else {
+                std::path::PathBuf::from(p)
+            };
+            expanded.exists()
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn paths_exist(paths: Vec<String>) -> Vec<bool> {
+    // 一次最多查 200 个：悬停一行最多几十个词，超了说明是异常输入，不陪它扫盘
+    let paths: Vec<String> = paths.into_iter().take(200).collect();
+    match dirs::home_dir() {
+        Some(home) => paths_exist_in(&paths, &home),
+        None => paths.iter().map(|p| std::path::Path::new(p).exists()).collect(),
+    }
+}
+
+#[cfg(test)]
+mod paths_exist_tests {
+    use super::paths_exist_in;
+
+    #[test]
+    fn checks_absolute_relative_and_tilde() {
+        let home = std::env::temp_dir().join(format!("makit-paths-exist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("docs/issue")).unwrap();
+        let abs = home.join("docs").to_string_lossy().into_owned();
+        let got = paths_exist_in(
+            &[abs.clone(), format!("{abs}/issue"), format!("{abs}/nope"), "~/docs".into(), "~/missing".into(), "~".into()],
+            &home,
+        );
+        let _ = std::fs::remove_dir_all(&home);
+        assert_eq!(got, vec![true, true, false, true, false, true]);
+    }
+}
+
 // fs.watch 增量推送：
 // - sessions/ 变化 → emit "running-changed"（只需重读运行状态，轻量）
 // - projects/ 变化 → emit "sessions-changed"，**载荷是变化的 jsonl 路径列表**。
@@ -2289,6 +2336,7 @@ pub fn run() {
             pty::pty_kill,
             pty::kill_pids,
             open_path,
+            paths_exist,
             list_running_sessions,
             resolve_pty_bindings,
             list_sessions_by_paths,

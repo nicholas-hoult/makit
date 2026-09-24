@@ -48,25 +48,56 @@ function openLocalPath(text: string, cwd: string) {
   invoke("open_path", { path: resolvePath(path, cwd), reveal: false }).catch(() => {});
 }
 
+/** 候选路径存在与否的缓存：悬停一行就要查一批，5 秒内不重复扫盘；目录刚建 / 刚删的，最多晚 5 秒反映出来 */
+const existCache = new Map<string, { ok: boolean; at: number }>();
+const EXIST_TTL_MS = 5000;
+
+async function existingPaths(paths: string[]): Promise<Set<string>> {
+  const now = Date.now();
+  if (existCache.size > 2000) existCache.clear();
+  const need = [...new Set(paths)].filter((p) => {
+    const c = existCache.get(p);
+    return !c || now - c.at > EXIST_TTL_MS;
+  });
+  if (need.length) {
+    try {
+      const res = await invoke<boolean[]>("paths_exist", { paths: need });
+      need.forEach((p, i) => existCache.set(p, { ok: !!res[i], at: now }));
+    } catch {
+      need.forEach((p) => existCache.set(p, { ok: false, at: now }));
+    }
+  }
+  return new Set(paths.filter((p) => existCache.get(p)?.ok));
+}
+
 export function installTerminalLinks(terminal: Xterm, element: HTMLElement, getCwd: () => string): IDisposable {
   // 网址和本地路径，在整条逻辑行上认（折行的也行）。
   // 按住 ⌘ 才画下划线（class 由全局 keydown 切换），⌘+点击打开，同 对标终端 / 对标产品。
   const provider = terminal.registerLinkProvider({
     provideLinks: (lineNumber, callback) => {
       const cmdPressed = document.body.classList.contains("cmd-pressed");
-      const links = rowLinks(logicalRows(terminal, lineNumber - 1))
-        .filter((l) => l.start.y <= lineNumber && l.end.y >= lineNumber)
-        .map((l) => ({
-          range: { start: l.start, end: l.end },
-          text: l.text,
-          decorations: { underline: cmdPressed, pointerCursor: cmdPressed },
-          activate: (e: MouseEvent, t: string) => {
-            if (!isCmd(e)) return;
-            if (l.kind === "url") openUrl(t).catch(() => {});
-            else openLocalPath(t, getCwd());
-          },
-        }));
-      callback(links.length ? links : undefined);
+      const found = rowLinks(logicalRows(terminal, lineNumber - 1))
+        .filter((l) => l.start.y <= lineNumber && l.end.y >= lineNumber);
+      const abs = (text: string) => resolvePath(parsePathText(text).path, getCwd());
+      const build = (existing: Set<string>) => {
+        const links = found
+          // 候选（裸目录名、不带斜杠结尾的相对目录）存在才算链接，见 terminalLinks.ts 的 verify
+          .filter((l) => !l.verify || existing.has(abs(l.text)))
+          .map((l) => ({
+            range: { start: l.start, end: l.end },
+            text: l.text,
+            decorations: { underline: cmdPressed, pointerCursor: cmdPressed },
+            activate: (e: MouseEvent, t: string) => {
+              if (!isCmd(e)) return;
+              if (l.kind === "url") openUrl(t).catch(() => {});
+              else openLocalPath(t, getCwd());
+            },
+          }));
+        callback(links.length ? links : undefined);
+      };
+      const toCheck = found.filter((l) => l.verify).map((l) => abs(l.text));
+      if (toCheck.length === 0) build(new Set());
+      else existingPaths(toCheck).then(build);
     },
   });
 
@@ -98,5 +129,4 @@ export function installTerminalLinks(terminal: Xterm, element: HTMLElement, getC
       element.removeEventListener("dblclick", onDblClick);
     },
   };
-
 }

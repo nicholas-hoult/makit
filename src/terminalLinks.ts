@@ -60,7 +60,26 @@ export function resolvePath(text: string, cwd: string): string {
  */
 export const WORD_SEPARATORS = " \t'\"│`|:;,()[]{}<>$";
 
-export type FoundLink = { kind: "url" | "path"; start: number; end: number; text: string };
+export type FoundLink = {
+  kind: "url" | "path";
+  start: number;
+  end: number;
+  text: string;
+  /**
+   * 只是候选、要查磁盘才算数（#214）：不带斜杠结尾的相对目录（`src/components`）、裸名字（`ls` 输出里的 `docs`）。
+   * 这些写法和普通单词、`and/or` 长得一样，字面上分不出来，存在才算链接。
+   */
+  verify?: boolean;
+};
+
+/** 路径以前是从 token 中间开始匹配的：`private/docs/issue` 被切成 `/docs/issue`，还当成绝对路径 */
+const MID_TOKEN = /[\w一-龥.\-/~]/;
+/** 候选 token：按空白和常见包裹符号切 */
+const TOKEN = /[^\s'"`()\[\]{}<>,;|]+/g;
+/** 相对路径（至少一个斜杠），段里允许中文 */
+const REL_WITH_SLASH = /^[\w一-龥.\-]+(?:\/[\w一-龥.\-]+)+\/?$/;
+/** 裸名字：只收 ASCII、至少一个字母（排除 42、&&），中文词太常见，不收 */
+const BARE_NAME = /^[\w.\-]*[A-Za-z][\w.\-]*$/;
 
 /** 网址：到空白、引号、尖括号、中文（含全角标点）为止。中文紧挨着网址是常态（「打开https://…看看」） */
 const URL_REGEX = /\bhttps?:\/\/[^\s<>"'`　-鿿＀-￯]+/g;
@@ -89,13 +108,25 @@ export function findLinks(text: string): FoundLink[] {
     const t = trimUrl(m[0]);
     if (/^https?:\/\/./.test(t)) out.push({ kind: "url", start: m.index!, end: m.index! + t.length, text: t });
   }
+  const overlaps = (start: number, end: number) => out.some((l) => start < l.end && end > l.start);
+  // 确定的路径：带扩展名、绝对 / ~ / ./ 开头、结尾带斜杠的目录
   const re = new RegExp(PATH_REGEX.source, "g");
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const start = m.index, end = start + m[0].length;
     if (!isLikelyPath(m[0])) continue;
-    if (out.some((l) => l.kind === "url" && start < l.end && end > l.start)) continue;
+    if (start > 0 && MID_TOKEN.test(text[start - 1])) continue;   // 从 token 中间开始的不算
+    if (overlaps(start, end)) continue;
     out.push({ kind: "path", start, end, text: m[0] });
+  }
+  // 候选：相对目录、裸名字，要查磁盘
+  for (const t of text.matchAll(TOKEN)) {
+    const raw = t[0].replace(/[.:]+$/, "");
+    if (raw.length < 2 || /^[\d/.:-]+$/.test(raw)) continue;
+    if (!REL_WITH_SLASH.test(raw) && !BARE_NAME.test(raw)) continue;
+    const start = t.index!, end = start + raw.length;
+    if (overlaps(start, end)) continue;
+    out.push({ kind: "path", start, end, text: raw, verify: true });
   }
   return out.sort((a, b) => a.start - b.start);
 }
@@ -162,6 +193,7 @@ export type Row = { y: number; cells: Cell[] };
 export type RowLink = {
   kind: FoundLink["kind"];
   text: string;
+  verify?: boolean;
   /** xterm 链接范围的约定：x、y 从 1 开始，end 含 */
   start: { x: number; y: number };
   end: { x: number; y: number };
@@ -186,6 +218,7 @@ export function rowLinks(rows: Row[]): RowLink[] {
     return {
       kind: l.kind,
       text: l.text,
+      verify: l.verify,
       start: { x: pos[startCell].x + 1, y: pos[startCell].y + 1 },
       end: { x: pos[endCell].x + 1, y: pos[endCell].y + 1 },
       startCell,
@@ -207,7 +240,9 @@ export function linkSelectionAt(rows: Row[], col: number, row: number): { col: n
     offset += r.cells.length;
   }
   if (hit < 0) return null;
-  const link = rowLinks(rows).find((l) => hit >= l.startCell && hit < l.startCell + l.cells);
+  // 只认确定的链接：候选（裸名字、相对目录）不查磁盘分不出是不是路径，双击它们交给 xterm 按分隔符选
+  // —— `/` 不算分隔符，`src/components` 照样整个选中
+  const link = rowLinks(rows).find((l) => !l.verify && hit >= l.startCell && hit < l.startCell + l.cells);
   if (!link) return null;
   // 路径选到文件名为止，不带末尾的 `:行号:列号`：双击是为了拿到能用的路径，`foo.ts:12` 贴进 cd / open 都不认。
   // 行列号都是 ASCII，一个字符占一格，直接按字符数扣

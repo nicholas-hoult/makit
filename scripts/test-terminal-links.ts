@@ -16,7 +16,8 @@ function eq(name: string, got: unknown, want: unknown) {
   const g = JSON.stringify(got), w = JSON.stringify(want);
   if (g !== w) { console.error(`✗ ${name}\n  got:  ${g}\n  want: ${w}`); process.exit(1); }
 }
-const texts = (s: string) => findLinks(s).map((l) => `${l.kind}:${l.text}`);
+// 只列**确定**的链接；要查磁盘的候选（verify）不是链接，由后面「目录」那组用 cand() 单独测
+const texts = (s: string) => findLinks(s).filter((l) => !l.verify).map((l) => `${l.kind}:${l.text}`);
 
 // ── 网址 ──
 eq("网址和路径各认各的", texts("see https://github.com/a/b and src/foo.ts:12"), ["url:https://github.com/a/b", "path:src/foo.ts:12"]);
@@ -75,9 +76,10 @@ eq("分隔符照 对标终端 的 selection-word-chars", WORD_SEPARATORS, " \t'\
 const row = (y: number, s: string) => ({ y, cells: [...s.padEnd(10, " ")].map((c) => cell(c, 1)) });
 const wrapped = [row(5, "see https:"), row(6, "//a.io/abc"), row(7, "def x")];
 const links = rowLinks(wrapped);
-eq("折行的网址认成一整个", links.map((l) => `${l.kind}:${l.text}`), ["url:https://a.io/abcdef"]);
+eq("折行的网址认成一整个", links.filter((l) => !l.verify).map((l) => `${l.kind}:${l.text}`), ["url:https://a.io/abcdef"]);
 // 链接范围沿用 xterm 的约定：x、y 从 1 开始，end 含
-eq("起点在第 5 行第 5 格，终点在第 7 行第 3 格", [links[0].start, links[0].end], [{ x: 5, y: 6 }, { x: 3, y: 8 }]);
+const url = links.find((l) => l.kind === "url")!;
+eq("起点在第 5 行第 5 格，终点在第 7 行第 3 格", [url.start, url.end], [{ x: 5, y: 6 }, { x: 3, y: 8 }]);
 // 双击折行网址的任何一截，都选中整个网址（xterm.select 的列、行从 0 开始，长度按格子数跨行）
 eq("双击第二行那截", linkSelectionAt(wrapped, 3, 6), { col: 4, row: 5, length: 19 });
 eq("双击第一行那截（https: 的冒号以前是分隔符，只能选一半）", linkSelectionAt(wrapped, 6, 5), { col: 4, row: 5, length: 19 });
@@ -88,5 +90,18 @@ const pathRow = [row(3, "foo.ts:12 "), row(4, "")].slice(0, 1);
 eq("双击 foo.ts:12 的 foo 只选 foo.ts", linkSelectionAt(pathRow, 1, 3), { col: 0, row: 3, length: 6 });
 eq("双击带行列号的深路径，选到文件名为止", linkSelectionAt([row(0, "a/b.ts:3:4")], 2, 0), { col: 0, row: 0, length: 6 });
 eq("点在 :12 上也按路径算，同样不带行号", linkSelectionAt(pathRow, 7, 3), { col: 0, row: 3, length: 6 });
+
+// ── 目录（用户 2026-09-25：「目录好像还是没法点」）──
+// 不带斜杠结尾的相对目录、裸目录名以前不认；「private/docs/issue」还被切成「/docs/issue」当绝对路径。
+// 这类写法和普通单词长得一样，所以只当**候选**（verify: true），由磁盘说了算：存在才算链接。
+const cand = (s: string) => findLinks(s).map((l) => `${l.text}${l.kind === "path" && l.verify ? "?" : ""}`);
+// 裸单词一律只是候选（命令名 cd、ls 也是）：字面上分不出 ls 输出里的 src 和命令 cd，交给磁盘去分
+eq("相对目录（不带斜杠结尾）是候选", cand("cd src/components && ls"), ["cd?", "src/components?", "ls?"]);
+eq("多级相对目录不再从中间切", cand("private/docs/issue"), ["private/docs/issue?"]);
+eq("ls 输出的裸目录名是候选", cand("docs  scripts  src"), ["docs?", "scripts?", "src?"]);
+eq("中文句子里的相对目录", cand("修改了 src/components 下的文件"), ["src/components?"]);
+eq("纯数字和分数、日期不当候选", cand("1/2 2026/09/25 42"), []);
+eq("确定的路径不用查磁盘", cand("/Users/me/proj ~/a ./b c.ts lib/"), ["/Users/me/proj", "~/a", "./b", "c.ts", "lib/"]);
+eq("网址里的片段不当候选", cand("https://a.com/src/x"), ["https://a.com/src/x"]);
 
 console.log(`✓ 终端链接识别与双击选词全部通过（${n} 项）`);
