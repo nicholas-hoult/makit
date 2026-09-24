@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { STATUS_LABEL } from "./sessionStatus";
 import { TerminalView } from "./Terminal";
 import type { ContainerNode, PaneTab, TabKind } from "./workspace-types";
 import { isTabDrag } from "./paneDrop";
@@ -152,9 +153,9 @@ export function ContainerView({
               <span className="container-tab-label">{tabLabel(t)}</span>
               {(() => {
                 const st = getTabStatus?.(t);
-                if (st === "waiting") return <span className="tab-dot waiting" title="等待输入">●</span>;
-                if (st === "busy") return <span className="tab-dot busy" title="工作中">⚡</span>;
-                if (st === "idle") return <span className="tab-dot idle" title="空闲">○</span>;
+                if (st === "waiting") return <span className="tab-dot waiting" title="需要回应">●</span>;
+                if (st === "busy") return <span className="tab-dot busy" title={STATUS_LABEL.busy}>⚡</span>;
+                if (st === "idle") return <span className="tab-dot idle" title={STATUS_LABEL.idle}>○</span>;
                 return null;
               })()}
               <span

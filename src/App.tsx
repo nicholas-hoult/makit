@@ -14,6 +14,7 @@ import type { Direction } from "./workspace-types";
 import { CommandPalette, PaletteItem } from "./CommandPalette";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { isCmd } from "./keys";
+import { STATUS_LABEL, waitingLabel } from "./sessionStatus";
 import { truncate, deriveSessionTabLabel } from "./sessionTitle";
 import { PANE_SPEC_MIME } from "./paneDrop";
 import { formatSearchCount, type SearchProgress } from "./searchCount";
@@ -1934,13 +1935,8 @@ function App() {
         : s.status === "busy" ? "busy"
         : s.running ? "idle"
         : "stopped";
-      const statusLabel = stat === "waiting"
-        ? (s.waiting_for === "user" ? "等待回答" : "等待审批")
-        : stat === "busy" ? "工作中"
-        : stat === "idle" ? "空闲"
-        : stat === "archived" ? "已归档"
-        : stat === "stopped" ? "已停止"
-        : "";
+      // 和侧栏同一套词（#187），只在 sessionStatus.ts 定义一处
+      const statusLabel = stat === "waiting" ? waitingLabel(s.waiting_for) : STATUS_LABEL[stat];
       items.push({
         id: `s:${s.session_id}:${group}`,
         title: deriveSessionTabLabel(s),
@@ -1984,12 +1980,16 @@ function App() {
     //
     // 注意：group 字符串同时是折叠状态的持久化 key（COLLAPSED_KEY），改名会让已保存的
     // 折叠状态失效一次 —— 只影响"哪几组是收起的"，可接受。
-    for (const s of sortSessions(waitingUser, sortKey, pinnedSessions)) pushSession(s, "等待回答");
-    for (const s of sortSessions(waitingApproval, sortKey, pinnedSessions)) pushSession(s, "等待审批");
-    for (const s of sortSessions(running, sortKey, pinnedSessions)) pushSession(s, "工作中");
-    for (const s of sortSessions(allActive.filter((s) => !s.running), sortKey, pinnedSessions).slice(0, 30)) pushSession(s, "最近活跃");
+    // 组名和侧栏、状态筛选同一套词（#187）：原来的「工作中」把进行中和空闲混在一组，拆开
+    const busy = running.filter((s) => s.status === "busy");
+    const idle = running.filter((s) => s.status !== "busy");
+    for (const s of sortSessions(waitingUser, sortKey, pinnedSessions)) pushSession(s, STATUS_LABEL.waiting_user);
+    for (const s of sortSessions(waitingApproval, sortKey, pinnedSessions)) pushSession(s, STATUS_LABEL.waiting_approval);
+    for (const s of sortSessions(busy, sortKey, pinnedSessions)) pushSession(s, STATUS_LABEL.busy);
+    for (const s of sortSessions(idle, sortKey, pinnedSessions)) pushSession(s, STATUS_LABEL.idle);
+    for (const s of sortSessions(allActive.filter((s) => !s.running), sortKey, pinnedSessions).slice(0, 30)) pushSession(s, STATUS_LABEL.stopped);
     const archived = sortSessions(sessions.filter((s) => s.archived), sortKey, pinnedSessions).slice(0, 30);
-    for (const s of archived) pushSession(s, "已归档");
+    for (const s of archived) pushSession(s, STATUS_LABEL.archived);
 
     return items;
   }, [sessions, pinnedSessions]);

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { isCmd } from "./keys";
+import { STATUS_LABEL } from "./sessionStatus";
 
 export type PaletteItem = {
   id: string;
@@ -490,12 +491,13 @@ export function CommandPalette({ open, onClose, items, placeholder, projects = [
                   六行的文字左缘是锯齿状的。顺手把 🗄 换成等宽的 ▤ —— emoji 是彩色的，
                   夹在一列单色符号里最扎眼。 */}
               {([
-                ["waiting_approval", "⚠", "等待审批"],
-                ["waiting_user", "?", "等待回答"],
-                ["busy", "▶", "工作中"],
-                ["idle", "○", "空闲（运行中）"],
-                ["stopped", "·", "已停止（未归档）"],
-                ["archived", "▤", "已归档"],
+                // 文案和侧栏同一套（#187），只在 sessionStatus.ts 定义一处
+                ["waiting_approval", "⚠", STATUS_LABEL.waiting_approval],
+                ["waiting_user", "?", STATUS_LABEL.waiting_user],
+                ["busy", "▶", STATUS_LABEL.busy],
+                ["idle", "○", STATUS_LABEL.idle],
+                ["stopped", "·", STATUS_LABEL.stopped],
+                ["archived", "▤", STATUS_LABEL.archived],
               ] as [StatusKey, string, string][]).map(([k, glyph, label]) => (
                 <label key={k} className="palette-filter-row">
                   <input type="checkbox" checked={filterStatus.has(k)} onChange={() => toggleStatus(k)} />

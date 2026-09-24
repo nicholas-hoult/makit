@@ -15,6 +15,25 @@
  * 是一个 10px 的圆点，肉眼回归不了。
  */
 
+/**
+ * 状态的**唯一一套叫法**，侧栏和 ⌘K 命令面板都从这里取（#187）。
+ * 以前两边各写一套：侧栏叫「后台运行」、行上一律显示「等待审批」（等你回答问题时也是），
+ * ⌘K 叫「工作中」「空闲（运行中）」「已停止（未归档）」—— 同一个会话在两处读起来像两种状态。
+ */
+export const STATUS_LABEL = {
+  waiting_approval: "等待审批",
+  waiting_user: "等待回答",
+  busy: "进行中",
+  idle: "空闲",
+  stopped: "已停止",
+  archived: "已归档",
+} as const;
+
+/** 在等你的会话具体在等什么：`waiting_for === "user"` 是等你回答问题，其余都是等你批准操作 */
+export function waitingLabel(waitingFor: string | null | undefined): string {
+  return waitingFor === "user" ? STATUS_LABEL.waiting_user : STATUS_LABEL.waiting_approval;
+}
+
 /** 状态点的四档。顺序即优先级：等你处理 > 正在跑 > 活着但闲着 > 已停止。 */
 export type RunState = "waiting" | "busy" | "idle" | "stopped";
 
@@ -61,14 +80,15 @@ export function runStateClass(st: RunState): string {
  */
 export function runStateTitle(st: RunState): string {
   switch (st) {
+    // 开头的词和 STATUS_LABEL / 侧栏分组名一致（#187）
     case "waiting":
-      return "等你处理：正阻塞在一个需要批准的操作上";
+      return "需要回应：在等你批准操作或回答问题";
     case "busy":
-      return "正在跑：claude 进程活着且在产出";
+      return `${STATUS_LABEL.busy}：进程活着且在产出`;
     case "idle":
-      return "空闲：claude 进程活着，点进去可以直接接着用";
+      return `${STATUS_LABEL.idle}：进程活着，点进去可以直接接着用`;
     case "stopped":
-      return "已停止：进程不在了，打开会用 claude -r 恢复上下文";
+      return `${STATUS_LABEL.stopped}：进程不在了，打开会恢复之前的上下文`;
   }
 }
 

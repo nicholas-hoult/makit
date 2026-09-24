@@ -11,7 +11,8 @@ import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { resumeCmd } from "./workspace-types";
 import { moveSelection } from "./treeNav";
 import { visibleSessionOrder } from "./treeOrder";
-import { runState, runStateIcon, runStateClass, runStateTitle, anyAlive } from "./sessionStatus";
+import { runState, runStateIcon, runStateClass, runStateTitle, anyAlive, STATUS_LABEL, waitingLabel } from "./sessionStatus";
+import { statusGroups, dayBuckets, priorityCompare } from "./sidebarGroups";
 
 type SessionMeta = {
   session_id: string;
@@ -110,7 +111,8 @@ function groupByGitRoot(list: SessionMeta[]): ProjectGroup[] {
     // 「组里有活的」这一问在三个地方要用：默认折不折（projectCollapse）、组的排序、
     // 以及要不要给这组画状态列。所以走 anyAlive 一个定义，别在渲染层再写一份。
     const hasActive = anyAlive(sessions);
-    const sorted = [...sessions].sort((a, b) => b.mtime - a.mtime);
+    // 组内照 Codex 的「优先级」排：需要回应 → 进行中 → 空闲 → 已停止，同级按最近活动（#187）
+    const sorted = [...sessions].sort(priorityCompare);
     const toolSet = [...new Set(sessions.map((s) => s.tool))];
     groups.push({ name, gitRoot, sessions: sorted, hasActive, toolSet });
   }
@@ -259,44 +261,32 @@ export const SessionTree = memo(function SessionTree({
   // （实测排位 #1 #2 #6 #7 #8 #17 #18，中间夹的全是死的）。「进程还活着」是一个
   // 和 mtime 完全独立的维度，且差别是实质的：活的点进去立刻接着用，死的要
   // `claude -r` 重启、重载上下文。以前只把 waiting 提了上来，把 running 漏了。
-  const groups = useMemo(() => {
-    const taken = new Set<string>();
-    // 紧急的两组固定按 mtime：它们是拿来盯的，「刚动过的在前」是唯一合理的顺序，
-    // 用户挑的 sortKey（消息数 / 首条消息）对监控没有意义。历史组才尊重 sortKey。
-    const byRecent = (a: SessionMeta, b: SessionMeta) => b.mtime - a.mtime;
-    const take = (pred: (s: SessionMeta) => boolean, sorter: (a: SessionMeta, b: SessionMeta) => number) => {
-      const out = filtered.filter((s) => !taken.has(s.session_id) && pred(s));
-      for (const s of out) taken.add(s.session_id);
-      return out.sort(sorter);
-    };
-    // 「打开中」插在链条最前面，于是「已打开的不在下面重复出现」由 taken 机制免费保证，
-    // 不需要在每个下游组里各写一遍排除条件。
-    //
-    // 它排在「需要回应」前面不是因为更紧急，而是因为它是**导航面板**而不是监控项：
-    // 用户一天几十次要在自己开着的 2~6 个会话之间切，这是侧栏最高频的动作，而
-    // 「谁在等我」是被通知驱动的（有铃铛、有系统通知），不靠扫这一列发现。
-    //
-    // 排序按 openedIndex（= container/tab 顺序 = 屏幕布局），不按 mtime：见 openedOrder。
-    return {
-      opened: take((s) => openedIndex.has(s.session_id), (a, b) => openedIndex.get(a.session_id)! - openedIndex.get(b.session_id)!),
-      attention: take((s) => s.status === "waiting", byRecent),
-      running: take((s) => s.running, byRecent),
-      pinned: take((s) => pinnedSessions.has(s.session_id), sortFn),
-      others: take(() => true, sortFn),
-    };
-  }, [filtered, pinnedSessions, sortKey, openedIndex]);
+  // 分组链：置顶 → 已打开 → 需要回应 → 进行中 → 空闲 → 历史（#187，参考 Claude / Codex 桌面版）。
+  // 规则和理由见 sidebarGroups.ts，那里有测试。
+  const groups = useMemo(
+    () => statusGroups(filtered, { openedIndex, pinned: pinnedSessions, sort: sortFn }),
+    [filtered, pinnedSessions, sortKey, openedIndex],
+  );
 
   // 分页/reveal 只作用在历史组：前三组实测加起来十几条（waiting + 活着的 7 条 +
   // 收藏），分页它们没有意义，而历史组是 200+ 条的那一段。
-  const history = groups.others;
+  const history = groups.history;
   const historyVisible = useMemo(() => history.slice(0, visibleRecent), [history, visibleRecent]);
+  // 历史按日期分段（照 Claude：今天 / 昨天 / 近几天各一天 / 更早）。只在按「最近活动」排序时分段 ——
+  // 按消息数、首条消息排序时列表不按时间走，分段会把顺序打乱，那时退回一个没有标题的组。
+  const historyGroups = useMemo(
+    () => sortKey === "recent"
+      ? dayBuckets(historyVisible, new Date())
+      : [{ id: "history", label: "", list: historyVisible }],
+    [historyVisible, sortKey],
+  );
 
   // 项目视图也排除已打开的：「打开中」段两个视图都常驻置顶，视图切换只影响它下面
   // 那部分。这强化了「上面这段是常驻导航面板，下面才是仓库」的语义。
   const projectGroups = useMemo(() => {
     if (viewMode !== "project") return [];
-    return groupByGitRoot(filtered.filter((s) => !openedIndex.has(s.session_id)));
-  }, [filtered, viewMode, openedIndex]);
+    return groupByGitRoot(filtered.filter((s) => !openedIndex.has(s.session_id) && !pinnedSessions.has(s.session_id)));
+  }, [filtered, viewMode, openedIndex, pinnedSessions]);
 
   // 带标签的分组，**渲染和键盘导航共用这一份**。
   //
@@ -308,12 +298,17 @@ export const SessionTree = memo(function SessionTree({
   // opened 单独拿出来是因为它两个视图都常驻置顶（它是导航面板，不属于任何分组方式）。
   // 历史组不在这里：它没有标签、没有可点的表头，也不该有 —— 它是默认档，折叠它等于
   // 把整列清空。
-  const openedGroup = useMemo(() => ({ id: "opened", label: "已打开", list: groups.opened }), [groups.opened]);
+  // 两个视图都常驻在最上面：置顶、已打开。置顶放最上面照 Claude / Codex（#187）
+  const topGroups = useMemo(() => [
+    { id: "pinned", label: "置顶", list: groups.pinned },
+    { id: "opened", label: "已打开", list: groups.opened },
+  ], [groups.pinned, groups.opened]);
+  // 组名用和 ⌘K 同一套词（sessionStatus.ts 的 STATUS_LABEL），「后台运行」拆成进行中 / 空闲（#187）
   const labeledGroups = useMemo(() => [
     { id: "attention", label: "需要回应", list: groups.attention, tone: "warn" as const },
-    { id: "running", label: "后台运行", list: groups.running },
-    { id: "pinned", label: "收藏", list: groups.pinned },
-  ], [groups.attention, groups.running, groups.pinned]);
+    { id: "busy", label: STATUS_LABEL.busy, list: groups.busy },
+    { id: "idle", label: STATUS_LABEL.idle, list: groups.idle },
+  ], [groups.attention, groups.busy, groups.idle]);
 
   // 键盘导航要求一个**显式的渲染顺序**。原来各组各自 map、没有全局顺序概念 ——
   // 这是当前代码做不到 ↑↓ 的结构原因，不是「忘了加 handler」。
@@ -325,17 +320,17 @@ export const SessionTree = memo(function SessionTree({
   const visibleOrder = useMemo(
     () =>
       visibleSessionOrder({
-        opened: openedGroup,
+        top: topGroups,
         viewMode,
         labeled: labeledGroups,
-        history: historyVisible,
+        history: historyGroups,
         projects: projectGroups.map((g) => ({
           collapsed: isProjectCollapsed(collapsedProjects, projectCollapseKey(g.gitRoot, g.name), g.hasActive),
           sessions: g.sessions,
         })),
         collapsedGroups,
       }),
-    [openedGroup, labeledGroups, historyVisible, projectGroups, viewMode, collapsedProjects, collapsedGroups],
+    [topGroups, labeledGroups, historyGroups, projectGroups, viewMode, collapsedProjects, collapsedGroups],
   );
 
   // 选中的是 id，但 Enter / Space 要的是整个 meta。选中项一定在 filtered 里
@@ -377,7 +372,7 @@ export const SessionTree = memo(function SessionTree({
     //
     // 这里直接展开、不像 expandProjectForReveal 那样区分「默认展开」和「显式展开」：
     // 状态组的默认值恒为展开，集合里有它就一定是用户自己折的，删掉即是展开。
-    const holder = [openedGroup, ...labeledGroups].find(
+    const holder = [...topGroups, ...labeledGroups, ...historyGroups].find(
       (g) => collapsedGroups.has(g.id) && g.list.some((s) => s.session_id === activeSessionId)
     );
     if (holder) {
@@ -465,7 +460,7 @@ export const SessionTree = memo(function SessionTree({
     // last_cwd 优先：会话跑起来之后可能 cd 走了，用户右键要去的是它**现在**在的目录。
     const cwd = s.last_cwd || s.cwd;
     return [
-      { label: pinnedSessions.has(s.session_id) ? "取消收藏" : "收藏", onClick: () => onTogglePin(s.session_id) },
+      { label: pinnedSessions.has(s.session_id) ? "取消置顶" : "置顶", onClick: () => onTogglePin(s.session_id) },
       { label: s.archived ? "取消归档" : "归档", onClick: () => onArchive(s.session_id) },
       { sep: true },
       { label: "查看对话", disabled: !onOpenDetail, onClick: () => onOpenDetail?.(s) },
@@ -570,7 +565,9 @@ export const SessionTree = memo(function SessionTree({
         setCollapsedProjects((prev) => toggleProjectCollapsed(prev, colKey, g.hasActive));
         return;
       }
-      const g = [openedGroup, ...labeledGroups].find((lg) => lg.list.some((x) => x.session_id === s.session_id));
+      // 不分段时那个没有标题的历史组不可折叠（id 为 "history"），按 ←/→ 是 no-op
+      const g = [...topGroups, ...labeledGroups, ...historyGroups.filter((hg) => hg.id !== "history")]
+        .find((lg) => lg.list.some((x) => x.session_id === s.session_id));
       if (!g) return;
       e.preventDefault();
       if (collapsedGroups.has(g.id) === wantCollapsed) return;
@@ -632,7 +629,7 @@ export const SessionTree = memo(function SessionTree({
                 原来 busy 显示「工作中」、running 显示「空闲」：前者和脉动的青色圆点
                 说的是同一件事，后者更是每一条闲置 session 都挂一个灰色药丸，
                 信息量为零却每行都在和标题抢宽度。两者都删掉，状态交给圆点。 */}
-            {s.status === "waiting" && <span className="tree-status-badge waiting">等待审批</span>}
+            {s.status === "waiting" && <span className="tree-status-badge waiting">{waitingLabel(s.waiting_for)}</span>}
             <span className="tree-session-time" title={s.mtime_display}>
               {relativeTime(s.mtime * 1000)}
             </span>
@@ -643,7 +640,7 @@ export const SessionTree = memo(function SessionTree({
               : s.tool === "codex" && <span className="tree-tool-badge codex">CX</span>
             }
             {/* busy 的文字说明降到 row2 —— 这一行本来就有 ~90px 空闲，不和标题争 */}
-            {s.status === "busy" && <span className="tree-session-busy">工作中</span>}
+            {s.status === "busy" && <span className="tree-session-busy">{STATUS_LABEL.busy}</span>}
             <span className="tree-session-sub">{projectName}</span>
             {showShortId && <>
               <span className="tree-session-sub">·</span>
@@ -752,7 +749,7 @@ export const SessionTree = memo(function SessionTree({
         })}
         {/* 也要看「打开中」段：全部匹配项都开着的时候项目组是空的，
             但列表并不空 —— 这时报「无 session」是撒谎。 */}
-        {projectGroups.length === 0 && groups.opened.length === 0 && (
+        {projectGroups.length === 0 && groups.opened.length === 0 && groups.pinned.length === 0 && (
           <div className="tree-empty">{loading ? "加载中…" : (query ? "无匹配 session" : "无 session")}</div>
         )}
       </>
@@ -844,7 +841,7 @@ export const SessionTree = memo(function SessionTree({
             而「…中」这个后缀让它和下面的「运行中」读起来像同一类东西 —— 两个都像
             正在进行的活动，于是并列成互斥组之后就暗示了「打开中的没在运行」。
             这两个维度其实正交，见 sessionStatus.ts。 */}
-        {renderGroup(openedGroup)}
+        {topGroups.map(renderGroup)}
         {viewMode === "status" ? (
           <>
             {/* 需要回应 → 后台运行 → 收藏 → 历史。前三组带标签，历史不带（它是默认档）。
@@ -860,7 +857,7 @@ export const SessionTree = memo(function SessionTree({
             {/* 不能套一层 <div>：组间距靠 `.tree-group + .tree-group` 这个兄弟选择器，
                 中间插任何元素都会把相邻关系断掉。key 放在 renderGroup 返回的 section 上。 */}
             {labeledGroups.map(renderGroup)}
-            {renderGroup({ label: "", list: historyVisible })}
+            {historyGroups.map(renderGroup)}
             {filtered.length === 0 && (
               <div className="tree-empty">{loading ? "加载中…" : (query ? "无匹配 session" : "无 session")}</div>
             )}

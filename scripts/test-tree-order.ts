@@ -29,7 +29,8 @@ const labeled: OrderGroup[] = [
   { id: "running", list: rows("r1", "r2") },
   { id: "pinned", list: rows("p1") },
 ];
-const history = rows("h1", "h2");
+// 不分段（按消息数 / 首条消息排序）时，历史是一个 id 为 "history"、没有标题的组
+const history: OrderGroup[] = [{ id: "history", list: rows("h1", "h2") }];
 const projects: OrderProject[] = [
   { collapsed: false, sessions: rows("x1", "x2") },
   { collapsed: true, sessions: rows("y1") },
@@ -37,7 +38,7 @@ const projects: OrderProject[] = [
 
 function order(over: Partial<Parameters<typeof visibleSessionOrder>[0]> = {}) {
   return visibleSessionOrder({
-    opened, viewMode: "status", labeled, history, projects,
+    top: [opened], viewMode: "status", labeled, history, projects,
     collapsedGroups: new Set(),
     ...over,
   });
@@ -128,7 +129,7 @@ eq(
 );
 eq(
   "全空 → 空顺序",
-  order({ opened: { id: "opened", list: [] }, labeled: [], history: [] }),
+  order({ top: [{ id: "opened", list: [] }], labeled: [], history: [] }),
   [],
 );
 
@@ -136,6 +137,23 @@ eq(
 //
 // 同一个 session_id 出现两次会让 ↑↓ 在那一格卡住（moveSelection 用 indexOf 定位，
 // 永远命中第一个）。分组逻辑本身保证互斥，这里当兜底。
+
+// ---- 7. 置顶（#187）：在「已打开」之上，两个视图都常驻 --------------------------
+
+const pinnedTop: OrderGroup = { id: "pinned", list: rows("p0") };
+eq("置顶在已打开之前（状态视图）", order({ top: [pinnedTop, opened] }).slice(0, 3), ["p0", "o1", "o2"]);
+eq("置顶在已打开之前（项目视图）", order({ viewMode: "project", top: [pinnedTop, opened] }), ["p0", "o1", "o2", "x1", "x2"]);
+eq("折叠置顶", order({ top: [pinnedTop, opened], collapsedGroups: new Set(["pinned"]) }).slice(0, 2), ["o1", "o2"]);
+
+// ---- 8. 历史按日期分段（#187）：每段有表头、可单独折叠 ------------------------
+
+const byDay: OrderGroup[] = [
+  { id: "day-today", list: rows("t1") },
+  { id: "day-yesterday", list: rows("y1") },
+  { id: "day-older", list: rows("e1", "e2") },
+];
+eq("分段后顺序按段排", order({ history: byDay }).slice(-4), ["t1", "y1", "e1", "e2"]);
+eq("折叠「昨天」只摘掉那一段", order({ history: byDay, collapsedGroups: new Set(["day-yesterday"]) }).slice(-3), ["t1", "e1", "e2"]);
 
 const all = order();
 check(`顺序里无重复（${all.length} 行）`, new Set(all).size === all.length);
