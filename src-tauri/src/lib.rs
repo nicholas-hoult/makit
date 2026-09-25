@@ -369,36 +369,27 @@ fn resolve_git_root_cached(start_cwd: &str, last_cwd: &str, cwd_mode: &str, cach
     }
 }
 
-fn parse_session(
-    path: &Path,
-    mtime: i64,
-    now: i64,
-    running_info: &HashMap<String, RunningInfo>,
-    git_cache: &mut HashMap<String, Option<String>>,
-    cwd_mode: &str,
-) -> Option<SessionMeta> {
-    let file = fs::File::open(path).ok()?;
-    let reader = BufReader::new(file);
-    let mut start_cwd = String::new();
-    let mut last_cwd = String::new();
-    let mut git_branch = String::new();
-    let mut user_count: u32 = 0;
-    let mut first_msg = String::new();
-    let mut last_msg = String::new();
-    let mut custom_title = String::new();
-    let mut agent_name = String::new();
+/// parse_session 逐行累加的状态（#216 增量解析要从这里接着累加）。
+#[derive(Clone, Default, Debug, PartialEq)]
+struct ScanState {
+    start_cwd: String,
+    last_cwd: String,
+    git_branch: String,
+    user_count: u32,
+    first_msg: String,
+    last_msg: String,
+    custom_title: String,
+    agent_name: String,
+}
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
+impl ScanState {
+    fn feed_line(&mut self, line: &str) {
         if line.trim().is_empty() {
-            continue;
+            return;
         }
-        let rec: serde_json::Value = match serde_json::from_str(&line) {
+        let rec: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(_) => return,
         };
         // claude code 写入的真实标题。多次重命名取最后一次。
         // type:"custom-title" {customTitle: "..."}  / type:"agent-name" {agentName: "..."}
@@ -412,49 +403,77 @@ fn parse_session(
         if rec_type == "custom-title" {
             if let Some(s) = rec.get("customTitle").and_then(|v| v.as_str()) {
                 if !s.is_empty() {
-                    custom_title = s.to_string();
+                    self.custom_title = s.to_string();
                 }
             }
-            continue;
+            return;
         }
         if rec_type == "agent-name" {
             if let Some(s) = rec.get("agentName").and_then(|v| v.as_str()) {
                 if !s.is_empty() {
-                    agent_name = s.to_string();
+                    self.agent_name = s.to_string();
                 }
             }
-            continue;
+            return;
         }
         if rec_type != "user" {
-            continue;
+            return;
         }
         if rec.get("isSidechain").and_then(|v| v.as_bool()) == Some(true) {
-            continue;
+            return;
         }
         if let Some(c) = rec.get("cwd").and_then(|v| v.as_str()) {
             if !c.is_empty() {
-                if start_cwd.is_empty() {
-                    start_cwd = c.to_string();
+                if self.start_cwd.is_empty() {
+                    self.start_cwd = c.to_string();
                 }
-                last_cwd = c.to_string();
+                self.last_cwd = c.to_string();
             }
         }
         if let Some(gb) = rec.get("gitBranch").and_then(|v| v.as_str()) {
             if !gb.is_empty() && gb != "HEAD" {
-                git_branch = gb.to_string();
+                self.git_branch = gb.to_string();
             }
         }
         let content = rec.pointer("/message/content").cloned().unwrap_or(serde_json::Value::Null);
         let text = extract_text(&content);
         if !is_real_user_msg(&text) {
-            continue;
+            return;
         }
-        user_count += 1;
-        if first_msg.is_empty() {
-            first_msg = text.clone();
+        self.user_count += 1;
+        if self.first_msg.is_empty() {
+            self.first_msg = text.clone();
         }
-        last_msg = text;
+        self.last_msg = text;
     }
+}
+
+fn parse_session(
+    path: &Path,
+    mtime: i64,
+    now: i64,
+    running_info: &HashMap<String, RunningInfo>,
+    git_cache: &mut HashMap<String, Option<String>>,
+    cwd_mode: &str,
+) -> Option<SessionMeta> {
+    let ScanState {
+        start_cwd,
+        last_cwd,
+        git_branch,
+        user_count,
+        first_msg,
+        last_msg,
+        custom_title,
+        agent_name,
+    } = {
+        let file = fs::File::open(path).ok()?;
+        let mut state = ScanState::default();
+        for line in BufReader::new(file).lines() {
+            let Ok(line) = line else { continue };
+            state.feed_line(&line);
+        }
+        state
+    };
 
     if user_count == 0 {
         return None;
@@ -2391,3 +2410,4 @@ pub fn run() {
         }
     });
 }
+
