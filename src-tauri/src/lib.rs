@@ -369,7 +369,7 @@ fn resolve_git_root_cached(start_cwd: &str, last_cwd: &str, cwd_mode: &str, cach
     }
 }
 
-/// parse_session 逐行累加的状态（#216 增量解析要从这里接着累加）。
+/// parse_session 逐行累加的状态。jsonl 只追加，所以这份状态可以从上次读到的位置接着累加（#216）。
 #[derive(Clone, Default, Debug, PartialEq)]
 struct ScanState {
     start_cwd: String,
@@ -448,6 +448,58 @@ impl ScanState {
     }
 }
 
+/// 每个 jsonl 读到哪了：inode 变了（被替换）或文件比已读位置短（被截断）就从头来。
+struct ScanCursor {
+    ino: u64,
+    offset: u64,
+    state: ScanState,
+}
+
+static SCAN_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, ScanCursor>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+
+/// 增量扫描一个 claude 会话 jsonl（#216）。只消费以换行结尾的完整行 ——
+/// claude 可能正写到一半，半行留到下次，否则会被当成坏行丢掉、之后再也不读。
+fn scan_session_file(path: &Path) -> Option<ScanState> {
+    use std::io::{Seek, SeekFrom};
+    use std::os::unix::fs::MetadataExt;
+
+    let file = fs::File::open(path).ok()?;
+    let md = file.metadata().ok()?;
+    let (ino, len) = (md.ino(), md.len());
+
+    // 锁只在取出 / 放回时持有，读文件期间不持锁
+    let cached = SCAN_CACHE.lock().ok()?.remove(path);
+    let (mut offset, mut state) = match cached {
+        Some(c) if c.ino == ino && c.offset <= len => (c.offset, c.state),
+        _ => (0, ScanState::default()),
+    };
+
+    let mut reader = BufReader::new(file);
+    reader.seek(SeekFrom::Start(offset)).ok()?;
+    let mut buf: Vec<u8> = Vec::new();
+    loop {
+        buf.clear();
+        let n = match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => n,
+        };
+        if buf.last() != Some(&b'\n') {
+            break; // 半行：不前进
+        }
+        offset += n as u64;
+        // 和原来 reader.lines() 一样：非法 UTF-8 的行跳过
+        if let Ok(line) = std::str::from_utf8(&buf[..n - 1]) {
+            state.feed_line(line.strip_suffix('\r').unwrap_or(line));
+        }
+    }
+
+    if let Ok(mut cache) = SCAN_CACHE.lock() {
+        cache.insert(path.to_path_buf(), ScanCursor { ino, offset, state: state.clone() });
+    }
+    Some(state)
+}
+
 fn parse_session(
     path: &Path,
     mtime: i64,
@@ -465,15 +517,7 @@ fn parse_session(
         last_msg,
         custom_title,
         agent_name,
-    } = {
-        let file = fs::File::open(path).ok()?;
-        let mut state = ScanState::default();
-        for line in BufReader::new(file).lines() {
-            let Ok(line) = line else { continue };
-            state.feed_line(&line);
-        }
-        state
-    };
+    } = scan_session_file(path)?;
 
     if user_count == 0 {
         return None;
@@ -1282,6 +1326,82 @@ mod command_thread_tests {
             }
         }
         assert!(bad.is_empty(), "这些同步命令会卡主线程，改成 #[tauri::command(async)]：\n{}", bad.join("\n"));
+    }
+}
+
+/// #216：会话输出时每秒多一次 `list_sessions_by_paths`，以前每次把整个 jsonl
+/// （本机最大 43MB）重新解析一遍，0.2–0.4s CPU。现在记住读到的字节位置，只读追加部分。
+/// 错了在 UI 上：侧栏的消息数 / 首末条消息 / 标题和 ⌘R 全量刷新后的不一致，
+/// 或者 claude 正写到一半的那行被吞掉、被数两次。
+#[cfg(test)]
+mod incremental_scan_tests {
+    use super::*;
+    use std::io::Write;
+
+    fn user(text: &str, cwd: &str) -> String {
+        format!("{{\"type\":\"user\",\"cwd\":\"{cwd}\",\"gitBranch\":\"main\",\"message\":{{\"role\":\"user\",\"content\":\"{text}\"}}}}\n")
+    }
+    fn tmpfile(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("makit-scan-{}-{name}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        dir.join("s.jsonl")
+    }
+    fn append(p: &Path, s: &str) {
+        fs::OpenOptions::new().create(true).append(true).open(p).unwrap().write_all(s.as_bytes()).unwrap();
+    }
+    fn full(p: &Path) -> ScanState {
+        let mut st = ScanState::default();
+        for l in fs::read_to_string(p).unwrap().lines() { st.feed_line(l); }
+        st
+    }
+
+    #[test]
+    fn appended_lines_match_full_rescan() {
+        let p = tmpfile("append");
+        let _ = fs::remove_file(&p);
+        append(&p, &user("第一条", "/a"));
+        append(&p, "{\"type\":\"assistant\",\"message\":{\"content\":\"x\"}}\n");
+        let s1 = scan_session_file(&p).unwrap();
+        assert_eq!(s1.user_count, 1);
+        append(&p, &user("第二条", "/b"));
+        append(&p, "{\"type\":\"custom-title\",\"customTitle\":\"改名了\"}\n");
+        let s2 = scan_session_file(&p).unwrap();
+        assert_eq!(s2, full(&p));
+        assert_eq!((s2.user_count, s2.first_msg.as_str(), s2.last_msg.as_str()), (2, "第一条", "第二条"));
+        assert_eq!((s2.start_cwd.as_str(), s2.last_cwd.as_str(), s2.custom_title.as_str()), ("/a", "/b", "改名了"));
+    }
+
+    #[test]
+    fn half_written_line_is_counted_once_after_it_completes() {
+        let p = tmpfile("partial");
+        let _ = fs::remove_file(&p);
+        append(&p, &user("一", "/a"));
+        let line = user("二", "/a");
+        let (head, tail) = line.split_at(20);
+        append(&p, head);
+        assert_eq!(scan_session_file(&p).unwrap().user_count, 1, "半行不能算");
+        append(&p, tail);
+        assert_eq!(scan_session_file(&p).unwrap().user_count, 2, "写完之后算且只算一次");
+        assert_eq!(scan_session_file(&p).unwrap().user_count, 2, "没新内容时不变");
+    }
+
+    #[test]
+    fn replaced_or_truncated_file_is_rescanned_from_start() {
+        let p = tmpfile("replace");
+        let _ = fs::remove_file(&p);
+        append(&p, &user("旧一", "/a"));
+        append(&p, &user("旧二", "/a"));
+        assert_eq!(scan_session_file(&p).unwrap().user_count, 2);
+        // 同路径换成更短的新文件（截断）
+        fs::write(&p, user("新", "/n")).unwrap();
+        let s = scan_session_file(&p).unwrap();
+        assert_eq!((s.user_count, s.first_msg.as_str()), (1, "新"));
+        // 原子替换（新 inode），长度比已读位置还长
+        let tmp = p.with_extension("tmp");
+        fs::write(&tmp, format!("{}{}{}", user("替一", "/r"), user("替二", "/r"), user("替三", "/r"))).unwrap();
+        fs::rename(&tmp, &p).unwrap();
+        let s = scan_session_file(&p).unwrap();
+        assert_eq!((s.user_count, s.first_msg.as_str()), (3, "替一"));
     }
 }
 
