@@ -79,7 +79,7 @@ fn encode_project_path(path: &str) -> String {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: String) -> Result<String, String> {
     let dir = projects_dir().ok_or("无法定位 home 目录")?;
     let encoded = encode_project_path(&cwd);
@@ -224,12 +224,12 @@ fn recover_session_cwd_in(
 /// 本机实测约 0.7ms、300 多个文件合计约 0.5s，已经是现存的性能痛点（#144），
 /// 每个会话再加一次 stat 是往已知热路径上加钱。而这个信息只有「用户点开会话的那一刻」
 /// 才用得到，那时候一次 stat 就够。
-#[tauri::command]
+#[tauri::command(async)]
 fn dir_exists(path: String) -> bool {
     !path.is_empty() && Path::new(&path).is_dir()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn recover_session_cwd(
     mode: String,
     session_id: String,
@@ -241,7 +241,7 @@ fn recover_session_cwd(
     recover_session_cwd_in(&root, &mode, &session_id, &original_cwd, &target_cwd, &storage_folder)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_worktrees(git_root: String) -> Result<Vec<worktree::WorktreeInfo>, String> {
     Ok(worktree::list_worktrees_for(&git_root))
 }
@@ -580,7 +580,7 @@ fn save_archived(set: &std::collections::HashSet<String>) -> Result<(), String> 
     fs::write(&path, s).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn archive_session(session_id: String) -> Result<(), String> {
     if session_id.is_empty() {
         return Err("session_id 为空".into());
@@ -590,7 +590,7 @@ fn archive_session(session_id: String) -> Result<(), String> {
     save_archived(&set)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn unarchive_session(session_id: String) -> Result<(), String> {
     if session_id.is_empty() {
         return Err("session_id 为空".into());
@@ -887,7 +887,7 @@ fn extract_tool_uses(content: &serde_json::Value) -> Vec<String> {
     out
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessage>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     let mut found_path: Option<PathBuf> = None;
@@ -1054,7 +1054,7 @@ impl PhaseTimer {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     let mut timer = PhaseTimer::new();
     let now = chrono::Local::now().timestamp();
@@ -1186,7 +1186,7 @@ fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
 /// 后处理刻意少做一件事：child_processes 要起 `ps -eo` 拿全表，这里省掉，
 /// 由前端合并时沿用旧值（新 session 的子进程列表等下一次全量 load 补齐）。
 /// 其余（archived 标记、实时 git 分支覆盖）和 list_sessions 的 Phase 2 一致。
-#[tauri::command]
+#[tauri::command(async)]
 fn list_sessions_by_paths(
     paths: Vec<String>,
     cwd_mode: Option<String>,
@@ -1241,6 +1241,29 @@ fn list_sessions_by_paths(
     }
 
     Ok(out)
+}
+
+/// #216：Tauri 2 里不带 async 的命令在**主线程**上跑（macOS 上 IPC 回调就在主线程），
+/// 命令执行期间窗口、终端、侧栏全部冻住 —— 会话输出时每 1 秒多一次的增量解析
+/// （大 jsonl 0.2–0.4s）就是用户感到的「咔咔的」。所以凡是同步 fn 的命令一律标
+/// `#[tauri::command]`，放到后台线程执行。新加命令漏了标记，这里会红。
+#[cfg(test)]
+mod command_thread_tests {
+    #[test]
+    fn no_sync_command_runs_on_main_thread() {
+        let mut bad = Vec::new();
+        for (file, src) in [("lib.rs", include_str!("lib.rs")), ("pty.rs", include_str!("pty.rs"))] {
+            let lines: Vec<&str> = src.lines().collect();
+            for (i, l) in lines.iter().enumerate() {
+                if l.trim() != "#[tauri::command]" { continue; }
+                let next = lines.get(i + 1).map(|s| s.trim()).unwrap_or("");
+                if !next.contains("async fn") {
+                    bad.push(format!("{file}:{} {next}", i + 2));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "这些同步命令会卡主线程，改成 #[tauri::command(async)]：\n{}", bad.join("\n"));
+    }
 }
 
 #[cfg(test)]
@@ -1743,7 +1766,7 @@ mod session_name_tests {
 // 按需归因：扫 ~/.claude/projects/*/*.jsonl，找在 tab 启动之后「新建」(birthtime > after_ts) 且 cwd 匹配的
 // 用 birthtime 而非 mtime —— mtime 会被任何写入刷新，旧 session 也会被误命中
 // 用途：new/shell tab 启动后想反查到 claude 写出的 session 文件
-#[tauri::command]
+#[tauri::command(async)]
 fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<String>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     if !dir.exists() {
@@ -1843,7 +1866,7 @@ fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<String
 }
 
 // 增量读单个 session 的 meta，避免归因后重拉整个 list_sessions（用户可见的卡顿主要来自后者）
-#[tauri::command]
+#[tauri::command(async)]
 fn read_session_meta(session_id: String) -> Result<Option<SessionMeta>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     if !dir.exists() {
@@ -1929,7 +1952,7 @@ fn paths_exist_in(paths: &[String], home: &std::path::Path) -> Vec<bool> {
         .collect()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn paths_exist(paths: Vec<String>) -> Vec<bool> {
     // 一次最多查 200 个：悬停一行最多几十个词，超了说明是异常输入，不陪它扫盘
     let paths: Vec<String> = paths.into_iter().take(200).collect();
@@ -2020,7 +2043,7 @@ fn start_session_watcher(app_handle: tauri::AppHandle) {
 }
 
 // 轻量扫描：只读 running 状态（~/.claude/sessions/*.json），不扫 projects
-#[tauri::command]
+#[tauri::command(async)]
 fn list_running_sessions() -> Vec<RunningMeta> {
     let home = match dirs::home_dir() { Some(h) => h, None => return vec![] };
     let sessions_dir = home.join(".claude").join("sessions");
@@ -2080,7 +2103,7 @@ pub struct PtyBinding {
 ///
 /// 只对前端传进来的 pty_ids 干活：没有待绑定 tab 时前端不会调这个命令，一次 ps 都不跑。
 /// 匹配满了就早退，正常情况（一个新 tab）只查到第一个命中就结束。
-#[tauri::command]
+#[tauri::command(async)]
 fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<PtyBinding> {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -2204,7 +2227,7 @@ async fn get_tool_logo(tool: String) -> Result<String, String> {
 }
 
 /// 创建 hook 脚本并注入 ~/.claude/settings.json 的 Notification hook
-#[tauri::command]
+#[tauri::command(async)]
 fn install_claude_hook() -> Result<String, String> {
     let home = dirs::home_dir().ok_or("无法定位 home 目录")?;
 

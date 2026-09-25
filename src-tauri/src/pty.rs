@@ -409,7 +409,7 @@ fn find_descendants(root_pid: u32) -> Vec<u32> {
     all
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn kill_pids(pids: Vec<u32>) -> Result<(), String> {
     #[cfg(unix)]
     {
