@@ -370,7 +370,7 @@ fn resolve_git_root_cached(start_cwd: &str, last_cwd: &str, cwd_mode: &str, cach
 }
 
 /// parse_session 逐行累加的状态。jsonl 只追加，所以这份状态可以从上次读到的位置接着累加（#216）。
-#[derive(Clone, Default, Debug, PartialEq)]
+#[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 struct ScanState {
     start_cwd: String,
     last_cwd: String,
@@ -449,6 +449,7 @@ impl ScanState {
 }
 
 /// 每个 jsonl 读到哪了：inode 变了（被替换）或文件比已读位置短（被截断）就从头来。
+#[derive(Serialize, Deserialize)]
 struct ScanCursor {
     ino: u64,
     offset: u64,
@@ -456,7 +457,72 @@ struct ScanCursor {
 }
 
 static SCAN_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, ScanCursor>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(HashMap::new()));
+    std::sync::LazyLock::new(|| {
+        let loaded = scan_cache_path().map(|p| load_scan_cache_from(&p)).unwrap_or_default();
+        std::sync::Mutex::new(loaded)
+    });
+
+/// 缓存落盘（#216）：冷启动不用再把全部会话从头解析一遍（实测 2.8s），只读关闭之后追加的部分。
+/// 位置和状态是同一条记录里一起存的，所以落盘时机早晚只影响「要补读多少」，不影响对错。
+fn scan_cache_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude").join("makit").join("scan-cache.json"))
+}
+
+const SCAN_CACHE_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize)]
+struct ScanCacheFile {
+    version: u32,
+    entries: HashMap<PathBuf, ScanCursor>,
+}
+
+/// 读不出来（不存在、坏了、版本不对）一律当空缓存：代价只是从头解析一遍
+fn load_scan_cache_from(path: &Path) -> HashMap<PathBuf, ScanCursor> {
+    fs::read(path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<ScanCacheFile>(&b).ok())
+        .filter(|f| f.version == SCAN_CACHE_VERSION)
+        .map(|f| f.entries)
+        .unwrap_or_default()
+}
+
+fn save_scan_cache_to(path: &Path) -> Result<(), String> {
+    let json = {
+        let mut cache = SCAN_CACHE.lock().map_err(|e| e.to_string())?;
+        cache.retain(|p, _| p.exists()); // 删掉的会话不留在缓存里
+        serde_json::to_vec(&ScanCacheFileRef { version: SCAN_CACHE_VERSION, entries: &cache })
+            .map_err(|e| e.to_string())?
+    };
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    // 先写临时文件再改名：写到一半被杀也不会留下半个文件
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct ScanCacheFileRef<'a> {
+    version: u32,
+    entries: &'a HashMap<PathBuf, ScanCursor>,
+}
+
+/// 会话输出时每秒多一次增量扫描，没必要每次都写盘：最多 30 秒写一次
+fn save_scan_cache_throttled(force: bool) {
+    static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+    let Ok(mut last) = LAST.lock() else { return };
+    if !force && last.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(30)) {
+        return;
+    }
+    *last = Some(std::time::Instant::now());
+    drop(last);
+    if let Some(p) = scan_cache_path() {
+        if let Err(e) = save_scan_cache_to(&p) {
+            eprintln!("scan-cache 写盘失败: {e}");
+        }
+    }
+}
 
 /// 增量扫描一个 claude 会话 jsonl（#216）。只消费以换行结尾的完整行 ——
 /// claude 可能正写到一半，半行留到下次，否则会被当成坏行丢掉、之后再也不读。
@@ -811,6 +877,94 @@ fn get_env_var_of_pid(_pid: u32, _var_name: &str) -> Option<String> {
     None
 }
 
+/// pid → (ppid, 进程名)。macOS 走 libproc（#216）：ps 要读全部进程的完整参数，0.3s；
+/// 这里只取 pid / ppid / 进程名，几毫秒。完整命令行由 `full_command` 只给要输出的进程读。
+#[cfg(target_os = "macos")]
+fn collect_process_table() -> HashMap<u32, (u32, String)> {
+    use std::ffi::{c_void, CStr};
+    let mut table = HashMap::new();
+    let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if n <= 0 {
+        return table;
+    }
+    // 两次调用之间可能有新进程，多留一些余量
+    let mut pids = vec![0 as libc::pid_t; n as usize + 64];
+    let bytes = (pids.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
+    let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr() as *mut c_void, bytes) };
+    if n <= 0 {
+        return table;
+    }
+    for &pid in &pids[..(n as usize).min(pids.len())] {
+        if pid <= 0 {
+            continue;
+        }
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        let got = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut c_void, size)
+        };
+        if got != size {
+            continue; // 进程刚退出，或没权限
+        }
+        let name = unsafe { CStr::from_ptr(info.pbi_comm.as_ptr()) }.to_string_lossy().into_owned();
+        table.insert(pid as u32, (info.pbi_ppid, name));
+    }
+    table
+}
+
+/// 完整命令行（和 `ps -o command=` 一样：参数用空格连起来）。读不到（进程已退出、
+/// 别的用户的进程）就退回进程名，ps 在这种情况下也是只显示进程名。
+#[cfg(target_os = "macos")]
+fn full_command(pid: u32, fallback: &str) -> String {
+    process_args(pid).unwrap_or_else(|| fallback.to_string())
+}
+
+/// KERN_PROCARGS2 的布局：argc(i32) | 可执行文件路径 \0 | 若干 \0 填充 | argv[0..argc] 各以 \0 结尾 | 环境变量…
+#[cfg(target_os = "macos")]
+fn process_args(pid: u32) -> Option<String> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    let mut argmax: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    let ok = unsafe {
+        libc::sysctl(mib.as_mut_ptr(), 2, &mut argmax as *mut _ as *mut libc::c_void, &mut size, std::ptr::null_mut(), 0)
+    };
+    if ok != 0 || argmax <= 0 {
+        return None;
+    }
+    let mut buf = vec![0u8; argmax as usize];
+    let mut size = buf.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    let ok = unsafe {
+        libc::sysctl(mib.as_mut_ptr(), 3, buf.as_mut_ptr() as *mut libc::c_void, &mut size, std::ptr::null_mut(), 0)
+    };
+    if ok != 0 || size < 4 {
+        return None;
+    }
+    let buf = &buf[..size];
+    let argc = i32::from_ne_bytes(buf[..4].try_into().ok()?);
+    let mut rest = &buf[4..];
+    // 跳过可执行文件路径和它后面的 \0 填充
+    let path_end = rest.iter().position(|&b| b == 0)?;
+    rest = &rest[path_end..];
+    let first_arg = rest.iter().position(|&b| b != 0)?;
+    rest = &rest[first_arg..];
+    let args: Vec<String> = rest
+        .split(|&b| b == 0)
+        .take(argc.max(0) as usize)
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+        .collect();
+    if args.is_empty() {
+        return None;
+    }
+    Some(args.join(" "))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn full_command(_pid: u32, cmd: &str) -> String {
+    cmd.to_string() // ps 版的进程表里本来就是完整命令行
+}
+
+#[cfg(not(target_os = "macos"))]
 fn collect_process_table() -> HashMap<u32, (u32, String)> {
     let mut table = HashMap::new();
     let out = match Command::new("ps")
@@ -891,7 +1045,7 @@ fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String, Pr
                 result.push((session_id, ProcessInfo {
                     pid,
                     ppid: *ppid,
-                    command: cmd.clone(),
+                    command: full_command(pid, cmd),
                 }));
             }
         }
@@ -916,7 +1070,7 @@ fn descendants_of(root: u32, table: &HashMap<u32, (u32, String)>) -> Vec<Process
                     out.push(ProcessInfo {
                         pid: c,
                         ppid: *ppid,
-                        command: cmd.clone(),
+                        command: full_command(c, cmd),
                     });
                     queue.push(c);
                 }
@@ -1120,6 +1274,8 @@ impl PhaseTimer {
 #[tauri::command(async)]
 fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     let mut timer = PhaseTimer::new();
+    // macOS 的 ps 本身要 0.3s（启动时抢 CPU 能到 0.55s），和下面的解析互不依赖 —— 并行跑（#216）
+    let proc_table_job = std::thread::spawn(collect_process_table);
     let now = chrono::Local::now().timestamp();
     let running_info = load_running_info();
     let archived_set = load_archived();
@@ -1199,8 +1355,8 @@ fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     }
 
     // 子进程收集（running session）
-    let proc_table = collect_process_table();
-    timer.mark("进程表");
+    let proc_table = proc_table_job.join().unwrap_or_default();
+    timer.mark("进程表（等并行的 ps）");
     for meta in &mut raw {
         if meta.running && meta.pid > 0 {
             meta.child_processes = descendants_of(meta.pid, &proc_table);
@@ -1237,6 +1393,8 @@ fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     // ── Phase 3: 按 mtime 排序 ───────────────────────────────────────────
     raw.sort_by(|a, b| b.mtime.cmp(&a.mtime));
 
+    save_scan_cache_throttled(true);
+    timer.mark("缓存写盘");
     Ok(raw)
 }
 
@@ -1303,6 +1461,7 @@ fn list_sessions_by_paths(
         }
     }
 
+    save_scan_cache_throttled(false);
     Ok(out)
 }
 
@@ -1385,6 +1544,41 @@ mod incremental_scan_tests {
         assert_eq!(scan_session_file(&p).unwrap().user_count, 2, "没新内容时不变");
     }
 
+    /// 启动时（新进程，内存缓存是空的）以前要把全部会话文件从头解析一遍：实测冷启动 2.8s。
+    /// 缓存落盘后，重启只读上次关闭之后追加的部分。错了在 UI 上：重启后侧栏的消息数 /
+    /// 首末条 / 标题和实际不符（缓存和文件对不上还被信任），或缓存文件坏了导致侧栏空白。
+    #[test]
+    fn persisted_cursor_survives_restart_and_resumes_from_offset() {
+        let p = tmpfile("persist");
+        let _ = fs::remove_file(&p);
+        append(&p, &user("一", "/a"));
+        append(&p, &user("二", "/a"));
+        scan_session_file(&p).unwrap();
+        let cache_file = p.with_file_name("scan-cache.json");
+        save_scan_cache_to(&cache_file).unwrap();
+
+        // 模拟重启：内存缓存清空，只从磁盘恢复
+        SCAN_CACHE.lock().unwrap().remove(&p);
+        let loaded = load_scan_cache_from(&cache_file);
+        let len_before = fs::metadata(&p).unwrap().len();
+        assert_eq!(loaded.get(&p).map(|c| c.offset), Some(len_before), "恢复出来的位置 = 关闭时读到的位置");
+        SCAN_CACHE.lock().unwrap().extend(loaded);
+
+        append(&p, &user("三", "/b"));
+        let s = scan_session_file(&p).unwrap();
+        assert_eq!(s, full(&p));
+        assert_eq!((s.user_count, s.last_msg.as_str()), (3, "三"));
+    }
+
+    #[test]
+    fn corrupt_or_missing_cache_file_is_ignored() {
+        let dir = tmpfile("corrupt");
+        let cache_file = dir.with_file_name("scan-cache.json");
+        fs::write(&cache_file, "{ 这不是 json").unwrap();
+        assert!(load_scan_cache_from(&cache_file).is_empty());
+        assert!(load_scan_cache_from(&dir.with_file_name("不存在.json")).is_empty());
+    }
+
     #[test]
     fn replaced_or_truncated_file_is_rescanned_from_start() {
         let p = tmpfile("replace");
@@ -1402,6 +1596,46 @@ mod incremental_scan_tests {
         fs::rename(&tmp, &p).unwrap();
         let s = scan_session_file(&p).unwrap();
         assert_eq!((s.user_count, s.first_msg.as_str()), (3, "替一"));
+    }
+}
+
+/// #216：进程表以前靠 `ps -eo pid=,ppid=,command=`，macOS 的 ps 要读全部 ~700 个进程的
+/// 完整参数，0.3s（启动时抢 CPU 能到 0.55s），是缓存落盘后启动路径上最大的一块。
+/// 改成 libproc 只取 pid / ppid / 进程名，完整命令行只给最后要输出的那几个进程读。
+/// 错了在 UI 上：运行中会话的「子进程」列表缺项、命令行只剩进程名，或孤儿服务进程找不回来。
+#[cfg(all(test, target_os = "macos"))]
+mod process_table_tests {
+    use super::*;
+
+    #[test]
+    fn native_table_agrees_with_ps_on_parents() {
+        let table = collect_process_table();
+        let out = Command::new("ps").args(["-axo", "pid=,ppid="]).output().unwrap();
+        let (mut both, mut same) = (0, 0);
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            let mut it = line.split_whitespace();
+            let (Some(pid), Some(ppid)) = (it.next().and_then(|s| s.parse::<u32>().ok()), it.next().and_then(|s| s.parse::<u32>().ok())) else { continue };
+            if let Some((p, _)) = table.get(&pid) {
+                both += 1;
+                if *p == ppid { same += 1; }
+            }
+        }
+        // 两次取样之间会有进程生灭，所以按比例判；pid / ppid 本身不会变
+        assert!(both > 50, "原生进程表几乎是空的：只对上 {both} 个");
+        assert_eq!(same, both, "同一个 pid 的父进程应该完全一致");
+    }
+
+    #[test]
+    fn descendants_carry_full_command_line() {
+        let mut child = Command::new("sleep").arg("7.216").spawn().unwrap();
+        let me = std::process::id();
+        let table = collect_process_table();
+        let found = descendants_of(me, &table);
+        let _ = child.kill();
+        let _ = child.wait();
+        let hit = found.iter().find(|p| p.pid == child.id()).expect("子进程要在后代里");
+        assert_eq!(hit.ppid, me);
+        assert_eq!(hit.command, "sleep 7.216", "输出的是完整命令行，不只是进程名");
     }
 }
 

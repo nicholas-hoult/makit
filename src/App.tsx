@@ -422,6 +422,10 @@ function useRestoreFocusOnClose(open: boolean, restore: () => void) {
   }, [open]);
 }
 
+// 启动时尽早发出会话列表请求（#216）：命令在后台线程执行，不占首屏渲染。以前在 App 挂载后
+// 再等 150ms 才发，而挂载本身就有 600ms+ 的长帧，实测要到页面加载后 1.9s 才发出。
+let startupSessions: Promise<SessionMeta[]> | null = invoke<SessionMeta[]>("list_sessions", { cwdMode: "smart" });
+
 function App() {
   const ws = useWorkspace();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -711,7 +715,9 @@ function App() {
     setError(null);
     const start = Date.now();
     try {
-      const data = await invoke<SessionMeta[]>("list_sessions", { cwdMode: "smart" });
+      const pending = startupSessions ?? invoke<SessionMeta[]>("list_sessions", { cwdMode: "smart" });
+      startupSessions = null;
+      const data = await pending;
       startTransition(() => setSessions(data));
     } catch (e) {
       setError(String(e));
@@ -729,9 +735,7 @@ function App() {
   }
 
   useEffect(() => {
-    // 延迟 150ms：让 xterm/WebGL 先完成初始化，避免启动时卡一帧
-    const id = setTimeout(() => load(true), 150);
-    return () => clearTimeout(id);
+    load(true);
   }, []);
 
   // 监听后端 watcher 事件，实时同步 session 状态
