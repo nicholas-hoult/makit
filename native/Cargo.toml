@@ -1,0 +1,23 @@
+[package]
+name = "makit-native"
+version = "0.1.0"
+description = "makit 的 GPUI 原生界面原型（#221 实验）"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "makit-native"
+path = "src/main.rs"
+
+[dependencies]
+# 本机没有 Xcode（只有命令行工具，没有 metal 编译器），着色器改成运行时编译
+gpui = { version = "0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
+alacritty_terminal = "0.26"
+# 复用 Tauri 版后端的会话扫描 / 运行状态 / perf.log（crate 名 makit，库名 makit_lib）
+makit = { path = "../src-tauri" }
+futures = "0.3"
+serde_json = "1"
+
+[profile.release]
+# 原型阶段要反复编 release 做测量，开增量编译省时间
+incremental = true
