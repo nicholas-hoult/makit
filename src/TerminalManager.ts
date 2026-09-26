@@ -1,4 +1,5 @@
 import { Terminal as Xterm } from "@xterm/xterm";
+import { terminalSpan } from "./perf";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -436,6 +437,8 @@ class TerminalManager {
   private async _spawnPty(inst: TerminalInstance) {
     const { terminal, paneId, cwd, initCommand } = inst;
     const pendingInput: string[] = [];
+    const span = terminalSpan(paneId, initCommand ? "resume" : "shell"); // #218
+    let firstOutput = true;
 
     terminal.onData((data) => {
       // IME composition 期间，xterm.js 在 WKWebView 下偶尔把
@@ -472,6 +475,7 @@ class TerminalManager {
       }, 500);
     });
 
+    span.mark("容器有尺寸");
     if (inst.disposed) return;
 
     resizeByPlan(inst, true);
@@ -482,6 +486,7 @@ class TerminalManager {
     let outputBuffer = "";
     let outputRaf: number | null = null;
     inst.unlistenData = await listen<string>(`pty:data:${paneId}`, (e) => {
+      if (firstOutput) { firstOutput = false; span.end("首次输出"); }
       outputBuffer += e.payload;
       if (outputRaf === null) {
         outputRaf = requestAnimationFrame(() => {
@@ -570,6 +575,7 @@ class TerminalManager {
         return false;
       }
 
+      span.mark("shell 已启动");
       inst.cwd = corrected ?? spawnCwd;
       if (corrected) this.onCwdCorrected?.(paneId, corrected);
       inst.ptyReady = true;

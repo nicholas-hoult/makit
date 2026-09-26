@@ -9,6 +9,7 @@ use std::time::UNIX_EPOCH;
 
 mod ai_provider;
 mod hook_server;
+mod perf;
 mod pty;
 mod worktree;
 
@@ -1250,24 +1251,43 @@ where
 
 /// 分阶段计时。默认完全静默（一次 env 读 + 一次 bool 判断），
 /// 需要看数字时跑 `MAKIT_TIMING=1`。没有它就只能靠"感觉哪里慢"猜。
+///
+/// 各阶段耗时同时收进 `stages`，由 `record` 写进 perf.log（#218）—— 打包版也能看。
 struct PhaseTimer {
     on: bool,
     start: std::time::Instant,
     last: std::time::Instant,
+    stages: Vec<(String, f64)>,
 }
 impl PhaseTimer {
     fn new() -> Self {
         let now = std::time::Instant::now();
-        Self { on: std::env::var_os("MAKIT_TIMING").is_some(), start: now, last: now }
+        Self { on: std::env::var_os("MAKIT_TIMING").is_some(), start: now, last: now, stages: Vec::new() }
     }
     fn mark(&mut self, label: &str) {
-        if !self.on { return; }
         let now = std::time::Instant::now();
-        eprintln!("[timing] {:<22} {:>8.1}ms  (累计 {:.1}ms)",
-            label,
-            now.duration_since(self.last).as_secs_f64() * 1000.0,
-            now.duration_since(self.start).as_secs_f64() * 1000.0);
+        let ms = now.duration_since(self.last).as_secs_f64() * 1000.0;
+        self.stages.push((label.to_string(), (ms * 10.0).round() / 10.0));
+        if self.on {
+            eprintln!("[timing] {:<22} {:>8.1}ms  (累计 {:.1}ms)",
+                label, ms, now.duration_since(self.start).as_secs_f64() * 1000.0);
+        }
         self.last = now;
+    }
+    fn total_ms(&self) -> f64 {
+        self.start.elapsed().as_secs_f64() * 1000.0
+    }
+    /// 写一条 perf.log：总耗时 + 各阶段
+    fn record(&self, kind: &str, extra: serde_json::Value) {
+        let mut ev = serde_json::json!({
+            "kind": kind,
+            "ms": self.total_ms().round(),
+            "stages": self.stages.iter().map(|(k, v)| serde_json::json!([k, v])).collect::<Vec<_>>(),
+        });
+        if let (Some(obj), serde_json::Value::Object(more)) = (ev.as_object_mut(), extra) {
+            obj.extend(more);
+        }
+        perf::record(ev);
     }
 }
 
@@ -1395,6 +1415,7 @@ fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
 
     save_scan_cache_throttled(true);
     timer.mark("缓存写盘");
+    timer.record("list_sessions", serde_json::json!({ "sessions": raw.len() }));
     Ok(raw)
 }
 
@@ -1412,6 +1433,7 @@ fn list_sessions_by_paths(
     paths: Vec<String>,
     cwd_mode: Option<String>,
 ) -> Result<Vec<SessionMeta>, String> {
+    let timer = PhaseTimer::new();
     let now = chrono::Local::now().timestamp();
     // pty_id 在这里面拿（每个 running session 一次 `ps -p`）。前端要靠它把
     // 新 session 绑到已打开的 tab 上，所以这一份开销不能省。
@@ -1461,6 +1483,10 @@ fn list_sessions_by_paths(
         }
     }
 
+    // 会话输出时每秒多一次，只记慢的，免得日志刷屏（#218）
+    if timer.total_ms() > 100.0 {
+        timer.record("list_sessions_by_paths", serde_json::json!({ "files": paths.len() }));
+    }
     save_scan_cache_throttled(false);
     Ok(out)
 }
@@ -2688,13 +2714,21 @@ fn install_claude_hook() -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    perf::startup_mark("run 开始");
     let app = tauri::Builder::default()
+        .on_page_load(|_w, payload| {
+            perf::startup_mark(match payload.event() {
+                tauri::webview::PageLoadEvent::Started => "页面开始加载",
+                tauri::webview::PageLoadEvent::Finished => "页面加载完成",
+            })
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .setup(|app| {
+            perf::startup_mark("窗口已创建");
             // 清理已废弃的 session-index.json（v2 扁平化方案不再使用）
             if let Some(home) = dirs::home_dir() {
                 let legacy = home.join(".claude").join("makit").join("session-index.json");
@@ -2741,6 +2775,8 @@ pub fn run() {
             recover_session_cwd,
             list_worktrees,
             install_claude_hook,
+            perf::perf_startup,
+            perf::perf_record,
             get_tool_logo
         ])
         .build(tauri::generate_context!())

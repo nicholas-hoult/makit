@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { homeDir } from "@tauri-apps/api/path";
 import { confirm as confirmDialog, message as messageDialog } from "@tauri-apps/plugin-dialog";
 import { TerminalView } from "./Terminal";
+import { reportStartup } from "./perf";
 import { terminalManager } from "./TerminalManager";
 import { zoomAction } from "./fontZoom";
 import { WorkspaceView } from "./WorkspaceView";
@@ -719,6 +720,7 @@ function App() {
       startupSessions = null;
       const data = await pending;
       startTransition(() => setSessions(data));
+      if (data.length === 0) reportStartup(0); // 没有会话时侧栏不会「带数据画出来」，在这里收尾
     } catch (e) {
       setError(String(e));
     } finally {
@@ -737,6 +739,11 @@ function App() {
   useEffect(() => {
     load(true);
   }, []);
+
+  // 启动埋点（#218）：侧栏第一次带着数据画出来的那一帧
+  useEffect(() => {
+    if (sessions.length > 0) requestAnimationFrame(() => reportStartup(sessions.length));
+  }, [sessions.length > 0]);
 
   // 监听后端 watcher 事件，实时同步 session 状态
   useEffect(() => {
