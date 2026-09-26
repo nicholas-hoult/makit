@@ -78,6 +78,15 @@ impl Workspace {
             startup_reported: false,
         };
         this.focus.focus(window);
+        cx.on_app_quit(|ws, cx| {
+            for pane in &ws.panes {
+                for t in &pane.tabs {
+                    t.view.update(cx, |v, _| v.shutdown());
+                }
+            }
+            async {}
+        })
+        .detach();
         cx.spawn(async move |this, cx| {
             let t = Instant::now();
             let list = cx
@@ -231,7 +240,8 @@ impl Workspace {
 
     fn close_tab_at(&mut self, pi: usize, ti: usize, window: &mut Window, cx: &mut Context<Self>) {
         let pane = &mut self.panes[pi];
-        pane.tabs.remove(ti);
+        let tab = pane.tabs.remove(ti);
+        tab.view.update(cx, |v, _| v.shutdown());
         if pane.active >= pane.tabs.len() {
             pane.active = pane.tabs.len().saturating_sub(1);
         }

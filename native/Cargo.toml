@@ -16,6 +16,7 @@ alacritty_terminal = "0.26"
 # 复用 Tauri 版后端的会话扫描 / 运行状态 / perf.log（crate 名 makit，库名 makit_lib）
 makit = { path = "../src-tauri" }
 futures = "0.3"
+libc = "0.2"
 serde_json = "1"
 
 [profile.release]

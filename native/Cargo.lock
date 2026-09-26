@@ -3814,6 +3814,7 @@ dependencies = [
  "alacritty_terminal",
  "futures",
  "gpui",
+ "libc",
  "makit",
  "serde_json",
 ]

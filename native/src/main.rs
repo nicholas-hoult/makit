@@ -31,7 +31,7 @@ fn main() {
             KeyBinding::new("shift-pagedown", terminal::ScrollPageDown, Some("Terminal")),
         ]);
         let bounds = Bounds::centered(None, size(px(1400.0), px(900.0)), cx);
-        cx.open_window(
+        let handle = cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
@@ -45,6 +45,18 @@ fn main() {
         )
         .expect("窗口创建失败");
         perf::mark("窗口创建");
+        // 调试用：屏幕锁着 / 窗口被挡住时 GPUI 会停掉 display link、一帧都不画。
+        // 设了这个变量就每 16ms 手动 draw 一次（不上屏），让布局 / 绘制代码照样跑，好在无人值守时抓 panic、看网格内容
+        if std::env::var_os("MAKIT_NATIVE_FORCE_DRAW").is_some() {
+            let any: gpui::AnyWindowHandle = handle.into();
+            cx.spawn(async move |cx| loop {
+                cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
+                if cx.update_window(any, |_, window, cx| window.draw(cx).clear()).is_err() {
+                    break;
+                }
+            })
+            .detach();
+        }
         cx.on_window_closed(|cx| cx.quit()).detach();
         cx.activate(true);
     });

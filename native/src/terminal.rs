@@ -123,6 +123,9 @@ pub struct TerminalView {
     first_output_at: Option<Instant>,
     first_paint_logged: bool,
     burst: Option<Burst>,
+    last_dump: Option<Instant>,
+    child_pid: u32,
+    shut_down: bool,
 }
 
 impl TerminalView {
@@ -158,6 +161,7 @@ impl TerminalView {
         };
         let window_size = WindowSize { num_lines: 24, num_cols: 80, cell_width: 8, cell_height: 17 };
         let pty = tty::new(&options, window_size, 0).expect("PTY 创建失败");
+        let child_pid = pty.child().id();
         let event_loop = EventLoop::new(term.clone(), Listener(tx), pty, true, false)
             .expect("终端事件循环创建失败");
         let notifier = Notifier(event_loop.channel());
@@ -207,7 +211,23 @@ impl TerminalView {
             first_output_at: None,
             first_paint_logged: false,
             burst: None,
+            last_dump: None,
+            child_pid,
+            shut_down: false,
         }
+    }
+
+    /// 关标签 / 退出应用时：挂断 shell（zsh 收到 SIGHUP 会把它的作业一起挂断），停掉 IO 线程。
+    /// 不做的话 claude 会变成没有终端的孤儿进程一直挂着。
+    pub fn shutdown(&mut self) {
+        if self.shut_down {
+            return;
+        }
+        self.shut_down = true;
+        unsafe {
+            libc::kill(self.child_pid as i32, libc::SIGHUP);
+        }
+        let _ = self.notifier.0.send(Msg::Shutdown);
     }
 
     fn handle_event(&mut self, ev: AlacEvent, cx: &mut Context<Self>) {
@@ -471,9 +491,38 @@ impl TerminalView {
         if (f32::from(local.x) % w) < w / 2.0 { Side::Left } else { Side::Right }
     }
 
-    /// 给 perf：第一次把输出画出来
+    /// 可见区域的文字（调试用：`MAKIT_NATIVE_DUMP=<文件>` 时每 300ms 写一次，无人值守时核对网格内容）
+    fn dump_text(&self) -> String {
+        let term = self.term.lock();
+        let content = term.renderable_content();
+        let offset = content.display_offset as i32;
+        let mut lines = vec![String::new(); self.rows as usize];
+        for cell in content.display_iter {
+            let row = (cell.point.line.0 + offset) as usize;
+            if row < lines.len() && !cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                lines[row].push(cell.c);
+            }
+        }
+        let mode = *term.mode();
+        format!(
+            "cols={} rows={} alt_screen={} display_offset={}\n{}\n",
+            self.cols,
+            self.rows,
+            mode.contains(TermMode::ALT_SCREEN),
+            offset,
+            lines.iter().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n")
+        )
+    }
+
+    /// 给 perf：第一次把输出画出来；大量输出时数帧
     fn on_painted(&mut self) {
         let now = Instant::now();
+        if let Some(path) = std::env::var_os("MAKIT_NATIVE_DUMP") {
+            if self.last_dump.map(|t| now.duration_since(t).as_millis() >= 300).unwrap_or(true) {
+                self.last_dump = Some(now);
+                let _ = std::fs::write(path, self.dump_text());
+            }
+        }
         if let Some(b) = &mut self.burst {
             if let Some(last) = b.last_frame {
                 let dt = now.duration_since(last).as_secs_f64() * 1000.0;
@@ -501,6 +550,12 @@ impl TerminalView {
                 ["首次画出", ms(now)],
             ],
         }));
+    }
+}
+
+impl Drop for TerminalView {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
