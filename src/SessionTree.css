@@ -750,3 +750,15 @@
   background: var(--border);
   margin: 4px 0;
 }
+
+/* 项目组分页的「显示更多」（#219）：和会话行同样的缩进，字色压一档，不和会话抢眼 */
+.tree-more {
+  list-style: none;
+  padding: 4px 12px 6px 28px;
+  font-size: 11px;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.tree-more:hover {
+  color: var(--fg);
+}

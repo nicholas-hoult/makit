@@ -8,7 +8,7 @@
  *   出现在「今天」下面，很难肉眼回归。
  * - 状态叫法以前侧栏和 ⌘K 各写一套（侧栏把「等待回答」也显示成「等待审批」），这里钉住只有一套。
  */
-import { statusGroups, dayBuckets, priorityCompare } from "../src/sidebarGroups.ts";
+import { statusGroups, dayBuckets, priorityCompare, pageProject, PROJECT_PAGE } from "../src/sidebarGroups.ts";
 import { STATUS_LABEL, waitingLabel } from "../src/sessionStatus.ts";
 
 let n = 0;
@@ -83,5 +83,22 @@ eq("词表", [STATUS_LABEL.waiting_approval, STATUS_LABEL.waiting_user, STATUS_L
 eq("等你回答问题时显示「等待回答」（以前侧栏一律显示等待审批）", waitingLabel("user"), "等待回答");
 eq("其余等待显示「等待审批」", waitingLabel("permission"), "等待审批");
 eq("没给原因也按等待审批", waitingLabel(""), "等待审批");
+
+// ── 项目组分页（#219）：一个项目 250 条会话，展开时一次渲染全部要卡 1 秒以上 ──
+// 渲染和 ↑↓ 导航必须用同一份截断结果，否则 ↑↓ 会走到没渲染出来的行上。
+{
+  const many = Array.from({ length: 120 }, (_, i) => ({ session_id: `s${i}` }));
+  const p1 = pageProject(many, undefined, null);
+  eq("默认只显示第一页", [p1.shown.length, p1.hidden], [PROJECT_PAGE, 120 - PROJECT_PAGE]);
+  eq("按原顺序取前面的", p1.shown[0].session_id, "s0");
+  const p2 = pageProject(many, 100, null);
+  eq("点过「显示更多」的按记住的上限", [p2.shown.length, p2.hidden], [100, 20]);
+  const p3 = pageProject(many, undefined, "s87");
+  eq("⌘L 定位的会话在后面 → 放宽到把它包进来（按页取整）", [p3.shown.length, p3.shown.some((s) => s.session_id === "s87")], [100, true]);
+  const small = many.slice(0, 7);
+  const p4 = pageProject(small, undefined, null);
+  eq("不满一页的原样返回（同一个数组，不白分配）", [p4.shown === small, p4.hidden], [true, 0]);
+  eq("上限超过总数 → 全显示", pageProject(many, 500, null).hidden, 0);
+}
 
 console.log(`✓ 侧栏分组、日期分段、优先级排序、状态词表全部通过（${n} 项）`);

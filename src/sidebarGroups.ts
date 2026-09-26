@@ -96,3 +96,25 @@ const PRIORITY: Record<RunState, number> = { waiting: 0, busy: 1, idle: 2, stopp
 export function priorityCompare(a: GroupRow, b: GroupRow): number {
   return PRIORITY[runState(a)] - PRIORITY[runState(b)] || b.mtime - a.mtime;
 }
+
+/** 项目组一页显示多少条（#219）。和历史组的 RECENT_PAGE 同一个量级 */
+export const PROJECT_PAGE = 50;
+
+/**
+ * 项目组分页（#219）：一个项目 250 条会话时，展开就一次渲染全部，实测卡 1 秒以上。
+ * `limit` 是这个项目记住的上限（点过「显示更多」），没有就是一页；`mustShow` 是要定位的
+ * 会话（⌘L），排在后面时把上限放宽到按页取整后能包住它。渲染和 ↑↓ 导航共用这份结果。
+ */
+export function pageProject<T extends { session_id: string }>(
+  sessions: T[],
+  limit: number | undefined,
+  mustShow: string | null,
+): { shown: T[]; hidden: number } {
+  let cap = limit ?? PROJECT_PAGE;
+  if (mustShow) {
+    const idx = sessions.findIndex((s) => s.session_id === mustShow);
+    if (idx >= cap) cap = Math.ceil((idx + 1) / PROJECT_PAGE) * PROJECT_PAGE;
+  }
+  if (sessions.length <= cap) return { shown: sessions, hidden: 0 };
+  return { shown: sessions.slice(0, cap), hidden: sessions.length - cap };
+}

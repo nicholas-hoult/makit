@@ -1,3 +1,4 @@
+import { dataUrlToBlob } from "./logoUrl";
 import { memo, useEffect, useState, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -12,7 +13,7 @@ import { resumeCmd } from "./workspace-types";
 import { moveSelection } from "./treeNav";
 import { visibleSessionOrder } from "./treeOrder";
 import { runState, runStateIcon, runStateClass, runStateTitle, anyAlive, STATUS_LABEL, waitingLabel } from "./sessionStatus";
-import { statusGroups, dayBuckets, priorityCompare } from "./sidebarGroups";
+import { statusGroups, dayBuckets, priorityCompare, pageProject, PROJECT_PAGE } from "./sidebarGroups";
 
 type SessionMeta = {
   session_id: string;
@@ -178,7 +179,9 @@ export const SessionTree = memo(function SessionTree({
   useEffect(() => {
     for (const tool of ["claude", "codex"]) {
       invoke<string>("get_tool_logo", { tool }).then((url) => {
-        setLogoUrls((prev) => ({ ...prev, [tool]: url }));
+        // 转成短的 blob: URL（#219）：每行一个 logo，直接用 ~20KB 的 data URL 时 250 行光建 DOM 就 0.3–0.5s
+        const blob = dataUrlToBlob(url);
+        setLogoUrls((prev) => ({ ...prev, [tool]: blob ? URL.createObjectURL(blob) : url }));
       }).catch(() => {});
     }
   }, []);
@@ -288,6 +291,17 @@ export const SessionTree = memo(function SessionTree({
     return groupByGitRoot(filtered.filter((s) => !openedIndex.has(s.session_id) && !pinnedSessions.has(s.session_id)));
   }, [filtered, viewMode, openedIndex, pinnedSessions]);
 
+  // 项目组分页（#219）：一个项目 200+ 会话时一次全渲染要卡 1 秒以上。每组默认一页，
+  // 「显示更多」按组记住上限；当前会话排在后面时自动放宽到能看见它。渲染和 ↑↓ 共用这一份。
+  const [projectLimits, setProjectLimits] = useState<Record<string, number>>({});
+  const projectPages = useMemo(
+    () => new Map(projectGroups.map((g) => {
+      const key = projectCollapseKey(g.gitRoot, g.name);
+      return [key, pageProject(g.sessions, projectLimits[key], activeSessionId ?? null)];
+    })),
+    [projectGroups, projectLimits, activeSessionId],
+  );
+
   // 带标签的分组，**渲染和键盘导航共用这一份**。
   //
   // 为什么要有这个中间层，而不是两边各写一遍组的顺序：折叠功能让「这一帧渲染了哪些
@@ -324,13 +338,16 @@ export const SessionTree = memo(function SessionTree({
         viewMode,
         labeled: labeledGroups,
         history: historyGroups,
-        projects: projectGroups.map((g) => ({
-          collapsed: isProjectCollapsed(collapsedProjects, projectCollapseKey(g.gitRoot, g.name), g.hasActive),
-          sessions: g.sessions,
-        })),
+        projects: projectGroups.map((g) => {
+          const key = projectCollapseKey(g.gitRoot, g.name);
+          return {
+            collapsed: isProjectCollapsed(collapsedProjects, key, g.hasActive),
+            sessions: projectPages.get(key)?.shown ?? g.sessions,
+          };
+        }),
         collapsedGroups,
       }),
-    [topGroups, labeledGroups, historyGroups, projectGroups, viewMode, collapsedProjects, collapsedGroups],
+    [topGroups, labeledGroups, historyGroups, projectGroups, projectPages, viewMode, collapsedProjects, collapsedGroups],
   );
 
   // 选中的是 id，但 Enter / Space 要的是整个 meta。选中项一定在 filtered 里
@@ -741,7 +758,18 @@ export const SessionTree = memo(function SessionTree({
               {!isCollapsed && (
                 <ul className="tree-session-list">
                   {/* hasActive 就是 anyAlive(group.sessions)，不用再算一遍 */}
-                  {group.sessions.map((s) => renderSession(s, group.hasActive))}
+                  {(projectPages.get(colKey)?.shown ?? group.sessions).map((s) => renderSession(s, group.hasActive))}
+                  {(projectPages.get(colKey)?.hidden ?? 0) > 0 && (
+                    <li
+                      className="tree-more"
+                      onClick={() => setProjectLimits((prev) => ({
+                        ...prev,
+                        [colKey]: (projectPages.get(colKey)?.shown.length ?? 0) + PROJECT_PAGE,
+                      }))}
+                    >
+                      显示更多（还有 {projectPages.get(colKey)?.hidden} 条）
+                    </li>
+                  )}
                 </ul>
               )}
             </section>
