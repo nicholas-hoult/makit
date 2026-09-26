@@ -5,7 +5,7 @@
 // Node 22 的 --experimental-strip-types 直接能跑。
 //
 // 跑：node --experimental-strip-types scripts/test-running-merge.ts
-import { applyRunningMeta, type RunningMeta } from "../src/running-merge.ts";
+import { applyRunningMeta, mergeRunning, type RunningMeta } from "../src/running-merge.ts";
 
 type Session = {
   session_id: string;
@@ -88,6 +88,33 @@ function check(name: string, got: unknown, want: unknown) {
 {
   const s = session({ running: false });
   check("无变化时返回同一引用", applyRunningMeta(s, undefined) === s, true);
+}
+
+// --- 一直在跑、这轮读到的状态和上轮一样 → 也必须返回同一个引用（#219）---
+// 活跃会话恰恰是这种情况：每 500ms 一发的 running-changed 里它每次都在、值都没变。
+// 以前照样造新对象 → sessions 数组换身份 → 所有 [sessions] 的 memo 重算、侧栏全量重渲染。
+// 200+ 会话的项目里这就是「非常卡」的主因之一。
+{
+  const r: RunningMeta = { session_id: "s1", status: "busy", waiting_for: "", pid: 7, name: "" };
+  const s = session({ running: true, status: "busy", pid: 7 });
+  check("运行中且无变化 → 同一引用", applyRunningMeta(s, r) === s, true);
+  const renamed = session({ running: true, status: "busy", pid: 7, display_name: "新名", name_source: "rename" });
+  check("改名已生效过、名字没再变 → 同一引用", applyRunningMeta(renamed, { ...r, name: "新名" }) === renamed, true);
+  check("状态变了 → 新对象", applyRunningMeta(s, { ...r, status: "waiting" }) === s, false);
+  check("名字变了 → 新对象", applyRunningMeta(s, { ...r, name: "改了" }).display_name, "改了");
+}
+
+// --- 整个列表：没有任何一条变 → 返回原数组（React 据此跳过重渲染）---
+{
+  const a = session({ session_id: "a", running: true, status: "busy", pid: 1 });
+  const b = session({ session_id: "b" });
+  const prev = [a, b];
+  const list: RunningMeta[] = [{ session_id: "a", status: "busy", waiting_for: "", pid: 1, name: "" }];
+  check("列表无变化 → 原数组", mergeRunning(prev, list, () => false) === prev, true);
+  const changed = mergeRunning(prev, [{ ...list[0], status: "waiting" }], () => false);
+  check("有一条变了 → 新数组", changed === prev, false);
+  check("没变的那条保持原对象", changed[1] === b, true);
+  check("被跳过的（归档中）不合并", mergeRunning(prev, [{ ...list[0], status: "waiting" }], (s) => s.session_id === "a") === prev, true);
 }
 
 if (failures.length > 0) {

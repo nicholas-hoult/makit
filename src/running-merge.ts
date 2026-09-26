@@ -45,10 +45,36 @@ export function applyRunningMeta<T extends Mergeable>(s: T, r: RunningMeta | und
     if (!s.running) return s;
     return { ...s, running: false, status: "idle", waiting_for: "", pid: 0 };
   }
+  const renamed = !!r.name && (s.display_name !== r.name || s.name_source !== "rename");
+  // 值都没变就返回原对象（#219）：活跃会话每 500ms 一次 running-changed，每次都造新对象
+  // 会让 sessions 数组换身份，所有 [sessions] 的 memo 重算、侧栏全量重渲染
+  if (s.running && s.status === r.status && s.waiting_for === r.waiting_for && s.pid === r.pid && !renamed) {
+    return s;
+  }
   const next: T = { ...s, running: true, status: r.status, waiting_for: r.waiting_for, pid: r.pid };
   if (r.name) {
     next.display_name = r.name;
     next.name_source = "rename";
   }
   return next;
+}
+
+/**
+ * 把一次 `running-changed` 合进整个列表。一条都没变就返回原数组 —— React 的 setState
+ * 拿到同一个引用会直接跳过重渲染。`skip` 为真的会话不合并（归档写盘中的那几条）。
+ */
+export function mergeRunning<T extends Mergeable & { session_id: string }>(
+  prev: T[],
+  runningList: RunningMeta[],
+  skip: (s: T) => boolean,
+): T[] {
+  const map = new Map(runningList.map((r) => [r.session_id, r]));
+  let changed = false;
+  const next = prev.map((s) => {
+    if (skip(s)) return s;
+    const merged = applyRunningMeta(s, map.get(s.session_id));
+    if (merged !== s) changed = true;
+    return merged;
+  });
+  return changed ? next : prev;
 }

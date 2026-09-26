@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition, type ComponentProps } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { homeDir } from "@tauri-apps/api/path";
 import { confirm as confirmDialog, message as messageDialog } from "@tauri-apps/plugin-dialog";
 import { TerminalView } from "./Terminal";
+import { useStableFn } from "./useStableFn";
 import { reportStartup } from "./perf";
 import { terminalManager } from "./TerminalManager";
 import { zoomAction } from "./fontZoom";
@@ -21,7 +22,7 @@ import { PANE_SPEC_MIME } from "./paneDrop";
 import { formatSearchCount, type SearchProgress } from "./searchCount";
 import { SessionTree } from "./SessionTree";
 import { useNotifications } from "./useNotifications";
-import { applyRunningMeta, type RunningMeta } from "./running-merge";
+import { mergeRunning, type RunningMeta } from "./running-merge";
 import { installScrollActivity } from "./scrollActivity";
 import { shortenHome } from "./homePath";
 import {
@@ -427,6 +428,8 @@ function useRestoreFocusOnClose(open: boolean, restore: () => void) {
 // 再等 150ms 才发，而挂载本身就有 600ms+ 的长帧，实测要到页面加载后 1.9s 才发出。
 let startupSessions: Promise<SessionMeta[]> | null = invoke<SessionMeta[]>("list_sessions", { cwdMode: "smart" });
 
+type TreeProps = ComponentProps<typeof SessionTree>;
+
 function App() {
   const ws = useWorkspace();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -754,14 +757,9 @@ function App() {
     listen<void>("running-changed", () => {
       invoke<RunningMeta[]>("list_running_sessions").then((runningList) => {
         startTransition(() => {
-          setSessions((prev) => {
-            const map = new Map(runningList.map((r) => [r.session_id, r]));
-            return prev.map((s) => {
-              // ref 守卫：正在归档中或已归档，不被运行状态覆盖
-              if (s.archived || archivingRef.current.has(s.session_id)) return s;
-              return applyRunningMeta(s, map.get(s.session_id));
-            });
-          });
+          // 一条都没变就拿回原数组，React 直接跳过重渲染（#219）。
+          // ref 守卫：正在归档中或已归档，不被运行状态覆盖
+          setSessions((prev) => mergeRunning(prev, runningList, (s) => s.archived || archivingRef.current.has(s.session_id)));
         });
       }).catch(() => {});
       // sessions/ 目录变了 —— 可能是刚有 claude 起来。这是新建 tab 补绑标题的主入口：
@@ -2005,6 +2003,47 @@ function App() {
     return items;
   }, [sessions, pinnedSessions]);
 
+  // 传给侧栏的回调：身份不变、调用时执行最新版本，memo(SessionTree) 才生效（#219）
+  const treeOnSessionClick = useStableFn<NonNullable<TreeProps["onSessionClick"]>>((s) => openResumeTab(s, s.cwd));
+  const treeOnSessionDragStart = useStableFn<NonNullable<TreeProps["onSessionDragStart"]>>((e, s) => {
+            const spec: NewPaneSpec = {
+              kind: "resume",
+              cwd: s.cwd,
+              initCommand: sessionResumeInit(s),
+              sessionId: s.session_id,
+              sessionShortId: s.short_id,
+            };
+            e.dataTransfer.setData(PANE_SPEC_MIME, encodePaneSpec(spec));
+            e.dataTransfer.setData("text/plain", sessionResumeCmd(s));
+            e.dataTransfer.effectAllowed = "copy";
+            setTabDragImage(e, deriveSessionTabLabel(s));
+          });
+  const treeOnTogglePin = useStableFn<NonNullable<TreeProps["onTogglePin"]>>((...a) => togglePin(...a));
+  const treeOnArchive = useStableFn<NonNullable<TreeProps["onArchive"]>>((id) => {
+            const s = sessionsMap.get(id);
+            if (s) handleToggleArchive(s);
+          });
+  const treeOnRefresh = useStableFn<NonNullable<TreeProps["onRefresh"]>>((...a) => load(...a));
+  const treeOnSettings = useStableFn<NonNullable<TreeProps["onSettings"]>>(() => setSettingsOpen(true));
+  const treeOnCollapse = useStableFn<NonNullable<TreeProps["onCollapse"]>>(() => setProjectListCollapsed((c) => !c));
+  const treeOnResizeStart = useStableFn<NonNullable<TreeProps["onResizeStart"]>>((x) => projectList.startDrag(x));
+  const treeOnResizerHover = useStableFn<NonNullable<TreeProps["onResizerHover"]>>((...a) => setResizerHovered(...a));
+  const treeOnNewSessionInDir = useStableFn<NonNullable<TreeProps["onNewSessionInDir"]>>((cwd, tool) => ws.openNewSession(cwd, tool));
+  const treeOnNewShellInDir = useStableFn<NonNullable<TreeProps["onNewShellInDir"]>>((cwd) => ws.openShell(cwd));
+  const treeOnReturnFocus = useStableFn<NonNullable<TreeProps["onReturnFocus"]>>((...a) => focusActiveTerminal(...a));
+  const treeOnOpenDetail = useStableFn<NonNullable<TreeProps["onOpenDetail"]>>((...a) => openDetail(...a));
+  const treeOnOpenSessionInSplit = useStableFn<NonNullable<TreeProps["onOpenSessionInSplit"]>>((s, dir) => {
+            // 和命令面板里 ⌘/⇧ 回车走的是同一条路（上面 action(modifier)），
+            // 免得"分屏打开一个会话"这件事出现第二种拼法。
+            ws.handleSplitWithSession(ws.workspace.activeContainerId, dir, "after", {
+              kind: "resume",
+              cwd: s.cwd,
+              initCommand: sessionResumeInit(s),
+              sessionId: s.session_id,
+              sessionShortId: s.short_id,
+            });
+          });
+
   return (
     <main
       className="app"
@@ -2083,54 +2122,29 @@ function App() {
           loading={loading}
           query={query}
           onQueryChange={setQuery}
-          onSessionClick={(s) => openResumeTab(s, s.cwd)}
-          onSessionDragStart={(e, s) => {
-            const spec: NewPaneSpec = {
-              kind: "resume",
-              cwd: s.cwd,
-              initCommand: sessionResumeInit(s),
-              sessionId: s.session_id,
-              sessionShortId: s.short_id,
-            };
-            e.dataTransfer.setData(PANE_SPEC_MIME, encodePaneSpec(spec));
-            e.dataTransfer.setData("text/plain", sessionResumeCmd(s));
-            e.dataTransfer.effectAllowed = "copy";
-            setTabDragImage(e, deriveSessionTabLabel(s));
-          }}
-          onTogglePin={togglePin}
-          onArchive={(id) => {
-            const s = sessionsMap.get(id);
-            if (s) handleToggleArchive(s);
-          }}
-          onRefresh={load}
+          onSessionClick={treeOnSessionClick}
+          onSessionDragStart={treeOnSessionDragStart}
+          onTogglePin={treeOnTogglePin}
+          onArchive={treeOnArchive}
+          onRefresh={treeOnRefresh}
           revealTrigger={revealTrigger}
           clearFilterTrigger={clearFilterTrigger}
           searchRef={searchInputRef}
-          onSettings={() => setSettingsOpen(true)}
+          onSettings={treeOnSettings}
           refreshing={loading}
           collapsed={projectListCollapsed}
-          onCollapse={() => setProjectListCollapsed((c) => !c)}
+          onCollapse={treeOnCollapse}
           width={projectList.width}
-          onResizeStart={(x) => projectList.startDrag(x)}
-          onResizerHover={setResizerHovered}
-          onNewSessionInDir={(cwd, tool) => ws.openNewSession(cwd, tool)}
-          onNewShellInDir={(cwd) => ws.openShell(cwd)}
+          onResizeStart={treeOnResizeStart}
+          onResizerHover={treeOnResizerHover}
+          onNewSessionInDir={treeOnNewSessionInDir}
+          onNewShellInDir={treeOnNewShellInDir}
           /* 「打开中」段的数据源。侧栏原来只拿得到 activeSessionId（一条），
              答不了「我手上开着哪几个」—— 而那正是用户一天几十次要做的切换。 */
           openedSessionIds={openedSessionIds}
-          onReturnFocus={focusActiveTerminal}
-          onOpenDetail={openDetail}
-          onOpenSessionInSplit={(s, dir) => {
-            // 和命令面板里 ⌘/⇧ 回车走的是同一条路（上面 action(modifier)），
-            // 免得"分屏打开一个会话"这件事出现第二种拼法。
-            ws.handleSplitWithSession(ws.workspace.activeContainerId, dir, "after", {
-              kind: "resume",
-              cwd: s.cwd,
-              initCommand: sessionResumeInit(s),
-              sessionId: s.session_id,
-              sessionShortId: s.short_id,
-            });
-          }}
+          onReturnFocus={treeOnReturnFocus}
+          onOpenDetail={treeOnOpenDetail}
+          onOpenSessionInSplit={treeOnOpenSessionInSplit}
         />
 
         {/* 右侧 workspace（终端区） */}
