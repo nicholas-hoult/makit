@@ -24,6 +24,15 @@ function emit(event: object) {
   }
 }
 
+// ── 前端报错：打包版看不到控制台，白屏时只能靠这里 ──
+window.addEventListener("error", (ev) => {
+  emit({ kind: "error", message: String(ev.message), source: `${ev.filename ?? ""}:${ev.lineno ?? ""}:${ev.colno ?? ""}`, stack: String(ev.error?.stack ?? "").slice(0, 2000) });
+});
+window.addEventListener("unhandledrejection", (ev) => {
+  const r = ev.reason as { message?: string; stack?: string } | undefined;
+  emit({ kind: "error", message: `unhandledrejection: ${r?.message ?? String(ev.reason)}`, stack: String(r?.stack ?? "").slice(0, 2000) });
+});
+
 // ── 启动 ──
 const startupMarks: { stage: string; at: number }[] = [{ stage: "JS 开始执行", at: epochNow() }];
 requestAnimationFrame(() => startupMarks.push({ stage: "首帧绘制", at: epochNow() }));
