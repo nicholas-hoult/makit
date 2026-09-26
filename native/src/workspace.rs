@@ -115,6 +115,9 @@ impl Workspace {
             let clicked = Instant::now();
             this_open_later(cmd, clicked, window, cx);
         }
+        if std::env::var_os("MAKIT_NATIVE_SELFTEST").is_some() {
+            selftest(window, cx);
+        }
         this
     }
 
@@ -532,6 +535,48 @@ impl Workspace {
                 }
             }))
     }
+}
+
+/// 无人值守自检（`MAKIT_NATIVE_SELFTEST=1`，配合 `MAKIT_NATIVE_FORCE_DRAW=1`）：按顺序走一遍
+/// 恢复会话 → 切按项目分组 → 折叠第一组 → 右侧分屏 → 切标签 → 关标签 → 退出，每步后等几帧让绘制代码跑一遍。
+fn selftest(window: &mut Window, cx: &mut Context<Workspace>) {
+    cx.spawn_in(window, async move |this, cx| {
+        let ex = cx.background_executor().clone();
+        let pause = move |ms| ex.timer(Duration::from_millis(ms));
+        loop {
+            pause(200).await;
+            if this.update(cx, |ws, _| ws.loaded).unwrap_or(true) {
+                break;
+            }
+        }
+        let steps: Vec<(&str, Box<dyn Fn(&mut Workspace, &mut Window, &mut Context<Workspace>)>)> = vec![
+            ("恢复第一个会话", Box::new(|ws, w, cx| ws.open_session(0, w, cx))),
+            ("再点一次同一个会话（应切过去而不是新开）", Box::new(|ws, w, cx| ws.open_session(0, w, cx))),
+            ("按项目分组", Box::new(|ws, _, cx| ws.set_by_project(true, cx))),
+            ("折叠第一组", Box::new(|ws, _, cx| {
+                if let Some(Item::Header { id, .. }) = ws.items.first().cloned() {
+                    ws.toggle_group(id, cx)
+                }
+            })),
+            ("右侧分屏", Box::new(|ws, w, cx| ws.on_split(&SplitRight, w, cx))),
+            ("右栏再开一个会话", Box::new(|ws, w, cx| ws.open_session(1, w, cx))),
+            ("切标签", Box::new(|ws, w, cx| ws.on_next_tab(&NextTab, w, cx))),
+            ("切到左栏", Box::new(|ws, w, cx| ws.on_focus_other(&FocusOtherPane, w, cx))),
+            ("按状态分组", Box::new(|ws, _, cx| ws.set_by_project(false, cx))),
+            ("关左栏标签", Box::new(|ws, w, cx| ws.on_close_tab(&CloseTab, w, cx))),
+        ];
+        for (name, f) in steps {
+            let _ = this.update_in(cx, |ws, w, cx| {
+                f(ws, w, cx);
+                let tabs: Vec<usize> = ws.panes.iter().map(|p| p.tabs.len()).collect();
+                eprintln!("[selftest] {name}：分栏 {} 个，各栏标签 {:?}，侧栏条目 {}", ws.panes.len(), tabs, ws.items.len());
+            });
+            pause(1500).await;
+        }
+        eprintln!("[selftest] 完成");
+        let _ = cx.update(|_, cx| cx.quit());
+    })
+    .detach();
 }
 
 fn this_open_later(cmd: String, clicked: Instant, window: &mut Window, cx: &mut Context<Workspace>) {
