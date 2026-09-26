@@ -32,3 +32,6 @@ dist-ssr
 
 # Claude Code 本地配置
 /.claude/
+
+# git worktree（实验分支的独立工作目录）
+/.worktrees/
