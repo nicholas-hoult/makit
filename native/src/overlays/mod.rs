@@ -44,7 +44,13 @@
 //! 每个浮层的 key_context 都带 `Overlay`。输入框是 `text_input::TextInput`（带输入法），别的包也可以用。
 
 pub mod context_menu;
+pub mod detail_logic;
+pub mod palette_logic;
+pub mod recover_logic;
+pub mod search_count;
+pub mod shortcuts;
 pub mod style;
+pub mod text_input;
 pub mod toast;
 
 use gpui::{
