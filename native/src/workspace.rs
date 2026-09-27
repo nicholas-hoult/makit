@@ -99,9 +99,20 @@ impl Workspace {
                 ws.set_sessions(list);
                 cx.notify();
             });
-            // 运行状态每 2 秒轮询一次（只读 ~/.claude/sessions/*.json，很轻）
+            // 运行状态每 2 秒轮询一次（只读 ~/.claude/sessions/*.json，很轻）；
+            // 会话列表每 30 秒整体重扫一次，新会话、改名、新消息时间才能进侧栏
+            // （WebView 版用文件监听增量解析，原型先用轮询）
+            let mut tick = 0u32;
             loop {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
+                tick += 1;
+                if tick % 15 == 0 {
+                    let list = cx.background_executor().spawn(async { makit_lib::api::list_sessions(None).unwrap_or_default() }).await;
+                    if this.update(cx, |ws, cx| { ws.set_sessions(list); cx.notify(); }).is_err() {
+                        break;
+                    }
+                    continue;
+                }
                 let running = cx.background_executor().spawn(async { makit_lib::api::list_running_sessions() }).await;
                 if this.update(cx, |ws, cx| ws.apply_running(running, cx)).is_err() {
                     break;

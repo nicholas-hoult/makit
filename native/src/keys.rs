@@ -111,6 +111,12 @@ pub fn key_to_bytes(key: &str, mods: Mods, app_cursor: bool) -> Option<Vec<u8>> 
     None
 }
 
+/// 程序开了鼠标上报（SGR 1006）时，滚轮要编码成鼠标事件发给它，而不是滚我们自己的回看：
+/// `CSI < 64/65 ; 列 ; 行 M`（列、行从 1 起）。不这么做，开了鼠标模式的全屏程序里滚轮没反应
+pub fn sgr_wheel(up: bool, col: usize, row: usize) -> Vec<u8> {
+    format!("\x1b[<{};{};{}M", if up { 64 } else { 65 }, col + 1, row + 1).into_bytes()
+}
+
 /// xterm 修饰键编码：1 + Shift(1) + Alt(2) + Ctrl(4)
 fn modifier_code(m: Mods) -> u8 {
     1 + m.shift as u8 + 2 * m.alt as u8 + 4 * m.ctrl as u8
@@ -177,6 +183,12 @@ mod tests {
         assert_eq!(k("space", CTRL), Some(vec![0x00]));
         assert_eq!(k("[", CTRL), Some(vec![0x1b]));
         assert_eq!(k("\\", CTRL), Some(vec![0x1c]));
+    }
+
+    #[test]
+    fn sgr_wheel_is_one_based() {
+        assert_eq!(sgr_wheel(true, 0, 0), b"\x1b[<64;1;1M".to_vec());
+        assert_eq!(sgr_wheel(false, 9, 4), b"\x1b[<65;10;5M".to_vec());
     }
 
     #[test]

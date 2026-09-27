@@ -34,7 +34,7 @@ use gpui::{
 };
 
 use makit_native::grid::{grid_size, point_to_cell, wheel_lines};
-use makit_native::keys::{Mods, key_to_bytes};
+use makit_native::keys::{Mods, key_to_bytes, sgr_wheel};
 use makit_native::palette;
 
 use crate::perf;
@@ -405,7 +405,7 @@ impl TerminalView {
         cx.notify();
     }
 
-    fn scroll_wheel(&mut self, ev: &ScrollWheelEvent, cx: &mut Context<Self>) {
+    fn scroll_wheel(&mut self, ev: &ScrollWheelEvent, local: Point<Pixels>, cx: &mut Context<Self>) {
         let delta_px = match ev.delta {
             ScrollDelta::Pixels(p) => f32::from(p.y),
             ScrollDelta::Lines(l) => l.y * f32::from(self.line_h),
@@ -416,7 +416,15 @@ impl TerminalView {
             return;
         }
         let mode = self.mode();
-        if mode.contains(TermMode::ALT_SCREEN) && mode.contains(TermMode::ALTERNATE_SCROLL) {
+        if mode.intersects(TermMode::MOUSE_MODE) && mode.contains(TermMode::SGR_MOUSE) {
+            // 程序自己要鼠标事件：滚轮上报给它
+            let (col, row) = self.cell_at(local);
+            let mut all = Vec::new();
+            for _ in 0..lines.abs() {
+                all.extend(sgr_wheel(lines > 0, col, row));
+            }
+            self.notifier.notify(all);
+        } else if mode.contains(TermMode::ALT_SCREEN) && mode.contains(TermMode::ALTERNATE_SCROLL) {
             // 全屏程序（less、vim……）：滚轮翻成上下方向键
             let key = if lines > 0 { "up" } else { "down" };
             let bytes = key_to_bytes(key, Mods::default(), mode.contains(TermMode::APP_CURSOR)).unwrap_or_default();
@@ -930,6 +938,19 @@ impl Element for TerminalElement {
         } else {
             None
         };
+        // 回看时右侧画一条细滚动条（只在离开底部时出现，回到底部就消失）
+        if offset > 0 {
+            let history = term.grid().history_size() as f32;
+            let total = history + rows as f32;
+            let h = bounds.size.height * (rows as f32 / total).max(0.05);
+            let top = (bounds.size.height - h) * ((history - offset as f32) / history.max(1.0));
+            let mut color = hsla(palette::FG);
+            color.a = 0.35;
+            rects.push((
+                Bounds::new(point(origin.x + bounds.size.width - px(6.0), origin.y + top), size(px(4.0), h)),
+                color,
+            ));
+        }
         let cursor_origin = cursor.map(|(b, _)| point(b.origin.x, origin.y + line_h * ((cur.point.line.0 + offset).max(0) as f32)));
         drop(term);
 
@@ -1065,7 +1086,8 @@ impl Element for TerminalElement {
                 if phase != gpui::DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                     return;
                 }
-                view.update(cx, |v, cx| v.scroll_wheel(ev, cx));
+                let local = ev.position - bounds.origin;
+                view.update(cx, |v, cx| v.scroll_wheel(ev, local, cx));
             }
         });
 

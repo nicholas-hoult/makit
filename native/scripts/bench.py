@@ -81,6 +81,17 @@ def stop(p):
         p.wait()
 
 
+def alive(pid):
+    return rss_kb(pid) > 0
+
+
+def stop_and_attribute(p, helper_rss):
+    """停掉应用，只把随它一起退出的 WebKit 辅助进程算作它的（别的应用同时拉起的不算）"""
+    stop(p)
+    time.sleep(3)
+    return {h: r for h, r in helper_rss.items() if not alive(h)}
+
+
 def wait_for(path, kind, n, timeout):
     end = time.time() + timeout
     while time.time() < end:
@@ -100,10 +111,10 @@ def bench_startup(name, binary, fakehome, runs):
         p, before = launch(binary, fakehome)
         rec = wait_for(log, "startup", 1, 60)
         time.sleep(3)
-        hs = helpers(before)
         rss_main = rss_kb(p.pid)
-        rss_helpers = sum(rss_kb(h) for h in hs)
-        stop(p)
+        owned = stop_and_attribute(p, {h: rss_kb(h) for h in helpers(before)})
+        hs = list(owned)
+        rss_helpers = sum(owned.values())
         rows.append({"run": i + 1, "startup_ms": rec and rec.get("ms"), "stages": rec and rec.get("stages"),
                      "rss_main_mb": round(rss_main / 1024, 1), "rss_helpers_mb": round(rss_helpers / 1024, 1),
                      "helpers": len(hs)})
@@ -156,11 +167,9 @@ def bench_terminal(name, binary, fakehome):
             last_busy = time.time()
         prev = cur
     done_ms = round((last_busy - t0) * 1000)
-    hs = helpers(before)
     rss = rss_kb(p.pid) / 1024
-    rss_h = sum(rss_kb(h) for h in hs) / 1024
     burst = read_log(log, "terminal-burst")
-    stop(p)
+    rss_h = sum(stop_and_attribute(p, {h: rss_kb(h) for h in helpers(before)}).values()) / 1024
     os.remove(fake)
     os.remove(zprofile)
     out = {"terminal_open": rec, "burst_done_ms": done_ms, "burst_records": burst,
