@@ -106,6 +106,13 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
             if after < before + 150 {
                 failures.push(format!("展开 big-repo 后行数 {before} → {after}，没展开"));
             }
+            // 对照：同样的循环（refresh + 16ms 间隔）但不滚 —— 扣掉后台窗口被节流 / 强制绘制本身的开销
+            let t = Instant::now();
+            for _ in 0..30 {
+                let _ = cx.update_window(any, |_, window, _| window.refresh());
+                pause(16).await;
+            }
+            eprintln!("[selftest] 性能 对照：不滚、同样循环 30 次：{:.0}ms", t.elapsed().as_secs_f64() * 1000.0);
             // 滚动：每 16ms 往下滚 400px，共 30 次（ListState::scroll_by，和滚轮走同一个状态）
             let t = Instant::now();
             for _ in 0..30 {
