@@ -97,12 +97,16 @@ pub fn resume_cwd_correction(init_command: Option<&str>, cwd: &str) -> Option<St
     corrected_resume_cwd(cwd, home)
 }
 
-/// 注入 `MAKIT_SESSION_ID` 的值：initCommand 以 `claude -r ` **开头**时取后面的部分。
+/// 注入 `MAKIT_SESSION_ID` 的值：恢复会话的 initCommand 里的会话 id（claude 或 codex）。
 ///
-/// 照搬原 pty.rs 的行为（#226 抽取时不改行为）：workspace 拼出来的 resume 命令带 `clear && ` 前缀，
-/// 这里匹配不上，所以实际上只有手工传 `claude -r <id>` 的调用方会带上这个变量。
+/// #223：以前只认「以 `claude -r ` 开头」，而前端拼的是 `clear && claude -r <id>`，这个变量从来
+/// 没注入过。现在和 cwd 校正共用 `resume_session_id` 的解析，同样只认 uuid 形状的 id。
 pub fn env_session_id(init_command: &str) -> Option<&str> {
-    init_command.strip_prefix("claude -r ").map(|s| s.trim()).filter(|s| !s.is_empty())
+    resume_session_id(init_command).or_else(|| {
+        let id = init_command.split("codex resume ").nth(1)?.split_whitespace().next()?;
+        let uuid_shaped = id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+        uuid_shaped.then_some(id)
+    })
 }
 
 /// shell 集成只给 zsh 做（macOS 默认 zsh）
@@ -264,12 +268,21 @@ mod spawn_prep_tests {
     use super::*;
 
     #[test]
-    fn env_session_id_only_for_bare_resume_command() {
-        assert_eq!(env_session_id("claude -r abc "), Some("abc"));
+    /// #223：恢复标签的 initCommand 实际是 `clear && claude -r <id>`（workspace-types.ts 的
+    /// resumeInitCommand），以前只认「以 `claude -r` 开头」，MAKIT_SESSION_ID 从来没注入过，
+    /// 按会话找孤儿进程对恢复出来的标签全部失效。错了在 UI 上：关掉恢复出来的标签后，
+    /// 它 setsid 出去的子进程不会被当成这个会话的子进程收掉。
+    fn env_session_id_for_real_resume_commands() {
+        const SID: &str = "73ec5479-5b96-494c-919c-1f36a7e192fd";
+        assert_eq!(env_session_id(&format!("clear && claude -r {SID}")), Some(SID), "前端实际拼的形状");
+        assert_eq!(env_session_id(&format!("claude -r {SID}")), Some(SID));
+        assert_eq!(env_session_id(&format!("clear && codex resume {SID}")), Some(SID), "codex 也要");
         assert_eq!(env_session_id("claude -r "), None);
-        // 原行为：带 clear 前缀的不认（见函数注释）
-        assert_eq!(env_session_id("clear && claude -r abc"), None);
+        assert_eq!(env_session_id("clear && claude"), None, "新会话没有 id");
         assert_eq!(env_session_id("zsh"), None);
+        // 会进环境变量、也会被拿去匹配进程：不是 uuid 形状的不认
+        assert_eq!(env_session_id("claude -r abc"), None);
+        assert_eq!(env_session_id("codex resume ../../x"), None);
     }
 
     #[test]
