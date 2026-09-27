@@ -15,6 +15,7 @@ use gpui::{
 };
 
 use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, terminal as term_act, Owner};
+use crate::overlays::OverlayHost;
 use crate::persist;
 use crate::perf;
 use crate::sidebar::SidebarView;
@@ -26,6 +27,8 @@ pub struct Root {
     state: Entity<AppState>,
     sidebar: Entity<SidebarView>,
     workspace: Entity<WorkspaceView>,
+    /// D 浮层：铺满窗口的最上层（右键菜单、toast、⌘K、设置……）
+    overlays: Entity<OverlayHost>,
     first_frame_marked: bool,
     startup_reported: bool,
 }
@@ -34,8 +37,9 @@ impl Root {
     fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let sidebar = cx.new(|cx| SidebarView::new(state.clone(), cx));
         let workspace = cx.new(|cx| WorkspaceView::new(state.clone(), cx));
+        let overlays = OverlayHost::install(state.clone(), workspace.clone(), cx);
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        Self { state, sidebar, workspace, first_frame_marked: false, startup_reported: false }
+        Self { state, sidebar, workspace, overlays, first_frame_marked: false, startup_reported: false }
     }
 }
 
@@ -93,6 +97,7 @@ impl Render for Root {
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
         el.when(!collapsed, |d| d.child(self.sidebar.clone()))
             .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
+            .child(self.overlays.clone())
     }
 }
 
