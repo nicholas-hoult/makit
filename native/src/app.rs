@@ -47,6 +47,15 @@ impl Root {
             SidebarEvent::ReturnFocus => this.workspace.update(cx, |w, cx| w.refocus(cx)),
         })
         .detach();
+        // E 通知 → B 侧栏：跳转的会话不在任何标签里时，在侧栏定位它（只定位，不打开）
+        cx.subscribe(&crate::notify::Notifier::global(cx), |this: &mut Self, _, ev: &crate::notify::NotifyEvent, cx| {
+            if let crate::notify::NotifyEvent::RevealSession { session_id } = ev {
+                this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
+                let id = Some(session_id.clone());
+                this.sidebar.update(cx, |s, cx| s.reveal_session(id, cx));
+            }
+        })
+        .detach();
         Self { state, sidebar, workspace, overlays, focus: cx.focus_handle(), first_frame_marked: false, startup_reported: false }
     }
 }
@@ -141,6 +150,34 @@ impl Render for Root {
     }
 }
 
+/// E 通知 → D 设置页：授权状态、请求授权、测试通知
+fn wire_notify_settings(cx: &mut App) {
+    use crate::notify::{system::Permission, Notifier};
+    crate::overlays::settings::set_notify_hooks(
+        crate::overlays::settings::NotifyHooks {
+            permission: std::rc::Rc::new(|cx: &App| match Notifier::global(cx).read(cx).permission {
+                Permission::Unknown => None,
+                Permission::Granted => Some(true),
+                _ => Some(false),
+            }),
+            request_permission: std::rc::Rc::new(|_, cx| Notifier::global(cx).read(cx).request_permission()),
+            send_test: std::rc::Rc::new(|window, cx| {
+                if !Notifier::global(cx).read(cx).send_test(cx) {
+                    // Tauri 版：总开关关着 / 没授权时弹 warning，不静默
+                    let _ = window.prompt(
+                        gpui::PromptLevel::Warning,
+                        "没有发出测试通知",
+                        Some("系统通知总开关关着，或 makit 还没拿到通知权限（需要装在「应用程序」里的签名包）。"),
+                        &["好"],
+                        cx,
+                    );
+                }
+            }),
+        },
+        cx,
+    );
+}
+
 /// 应用入口（main.rs 只调这个）
 pub fn run() {
     perf::mark("main 开始");
@@ -153,6 +190,7 @@ pub fn run() {
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
         crate::notify::Notifier::init(state.clone(), cx);
+        wire_notify_settings(cx);
         actions::bind_all(cx);
 
         let bounds = Bounds::centered(None, size(px(1400.0), px(900.0)), cx);

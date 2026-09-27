@@ -27,6 +27,7 @@ enum Cmd {
     NewShell(String),
     OnlyProject(String),
     NewSession(String, &'static str),
+    Detail(String),
 }
 
 /// 一个右键菜单项；`cmd` 为 None = 灰掉
@@ -59,6 +60,7 @@ impl SidebarView {
             Cmd::TogglePin(id) => self.toggle_pin(&id, cx),
             Cmd::ToggleArchive(id) => self.toggle_archive(&id, window, cx),
             Cmd::Reveal(path) => self.reveal_in_finder(path),
+            Cmd::Detail(id) => crate::overlays::open_detail(&id, window, cx),
             Cmd::Copy(text) => self.copy(text, cx),
             Cmd::NewShell(cwd) => self.new_shell_in(&cwd, cx),
             Cmd::OnlyProject(key) => self.only_this_project(&key, cx),
@@ -77,8 +79,7 @@ impl SidebarView {
             item(if s.is_pinned(id) { "取消置顶" } else { "置顶" }, Cmd::TogglePin(id.into())),
             item(if m.archived { "取消归档" } else { "归档" }, Cmd::ToggleArchive(id.into())),
             MenuLine::Sep,
-            // 会话详情面板归 D 浮层包；接口好了再接上（TS 版没传 onOpenDetail 时同样是灰的）
-            disabled("查看对话"),
+            item("查看对话", Cmd::Detail(id.into())),
             MenuLine::Sep,
             item("在 Finder 中显示", Cmd::Reveal(cwd.clone())),
             item("复制路径", Cmd::Copy(cwd)),

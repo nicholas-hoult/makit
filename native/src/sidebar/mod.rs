@@ -165,9 +165,9 @@ impl Focusable for SidebarView {
     }
 }
 
-/// 只打日志的 toast（D 浮层包的 toast 好了之后换成它）
-fn toast(msg: &str) {
-    eprintln!("[toast] {msg}");
+/// toast 走 D 浮层包（时长常量在 overlays::toast，照 Tauri 版）
+fn toast(msg: String, ms: u64, cx: &mut App) {
+    crate::overlays::show_toast(msg, ms, cx);
 }
 
 impl SidebarView {
@@ -363,7 +363,7 @@ impl SidebarView {
         let Some(m) = self.state.read(cx).session(id).cloned() else { return };
         let already_open = opened_order(&self.state.read(cx).workspace.state).iter().any(|x| *x == m.session_id);
         if !already_open && m.running && m.pid != 0 {
-            toast(&format!("该 session 正在运行中（PID {}），不能重复启动", m.pid));
+            toast(format!("该 session 正在运行中（PID {}），不能重复启动", m.pid), crate::overlays::toast::ALREADY_RUNNING, cx);
             return;
         }
         if !already_open && !m.cwd.is_empty() && !m.storage_folder.is_empty() {
@@ -410,7 +410,7 @@ impl SidebarView {
         if m.archived {
             match makit_core::archive::unarchive_session(m.session_id.clone()) {
                 Ok(()) => self.patch_session(&m.session_id, cx, |x| x.archived = false),
-                Err(e) => toast(&format!("归档失败: {e}")),
+                Err(e) => toast(format!("归档失败: {e}"), crate::overlays::toast::ARCHIVE_FAIL, cx),
             }
             return;
         }
@@ -443,7 +443,7 @@ impl SidebarView {
             s.archiving.remove(&id);
         });
         if let Err(e) = res {
-            toast(&format!("归档失败: {e}"));
+            toast(format!("归档失败: {e}"), crate::overlays::toast::ARCHIVE_FAIL, cx);
             return;
         }
         // 关它的全部标签。子进程先杀（closeTabWithChildren：逃出进程组的那些不杀会留在机器上）
@@ -577,12 +577,18 @@ impl SidebarView {
     /// ⌘L（revealSidebarSession + revealTrigger）：清空搜索和「显示已归档」，选中当前会话、焦点进侧栏，
     /// 展开它所在的项目组（`expand_project_for_reveal`，默认展开的不写显式态）和被折叠的状态组，滚到正中
     pub fn reveal_active(&mut self, cx: &mut Context<Self>) {
+        let id = self.active_session_id(cx);
+        self.reveal_session(id, cx);
+    }
+
+    /// 定位到指定会话（⌘L 传当前会话；通知中心跳转时会话不在任何标签里，传那条通知的会话）
+    pub fn reveal_session(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         self.search.update(cx, |s, cx| s.set_text("", cx));
         self.query.clear();
         if self.state.read(cx).prefs.sidebar.show_archived {
             self.update_prefs(cx, |p| p.show_archived = false);
         }
-        let Some(id) = self.active_session_id(cx) else {
+        let Some(id) = id else {
             self.rebuild(cx);
             cx.notify();
             return;
@@ -605,7 +611,7 @@ impl SidebarView {
         self.selected = Some(id.clone());
         self.pending_reveal = Some((id, 10));
         self.pending_focus_list = true;
-        toast("已定位 session");
+        toast("已定位 session".into(), crate::overlays::toast::REVEALED, cx);
         cx.notify();
     }
 
