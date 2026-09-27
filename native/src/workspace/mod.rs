@@ -962,10 +962,13 @@ impl WorkspaceView {
             .into_any_element()
     }
 
-    /// 当前标签变了就把焦点给它的终端
+    /// 当前标签变了就把焦点给它的终端；窗口里谁都没焦点时也要给（否则快捷键全失灵，见下）
     fn sync_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.state.read(cx).workspace.active_tab().map(|t| t.id.clone());
-        if active == self.focused_tab {
+        // 「谁都没焦点」必须补：GPUI 没有焦点时按键 / action 派发到 dispatch 树的根节点，而根视图的 on_action
+        // 挂在它下面一层的 div 上，冒泡够不着 —— 空工作区启动（active 是 None，和初值相同）时 ⌘T ⌘D 全都没反应。
+        // 有焦点（在侧栏 / 浮层里）时不抢
+        if active == self.focused_tab && window.focused(cx).is_some() {
             return;
         }
         match active.as_ref().and_then(|id| self.terminals.get(id)) {
