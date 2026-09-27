@@ -76,6 +76,10 @@ impl Render for Root {
                 let state = state.clone();
                 move |_: &app_act::Refresh, _, cx| state.update(cx, |s, cx| s.refresh(cx))
             })
+            // ---- E 通知 ----
+            .on_action(|_: &notify_act::ToggleNotificationCenter, window, cx| {
+                crate::notify::Notifier::global(cx).update(cx, |n, cx| n.toggle(window, cx))
+            })
             .on_action({
                 let state = state.clone();
                 move |_: &app_act::ToggleSidebar, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = !p.sidebar.collapsed))
@@ -86,20 +90,21 @@ impl Render for Root {
             .on_action(|_: &ov::OpenSettings, _, _| todo_action("⌘, 设置", Owner::Overlays))
             .on_action(|_: &sb::FocusSearch, _, _| todo_action("⌘⇧F 侧栏搜索", Owner::Sidebar))
             .on_action(|_: &sb::RevealActive, _, _| todo_action("⌘L 侧栏定位", Owner::Sidebar))
-            .on_action(|_: &notify_act::ToggleNotificationCenter, _, _| todo_action("⌘I 通知中心", Owner::Notify))
             .on_action(|_: &term_act::FontIncrease, _, _| todo_action("⌘= 字号 +1", Owner::Terminal))
             .on_action(|_: &term_act::FontDecrease, _, _| todo_action("⌘- 字号 -1", Owner::Terminal))
             .on_action(|_: &term_act::FontReset, _, _| todo_action("⌘0 字号重置", Owner::Terminal));
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
         el.when(!collapsed, |d| d.child(self.sidebar.clone()))
             .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
+            // E 通知：⌘I 抽屉 + 窗口闪一下（deferred 浮层）
+            .child(crate::notify::layer(window, cx))
     }
 }
 
 /// 应用入口（main.rs 只调这个）
 pub fn run() {
     perf::mark("main 开始");
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
             None => persist::NativeState::default(),
@@ -107,6 +112,7 @@ pub fn run() {
         cx.set_global(Theme::by_id(&prefs.theme.id, &prefs.theme.imported));
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
+        crate::notify::Notifier::init(state.clone(), cx);
         actions::bind_all(cx);
 
         let bounds = Bounds::centered(None, size(px(1400.0), px(900.0)), cx);
@@ -123,6 +129,7 @@ pub fn run() {
             )
             .expect("窗口创建失败");
         perf::mark("窗口创建");
+        crate::notify::attach_window(handle, cx);
 
         // 退出前把防抖中的状态写掉
         let quit_state = state.clone();
