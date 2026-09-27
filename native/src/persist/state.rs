@@ -29,7 +29,9 @@ pub struct NativeState {
     pub pane_icons: String,
     pub palette: PalettePrefs,
     pub notify: NotifyPrefs,
-    /// `makit-notifications`：通知记录（最多 100 条）。形状归通知包（notify/）定义，这里原样存 JSON
+    /// `makit-notifications`：通知记录（最多 100 条，每会话一条）。形状是 `notify::book::Record`
+    /// （`{session_id, kind, message, at, read}`，不存名字，#8）；导入的 Tauri 旧形状由 `Book::from_saved` 转换。
+    /// 这里保持原样存 JSON，好让坏一条不影响整份状态文件
     pub notifications: Vec<serde_json::Value>,
     /// 从哪个 localStorage 文件导入过（只导一次；None = 没导过 / 没找到）
     pub imported_from: Option<String>,
@@ -140,11 +142,15 @@ pub struct NotifyPrefs {
     pub approval: bool,
     /// `makit-notif-user`（默认关）
     pub user: bool,
+    /// 「已完成」通知（#215 新增，Tauri 版没有；默认开，静音横幅）
+    pub completed: bool,
+    /// 需要处理的通知（审批 / 回答 / 出错）横幅响铃（#215 新增，默认开）
+    pub sound: bool,
 }
 
 impl Default for NotifyPrefs {
     fn default() -> Self {
-        Self { system: true, approval: true, user: false }
+        Self { system: true, approval: true, user: false, completed: true, sound: true }
     }
 }
 
