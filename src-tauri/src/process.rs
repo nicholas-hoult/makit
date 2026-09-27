@@ -470,6 +470,20 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
 ///      断言在 `kill_tree` 之前，不满足就先清理再 panic，绝不带着错的 pgid 往下走。
 ///   3. 所有合成进程都带 `MAKIT_KILL_MATRIX=<nonce>` 环境变量，收尾按 nonce 兜底清扫，
 ///      中途 panic 也不会在机器上留下一堆 sleep。
+/// 逐个 SIGKILL（前端「杀掉逃出进程组的子进程」按钮）。非 unix 上什么都不做。
+pub fn kill_pids(pids: &[u32]) {
+    #[cfg(unix)]
+    {
+        for pid in pids {
+            unsafe {
+                libc::kill(*pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = pids;
+}
+
 #[cfg(all(test, unix))]
 mod kill_matrix_tests {
     use std::collections::HashSet;

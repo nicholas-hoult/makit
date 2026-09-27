@@ -10,8 +10,7 @@ pub fn projects_dir() -> Option<PathBuf> {
 
 // 在 macOS 上打开本地路径：默认在 Finder 中显示（reveal），文件用默认 app 打开
 // reveal=true → open -R（Finder 高亮），false → open（用默认 app 打开）
-#[tauri::command]
-pub async fn open_path(path: String, reveal: bool) -> Result<(), String> {
+pub fn open_path(path: String, reveal: bool) -> Result<(), String> {
     // 展开 ~ 为 $HOME
     let expanded = if path.starts_with("~/") || path == "~" {
         let home = std::env::var("HOME").map_err(|_| "无法获取 HOME".to_string())?;
@@ -54,7 +53,6 @@ pub fn paths_exist_in(paths: &[String], home: &std::path::Path) -> Vec<bool> {
         .collect()
 }
 
-#[tauri::command(async)]
 pub fn paths_exist(paths: Vec<String>) -> Vec<bool> {
     // 一次最多查 200 个：悬停一行最多几十个词，超了说明是异常输入，不陪它扫盘
     let paths: Vec<String> = paths.into_iter().take(200).collect();
@@ -84,7 +82,6 @@ mod paths_exist_tests {
 }
 
 /// 获取 AI 工具 logo（base64 data URL）：本地缓存优先，不存在则下载
-#[tauri::command]
 pub async fn get_tool_logo(tool: String) -> Result<String, String> {
     let (url, ext, mime) = match tool.as_str() {
         "claude" => ("https://www.anthropic.com/favicon.ico", "ico", "image/x-icon"),

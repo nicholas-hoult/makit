@@ -84,7 +84,6 @@ pub fn load_running_info() -> HashMap<String, RunningInfo> {
 }
 
 // 轻量扫描：只读 running 状态（~/.claude/sessions/*.json），不扫 projects
-#[tauri::command(async)]
 pub fn list_running_sessions() -> Vec<RunningMeta> {
     let home = match dirs::home_dir() { Some(h) => h, None => return vec![] };
     let sessions_dir = home.join(".claude").join("sessions");
@@ -114,22 +113,22 @@ pub fn list_running_sessions() -> Vec<RunningMeta> {
 
 #[derive(serde::Serialize)]
 pub struct RunningMeta {
-    session_id: String,
-    status: String,
-    waiting_for: String,
-    pid: u32,
+    pub session_id: String,
+    pub status: String,
+    pub waiting_for: String,
+    pub pid: u32,
     /// claude 自己写的会话名（`~/.claude/sessions/<pid>.json` 的 `name`）。可能为空。
     /// 和 `RunningInfo.name` 同源；`parse_session` 里它是 display_name 的**最高优先级**。
-    name: String,
+    pub name: String,
 }
 
 #[derive(serde::Serialize)]
 pub struct PtyBinding {
-    pty_id: String,
-    session_id: String,
-    short_id: String,
+    pub pty_id: String,
+    pub session_id: String,
+    pub short_id: String,
     /// claude 自己写的会话名（`~/.claude/sessions/<pid>.json` 的 `name`）。可能为空。
-    name: String,
+    pub name: String,
 }
 
 /// 把「还没绑上 session 的 tab」和「正在跑的 claude」对上：pty_id → session_id。
@@ -144,7 +143,6 @@ pub struct PtyBinding {
 ///
 /// 只对前端传进来的 pty_ids 干活：没有待绑定 tab 时前端不会调这个命令，一次 ps 都不跑。
 /// 匹配满了就早退，正常情况（一个新 tab）只查到第一个命中就结束。
-#[tauri::command(async)]
 pub fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<PtyBinding> {
     let home = match dirs::home_dir() {
         Some(h) => h,

@@ -45,7 +45,6 @@ pub fn save_archived(set: &std::collections::HashSet<String>) -> Result<(), Stri
     fs::write(&path, s).map_err(|e| e.to_string())
 }
 
-#[tauri::command(async)]
 pub fn archive_session(session_id: String) -> Result<(), String> {
     if session_id.is_empty() {
         return Err("session_id 为空".into());
@@ -55,7 +54,6 @@ pub fn archive_session(session_id: String) -> Result<(), String> {
     save_archived(&set)
 }
 
-#[tauri::command(async)]
 pub fn unarchive_session(session_id: String) -> Result<(), String> {
     if session_id.is_empty() {
         return Err("session_id 为空".into());

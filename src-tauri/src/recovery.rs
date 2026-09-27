@@ -25,7 +25,6 @@ pub fn encode_project_path(path: &str) -> String {
         .collect()
 }
 
-#[tauri::command(async)]
 pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: String) -> Result<String, String> {
     let dir = projects_dir().ok_or("无法定位 home 目录")?;
     let encoded = encode_project_path(&cwd);
@@ -60,9 +59,9 @@ pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: S
 #[derive(Serialize, Debug)]
 pub struct RecoveredSession {
     /// 恢复之后该用哪个 cwd 去 resume
-    cwd: String,
+    pub cwd: String,
     /// 到底动了什么（要能对用户交代清楚，不能只说"成功"）
-    detail: String,
+    pub detail: String,
 }
 
 /// 启动目录被删之后恢复会话。`projects_root` 可注入，测试才不会写进真的 `~/.claude`。
@@ -157,12 +156,10 @@ pub fn recover_session_cwd_in(
 /// 本机实测约 0.7ms、300 多个文件合计约 0.5s，已经是现存的性能痛点（#144），
 /// 每个会话再加一次 stat 是往已知热路径上加钱。而这个信息只有「用户点开会话的那一刻」
 /// 才用得到，那时候一次 stat 就够。
-#[tauri::command(async)]
 pub fn dir_exists(path: String) -> bool {
     !path.is_empty() && Path::new(&path).is_dir()
 }
 
-#[tauri::command(async)]
 pub fn recover_session_cwd(
     mode: String,
     session_id: String,

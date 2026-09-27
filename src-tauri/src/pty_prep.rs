@@ -87,6 +87,71 @@ pub fn session_home_cwd(projects_dir: &Path, session_id: &str) -> Option<String>
 /// 换 cwd 就是换钥匙 —— claude 只会去 `projects/<encode(realpath(cwd))>/<id>.jsonl`
 /// 找会话，降级到祖先目录之后它报的是「No conversation found」，把一个能修的问题
 /// 伪装成一个没救的问题。
+/// resume tab 在会话自己的起始目录启动（#190）：`init_command` 是 `claude -r <uuid>` 形状、
+/// 会话起始目录还在且和 `cwd` 不同时，返回该改成的目录；否则 None（照 `cwd` 启动）。
+/// 两边 spawn 前都先过这一步，再过 `must_refuse_cwd` 那道闸。
+pub fn resume_cwd_correction(init_command: Option<&str>, cwd: &str) -> Option<String> {
+    let home = init_command
+        .and_then(resume_session_id)
+        .and_then(|sid| dirs::home_dir().and_then(|h| session_home_cwd(&h.join(".claude").join("projects"), sid)));
+    corrected_resume_cwd(cwd, home)
+}
+
+/// 注入 `MAKIT_SESSION_ID` 的值：initCommand 以 `claude -r ` **开头**时取后面的部分。
+///
+/// 照搬原 pty.rs 的行为（#226 抽取时不改行为）：workspace 拼出来的 resume 命令带 `clear && ` 前缀，
+/// 这里匹配不上，所以实际上只有手工传 `claude -r <id>` 的调用方会带上这个变量。
+pub fn env_session_id(init_command: &str) -> Option<&str> {
+    init_command.strip_prefix("claude -r ").map(|s| s.trim()).filter(|s| !s.is_empty())
+}
+
+/// shell 集成只给 zsh 做（macOS 默认 zsh）
+pub fn is_zsh(shell: &str) -> bool {
+    shell.ends_with("zsh") || shell.ends_with("/zsh")
+}
+
+/// Shell 集成：自动发 OSC 7 通知 cwd 变化。
+///
+/// 用 ZDOTDIR 接管 zsh 的 .zshrc 加载点：先 source 用户原 .zshrc，再加 OSC 7 hook。
+/// 在 `<home>/.cache/makit/shell-integration/` 写好 `.zprofile` / `.zshenv` / `.zshrc`
+/// （内容没变就不写），返回这个目录 —— 调用方把它设成子进程的 `ZDOTDIR`。
+pub fn prepare_zsh_integration(home: &Path) -> PathBuf {
+    let integ_dir = home.join(".cache").join("makit").join("shell-integration");
+    let _ = std::fs::create_dir_all(&integ_dir);
+
+    let write_if_changed = |path: &std::path::Path, content: &str| {
+        let current = std::fs::read_to_string(path).unwrap_or_default();
+        if current != content {
+            let _ = std::fs::write(path, content);
+        }
+    };
+
+    let user_zprofile = home.join(".zprofile");
+    write_if_changed(&integ_dir.join(".zprofile"), &format!(
+        "# makit: source user .zprofile for PATH (brew/cargo/nvm)\n\
+         [ -f {p} ] && source {p}\n",
+        p = user_zprofile.display(),
+    ));
+
+    let user_zshenv = home.join(".zshenv");
+    write_if_changed(&integ_dir.join(".zshenv"), &format!(
+        "[ -f {p} ] && source {p}\n",
+        p = user_zshenv.display(),
+    ));
+
+    let user_zshrc = home.join(".zshrc");
+    write_if_changed(&integ_dir.join(".zshrc"), &format!(
+        "# makit shell integration (auto-generated)\n\
+         [ -f {user_rc} ] && source {user_rc}\n_makit_emit_cwd() {{ printf '\\033]7;file://%s%s\\033\\\\' \"$HOST\" \"$PWD\" }}\n\
+         typeset -ga chpwd_functions precmd_functions\n\
+         chpwd_functions+=(_makit_emit_cwd)\n\
+         precmd_functions+=(_makit_emit_cwd)\n\
+         _makit_emit_cwd\n",
+        user_rc = user_zshrc.display(),
+    ));
+    integ_dir
+}
+
 #[cfg(test)]
 mod cwd_gate_tests {
     use super::{expand_tilde, must_refuse_cwd, resolve_existing_cwd};
@@ -188,5 +253,42 @@ mod resume_cwd_tests {
         assert_eq!(session_home_cwd(&root, "00000000-0000-0000-0000-000000000000"), None);
         assert_eq!(session_home_cwd(&root.join("nope"), SID), None, "projects 目录不存在也不 panic");
         std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+/// #226 抽取出来的 spawn 前准备（Tauri 和 GPUI 共用）。
+/// 错了在 UI 上：终端标签的 cwd 不跟着 `cd` 变（OSC 7 集成文件没写对），
+/// 或用户自己的 .zshrc / PATH 没被加载（集成文件没 source 原文件）。
+#[cfg(test)]
+mod spawn_prep_tests {
+    use super::*;
+
+    #[test]
+    fn env_session_id_only_for_bare_resume_command() {
+        assert_eq!(env_session_id("claude -r abc "), Some("abc"));
+        assert_eq!(env_session_id("claude -r "), None);
+        // 原行为：带 clear 前缀的不认（见函数注释）
+        assert_eq!(env_session_id("clear && claude -r abc"), None);
+        assert_eq!(env_session_id("zsh"), None);
+    }
+
+    #[test]
+    fn zsh_integration_sources_user_files_and_emits_osc7() {
+        let home = std::env::temp_dir().join(format!("makit-zdot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let dir = prepare_zsh_integration(&home);
+        assert_eq!(dir, home.join(".cache/makit/shell-integration"));
+        let rc = std::fs::read_to_string(dir.join(".zshrc")).unwrap();
+        assert!(rc.contains(&format!("source {}", home.join(".zshrc").display())), "先 source 用户原 .zshrc");
+        assert!(rc.contains("\\033]7;file://%s%s\\033\\\\"), "OSC 7：ESC ] 7 ; file://主机路径 ESC \\\\，实际:\n{rc}");
+        assert!(rc.contains("chpwd_functions+=(_makit_emit_cwd)") && rc.contains("precmd_functions+=(_makit_emit_cwd)"));
+        assert!(std::fs::read_to_string(dir.join(".zprofile")).unwrap().contains(".zprofile"));
+        assert!(std::fs::read_to_string(dir.join(".zshenv")).unwrap().contains(".zshenv"));
+        // 第二次调用内容不变
+        assert_eq!(prepare_zsh_integration(&home), dir);
+        assert_eq!(std::fs::read_to_string(dir.join(".zshrc")).unwrap(), rc);
+        assert!(is_zsh("/bin/zsh") && !is_zsh("/bin/bash"));
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

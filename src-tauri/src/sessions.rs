@@ -351,7 +351,6 @@ pub fn extract_tool_uses(content: &serde_json::Value) -> Vec<String> {
     out
 }
 
-#[tauri::command(async)]
 pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessage>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     let mut found_path: Option<PathBuf> = None;
@@ -537,7 +536,6 @@ impl PhaseTimer {
     }
 }
 
-#[tauri::command(async)]
 pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     let mut timer = PhaseTimer::new();
     // macOS 的 ps 本身要 0.3s（启动时抢 CPU 能到 0.55s），和下面的解析互不依赖 —— 并行跑（#216）
@@ -674,7 +672,6 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
 /// 后处理刻意少做一件事：child_processes 要起 `ps -eo` 拿全表，这里省掉，
 /// 由前端合并时沿用旧值（新 session 的子进程列表等下一次全量 load 补齐）。
 /// 其余（archived 标记、实时 git 分支覆盖）和 list_sessions 的 Phase 2 一致。
-#[tauri::command(async)]
 pub fn list_sessions_by_paths(
     paths: Vec<String>,
     cwd_mode: Option<String>,
@@ -869,7 +866,6 @@ mod session_name_tests {
 // 按需归因：扫 ~/.claude/projects/*/*.jsonl，找在 tab 启动之后「新建」(birthtime > after_ts) 且 cwd 匹配的
 // 用 birthtime 而非 mtime —— mtime 会被任何写入刷新，旧 session 也会被误命中
 // 用途：new/shell tab 启动后想反查到 claude 写出的 session 文件
-#[tauri::command(async)]
 pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<String>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     if !dir.exists() {
@@ -969,7 +965,6 @@ pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<St
 }
 
 // 增量读单个 session 的 meta，避免归因后重拉整个 list_sessions（用户可见的卡顿主要来自后者）
-#[tauri::command(async)]
 pub fn read_session_meta(session_id: String) -> Result<Option<SessionMeta>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     if !dir.exists() {

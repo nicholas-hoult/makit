@@ -1,4 +1,5 @@
 mod ai_provider;
+mod commands;
 mod archive;
 mod hook_server;
 mod paths;
@@ -29,15 +30,8 @@ mod command_thread_tests {
         let mut bad = Vec::new();
         for (file, src) in [
             ("lib.rs", include_str!("lib.rs")),
+            ("commands.rs", include_str!("commands.rs")),
             ("pty.rs", include_str!("pty.rs")),
-            ("sessions.rs", include_str!("sessions.rs")),
-            ("archive.rs", include_str!("archive.rs")),
-            ("recovery.rs", include_str!("recovery.rs")),
-            ("paths.rs", include_str!("paths.rs")),
-            ("running.rs", include_str!("running.rs")),
-            ("hook_server.rs", include_str!("hook_server.rs")),
-            ("worktree.rs", include_str!("worktree.rs")),
-            ("perf.rs", include_str!("perf.rs")),
         ] {
             let lines: Vec<&str> = src.lines().collect();
             for (i, l) in lines.iter().enumerate() {
@@ -76,8 +70,25 @@ pub fn run() {
                     let _ = std::fs::remove_file(&legacy);
                 }
             }
-            watcher::start_session_watcher(app.handle().clone());
-            hook_server::start(app.handle().clone());
+            // 会话目录变化 → 前端事件（载荷格式和回调式改造之前一样）
+            let handle = app.handle().clone();
+            watcher::start(move |ev| {
+                use tauri::Emitter;
+                match ev {
+                    watcher::WatchEvent::RunningChanged => {
+                        let _ = handle.emit("running-changed", ());
+                    }
+                    watcher::WatchEvent::SessionsChanged(paths) => {
+                        let _ = handle.emit("sessions-changed", paths);
+                    }
+                }
+            });
+            // claude 的 Notification hook → 前端 `claude-hook` 事件（原样一行 JSON）
+            let handle = app.handle().clone();
+            hook_server::start(move |line| {
+                use tauri::Emitter;
+                let _ = handle.emit("claude-hook", line);
+            });
 
             // 监听主窗口焦点变化，emit 给前端
             use tauri::Manager;
@@ -94,30 +105,30 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            sessions::list_sessions,
-            sessions::read_session_messages,
-            archive::archive_session,
-            archive::unarchive_session,
-            sessions::find_session_in_cwd_after,
-            sessions::read_session_meta,
+            commands::list_sessions,
+            commands::read_session_messages,
+            commands::archive_session,
+            commands::unarchive_session,
+            commands::find_session_in_cwd_after,
+            commands::read_session_meta,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,
             pty::pty_kill,
-            pty::kill_pids,
-            paths::open_path,
-            paths::paths_exist,
-            running::list_running_sessions,
-            running::resolve_pty_bindings,
-            sessions::list_sessions_by_paths,
-            recovery::ensure_session_symlink,
-            recovery::dir_exists,
-            recovery::recover_session_cwd,
-            worktree::list_worktrees,
-            hook_server::install_claude_hook,
-            perf::perf_startup,
-            perf::perf_record,
-            paths::get_tool_logo
+            commands::kill_pids,
+            commands::open_path,
+            commands::paths_exist,
+            commands::list_running_sessions,
+            commands::resolve_pty_bindings,
+            commands::list_sessions_by_paths,
+            commands::ensure_session_symlink,
+            commands::dir_exists,
+            commands::recover_session_cwd,
+            commands::list_worktrees,
+            commands::install_claude_hook,
+            commands::perf_startup,
+            commands::perf_record,
+            commands::get_tool_logo
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -125,7 +136,7 @@ pub fn run() {
     // app 退出 / 窗口关闭时杀掉所有 PTY 进程组并退出
     // macOS：红叉关窗不退出 app（Dock 还在），必须主动 exit 确保进程清理
     app.run(|app_handle, event| {
-        use tauri::{Emitter, Manager};
+        use tauri::Manager;
         match event {
             tauri::RunEvent::ExitRequested { .. } => {
                 let state = app_handle.state::<pty::PtyState>();

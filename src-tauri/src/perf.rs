@@ -1,6 +1,6 @@
 //! 性能埋点（#218）：打包版也能看的关键操作耗时。
 //!
-//! - 时钟：以进程启动（内核记录的时刻）为 0。前端拿 `perf_startup` 里的 `process_start`
+//! - 时钟：以进程启动（内核记录的时刻）为 0。前端拿 `startup_info()`（Tauri 命令 `perf_startup`）里的 `process_start`
 //!   把自己的时间戳换算到同一个时钟上。
 //! - 落盘：`~/.claude/makit/perf.log`，JSON Lines，一行一个事件；超过 2MB 轮转成 `perf.log.1`
 //!   （只留一份旧的）。
@@ -59,14 +59,14 @@ pub fn startup_mark(stage: &str) {
     }
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Debug, Clone)]
 pub struct StartupInfo {
-    process_start: f64,
-    marks: Vec<(String, f64)>,
+    pub process_start: f64,
+    pub marks: Vec<(String, f64)>,
 }
 
-#[tauri::command(async)]
-pub fn perf_startup() -> StartupInfo {
+/// 进程启动时刻 + Rust 侧已打的启动阶段（Tauri 的 `perf_startup` 命令就是它）
+pub fn startup_info() -> StartupInfo {
     StartupInfo {
         process_start: process_start_epoch_ms(),
         marks: STARTUP_MARKS.lock().map(|m| m.clone()).unwrap_or_default(),
@@ -107,9 +107,8 @@ pub fn record(mut event: Value) {
     }
 }
 
-/// 前端攒一批再发（每秒最多一次），这里原样落盘
-#[tauri::command(async)]
-pub fn perf_record(events: Vec<Value>) {
+/// 一批事件原样落盘（不补时间戳）。Tauri 前端攒一批再发（每秒最多一次），走的就是这里
+pub fn record_batch(events: Vec<Value>) {
     if events.is_empty() {
         return;
     }
