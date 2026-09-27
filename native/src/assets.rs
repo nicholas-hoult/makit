@@ -21,6 +21,11 @@ const FILES: &[(&str, &[u8])] = &[
     asset!("icons/session-tree-options.svg"),
     // 组 / 项目头的折叠箭头：TS 版是字符 › 转 90°，GPUI 转不了文字，照 › 的字形画成可旋转的 SVG
     asset!("icons/session-tree-chevron.svg"),
+    // ---- D 浮层（CommandPalette.tsx；路径常量在 overlays::icons）----
+    asset!("icons/search.svg"),
+    asset!("icons/filter.svg"),
+    // ⌘K 组头折叠箭头：▸ 画成同形三角
+    asset!("icons/chevron-right.svg"),
 ];
 
 pub struct Assets;

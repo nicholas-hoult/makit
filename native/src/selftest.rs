@@ -41,6 +41,10 @@ pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx
         crate::sidebar::selftest::run(handle, state, cx);
         return;
     }
+    // D 浮层自己的自检（overlays/selftest.rs）
+    if mode == "overlays" {
+        return crate::overlays::selftest::run(handle, state, cx);
+    }
     cx.spawn(async move |cx| {
         let ex = cx.background_executor().clone();
         let pause = move |ms| ex.timer(Duration::from_millis(ms));

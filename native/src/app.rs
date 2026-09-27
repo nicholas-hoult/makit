@@ -15,6 +15,7 @@ use gpui::{
 };
 
 use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, Owner};
+use crate::overlays::OverlayHost;
 use crate::persist;
 use crate::perf;
 use crate::sidebar::{SidebarEvent, SidebarView};
@@ -26,6 +27,11 @@ pub struct Root {
     state: Entity<AppState>,
     sidebar: Entity<SidebarView>,
     workspace: Entity<WorkspaceView>,
+    /// D 浮层：铺满窗口的最上层（右键菜单、toast、⌘K、设置……）
+    overlays: Entity<OverlayHost>,
+    /// 兜底焦点：窗口里什么都没聚焦时（空工作区、浮层刚关掉）键盘事件的派发路径只有根节点，
+    /// 挂在根 div 上的全局 action（⌘K、⌘T……）收不到。给根 div 一个焦点、没人聚焦时落到它上
+    focus: gpui::FocusHandle,
     first_frame_marked: bool,
     startup_reported: bool,
 }
@@ -34,13 +40,14 @@ impl Root {
     fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let sidebar = cx.new(|cx| SidebarView::new(state.clone(), cx));
         let workspace = cx.new(|cx| WorkspaceView::new(state.clone(), cx));
+        let overlays = OverlayHost::install(state.clone(), workspace.clone(), cx);
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         // B 侧栏：Esc 把焦点还给当前终端
         cx.subscribe(&sidebar, |this: &mut Self, _, ev: &SidebarEvent, cx| match ev {
             SidebarEvent::ReturnFocus => this.workspace.update(cx, |w, cx| w.refocus(cx)),
         })
         .detach();
-        Self { state, sidebar, workspace, first_frame_marked: false, startup_reported: false }
+        Self { state, sidebar, workspace, overlays, focus: cx.focus_handle(), first_frame_marked: false, startup_reported: false }
     }
 }
 
@@ -72,11 +79,15 @@ impl Render for Root {
                 perf::report_startup(n);
             });
         }
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus);
+        }
         let theme = cx.theme().clone();
         let state = self.state.clone();
         let el = div()
             .id("root")
             .key_context("Root")
+            .track_focus(&self.focus)
             .flex()
             .size_full()
             .bg(theme.bg)
@@ -93,9 +104,18 @@ impl Render for Root {
                 move |_: &app_act::ToggleSidebar, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = !p.sidebar.collapsed))
             })
             // ---- 占位：各包实现后删掉 ----
-            .on_action(|_: &ov::TogglePalette, _, _| todo_action("⌘K 命令面板", Owner::Overlays))
-            .on_action(|_: &ov::FindInTerminal, _, _| todo_action("⌘F 终端内搜索", Owner::Overlays))
-            .on_action(|_: &ov::OpenSettings, _, _| todo_action("⌘, 设置", Owner::Overlays))
+            .on_action({
+                let host = self.overlays.clone();
+                move |_: &ov::TogglePalette, window, cx| host.update(cx, |o, cx| o.toggle_palette(window, cx))
+            })
+            .on_action({
+                let host = self.overlays.clone();
+                move |_: &ov::FindInTerminal, window, cx| host.update(cx, |o, cx| o.open_search(None, window, cx))
+            })
+            .on_action({
+                let host = self.overlays.clone();
+                move |_: &ov::OpenSettings, window, cx| host.update(cx, |o, cx| o.open_settings(window, cx))
+            })
             // ---- B 侧栏：先展开侧栏（折叠时侧栏不渲染，收不到 action），再转给侧栏 ----
             .on_action({
                 let (state, sidebar) = (state.clone(), self.sidebar.clone());
@@ -116,6 +136,7 @@ impl Render for Root {
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
         el.when(!collapsed, |d| d.child(self.sidebar.clone()))
             .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
+            .child(self.overlays.clone())
     }
 }
 

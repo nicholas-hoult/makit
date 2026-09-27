@@ -78,9 +78,19 @@ pub mod sidebar {
     );
 }
 
-/// 浮层（D）
+/// 浮层（D）。`Dismiss` / `Confirm` / `Select*` 是所有浮层共用的面板内键（context `Overlay`，
+/// 每个浮层的 key_context 里都带 `Overlay`，各自 `.on_action` 决定怎么响应）；
+/// `Input*` 是单行输入框（`overlays::text_input`，context `TextInput`）的编辑键。
 pub mod overlays {
-    gpui::actions!(overlays, [TogglePalette, OpenSettings, FindInTerminal]);
+    gpui::actions!(
+        overlays,
+        [
+            TogglePalette, OpenSettings, FindInTerminal,
+            Dismiss, Confirm, ConfirmSplitRight, ConfirmSplitDown, ConfirmReverse, SelectPrev, SelectNext,
+            InputBackspace, InputDelete, InputDeleteToStart, InputLeft, InputRight, InputSelectLeft, InputSelectRight,
+            InputSelectAll, InputHome, InputEnd, InputSelectHome, InputSelectEnd, InputPaste, InputCopy, InputCut,
+        ]
+    );
 }
 
 /// 通知（E）
@@ -118,6 +128,8 @@ pub fn keymap() -> Vec<Shortcut> {
     const L: Option<&str> = Some("SessionList");
     const S: Option<&str> = Some("SidebarSearch");
     const M: Option<&str> = Some("SidebarMenu");
+    const OV: Option<&str> = Some("Overlay");
+    const TI: Option<&str> = Some("TextInput");
     vec![
         sc("cmd-k", None, Overlays, "命令面板", overlays::TogglePalette),
         sc("cmd-f", None, Overlays, "当前终端内搜索", overlays::FindInTerminal),
@@ -199,6 +211,32 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("cmd-v", T, Terminal, "粘贴", terminal::Paste),
         sc("shift-pageup", T, Terminal, "回看上翻一页", terminal::ScrollPageUp),
         sc("shift-pagedown", T, Terminal, "回看下翻一页", terminal::ScrollPageDown),
+        // ---- D 浮层：面板内（context `Overlay`，所有浮层共用）----
+        sc("escape", OV, Overlays, "关闭面板 / 取消", overlays::Dismiss),
+        sc("enter", OV, Overlays, "打开 / 确认", overlays::Confirm),
+        sc("cmd-enter", OV, Overlays, "命令面板：左右分屏打开", overlays::ConfirmSplitRight),
+        sc("cmd-shift-enter", OV, Overlays, "命令面板：上下分屏打开", overlays::ConfirmSplitDown),
+        sc("shift-enter", OV, Overlays, "搜索条：上一个", overlays::ConfirmReverse),
+        sc("up", OV, Overlays, "上一项", overlays::SelectPrev),
+        sc("down", OV, Overlays, "下一项", overlays::SelectNext),
+        // ---- D 浮层：单行输入框的编辑键（context `TextInput`，设置页的快捷键表不展示这组）----
+        sc("backspace", TI, Overlays, "删除前一个字", overlays::InputBackspace),
+        sc("delete", TI, Overlays, "删除后一个字", overlays::InputDelete),
+        sc("cmd-backspace", TI, Overlays, "删到行首", overlays::InputDeleteToStart),
+        sc("left", TI, Overlays, "光标左移", overlays::InputLeft),
+        sc("right", TI, Overlays, "光标右移", overlays::InputRight),
+        sc("shift-left", TI, Overlays, "向左选择", overlays::InputSelectLeft),
+        sc("shift-right", TI, Overlays, "向右选择", overlays::InputSelectRight),
+        sc("cmd-a", TI, Overlays, "全选", overlays::InputSelectAll),
+        sc("home", TI, Overlays, "行首", overlays::InputHome),
+        sc("end", TI, Overlays, "行尾", overlays::InputEnd),
+        sc("cmd-left", TI, Overlays, "行首", overlays::InputHome),
+        sc("cmd-right", TI, Overlays, "行尾", overlays::InputEnd),
+        sc("cmd-shift-left", TI, Overlays, "选到行首", overlays::InputSelectHome),
+        sc("cmd-shift-right", TI, Overlays, "选到行尾", overlays::InputSelectEnd),
+        sc("cmd-v", TI, Overlays, "粘贴", overlays::InputPaste),
+        sc("cmd-c", TI, Overlays, "复制", overlays::InputCopy),
+        sc("cmd-x", TI, Overlays, "剪切", overlays::InputCut),
     ]
 }
 
