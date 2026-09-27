@@ -253,42 +253,64 @@ pub async fn pty_spawn(
         }
     }
 
-    let id_for_thread = id.clone();
-    let win = window.clone();
+    // 读和发拆成两个线程（#222）：macOS 的 PTY 在程序逐行写时一次只读到几十字节，
+    // 以前每读一次就 emit 一个事件 —— `seq 1 300000` 发了 7.8 万个，界面冻住 9 秒。
+    // 读线程只管把字节塞进通道；发送线程按 pty_batch 的节奏合并（空闲后第一块立刻发，
+    // 连续输出每 8ms 最多一次），并负责只发完整的 UTF-8 字符。
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
-        let mut buf = [0u8; 32768]; // 32KB：减少高输出时 emit 事件频率
-        // 跨 read 缓冲不完整的 UTF-8 字节序列（例如中文 3 字节字符可能被切断）
-        let mut leftover: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 32768];
         loop {
             match reader.read(&mut buf) {
-                Ok(0) => break,
+                Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    leftover.extend_from_slice(&buf[..n]);
-                    // 找到最长有效 UTF-8 前缀，剩余字节留到下次
-                    let valid_up_to = match std::str::from_utf8(&leftover) {
-                        Ok(_) => leftover.len(),
-                        Err(e) => e.valid_up_to(),
-                    };
-                    if valid_up_to == 0 {
-                        // 全部都是不完整序列（罕见），等下一轮
-                        continue;
-                    }
-                    let valid_part = &leftover[..valid_up_to];
-                    let chunk = unsafe {
-                        // 上面已经验证过 valid_up_to 是有效 UTF-8 边界
-                        std::str::from_utf8_unchecked(valid_part).to_string()
-                    };
-                    let rest = leftover[valid_up_to..].to_vec();
-                    leftover = rest;
-                    if win
-                        .emit(&format!("pty:data:{}", id_for_thread), chunk)
-                        .is_err()
-                    {
+                    if tx.send(buf[..n].to_vec()).is_err() {
                         break;
                     }
                 }
-                Err(_) => break,
             }
+        }
+        // tx 在这里被丢掉 → 发送线程收到断开，把剩下的发完再发 exit
+    });
+
+    let id_for_thread = id.clone();
+    let win = window.clone();
+    std::thread::spawn(move || {
+        use crate::pty_batch::{Batcher, Next, EMIT_INTERVAL, MAX_BATCH_BYTES};
+        use std::sync::mpsc::RecvTimeoutError;
+        use std::time::Instant;
+        let event = format!("pty:data:{}", id_for_thread);
+        let mut batch = Batcher::new(EMIT_INTERVAL, MAX_BATCH_BYTES);
+        let mut open = true;
+        while open {
+            // 通道里已经到了的先全部收进来
+            while let Ok(chunk) = rx.try_recv() {
+                batch.push(&chunk);
+            }
+            match batch.next(Instant::now()) {
+                Next::EmitNow => {
+                    let text = batch.take(Instant::now());
+                    if win.emit(&event, text).is_err() {
+                        return;
+                    }
+                }
+                Next::WaitUntil(t) => {
+                    let wait = t.saturating_duration_since(Instant::now());
+                    match rx.recv_timeout(wait) {
+                        Ok(chunk) => batch.push(&chunk),
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => open = false,
+                    }
+                }
+                Next::Idle => match rx.recv() {
+                    Ok(chunk) => batch.push(&chunk),
+                    Err(_) => open = false,
+                },
+            }
+        }
+        let rest = batch.finish();
+        if !rest.is_empty() {
+            let _ = win.emit(&event, rest);
         }
         let _ = win.emit(&format!("pty:exit:{}", id_for_thread), 0_i32);
     });

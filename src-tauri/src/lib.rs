@@ -11,6 +11,7 @@ mod ai_provider;
 mod hook_server;
 mod perf;
 mod pty;
+mod pty_batch;
 mod worktree;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
