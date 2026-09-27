@@ -1,5 +1,6 @@
 import { Terminal as Xterm } from "@xterm/xterm";
 import { terminalSpan } from "./perf";
+import { planWebgl } from "./webglBudget";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -53,7 +54,14 @@ export type TerminalInstance = {
   colsResize: { request(): void; flush(): void; dispose(): void };
   /// 「回到最新」浮层按钮（#205，见 terminalJumpLatest.ts）
   jumpLatest: { dispose: () => void };
+  /// WebGL 渲染器（#230）：可见的终端一定有，预算不够时释放最久没看过的隐藏终端，见 webglBudget.ts
+  webgl: WebglAddon | null;
+  visible: boolean;
+  lastVisibleAt: number;
 };
+
+/// WebKit 每页最多 16 个 WebGL 上下文，留余量给别的（#230）
+const WEBGL_BUDGET = 12;
 
 function readTheme() {
   const c = getComputedStyle(document.documentElement);
@@ -363,20 +371,6 @@ class TerminalManager {
     // 花屏的第二个根因出在这个 renderer 的共享字形图集里（见上面 rendererPref 的注释），
     // 靠升级到 0.20.0-beta 拿到上游修复。开关留着做 A/B、也留作最后的退路：
     //   localStorage.setItem('makit-renderer','dom')  → 关掉 WebGL，重启后生效
-    let webglAddon: WebglAddon | null = null;
-    try {
-      if (rendererPref() === "dom") throw new Error("renderer=dom (用户显式关闭 WebGL)");
-      webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon?.dispose();
-        webglAddon = null;
-      });
-      terminal.loadAddon(webglAddon);
-    } catch (e) {
-      console.warn("[TerminalManager] WebGL renderer unavailable, fallback to DOM:", e);
-      webglAddon = null;
-    }
-
     const detachShiftFix = attachMacShiftSymbolFix(terminal);
     const imeGate = attachIMECompositionGate(terminal);
     // #137 取证用，默认整体是空函数。**必须排在 attachMacShiftSymbolFix 之后** ——
@@ -407,7 +401,15 @@ class TerminalManager {
       scrollbarActivity: installTerminalScrollbar(terminal, element),
       preciseWheel: installPreciseWheel(terminal, element),
       jumpLatest: installJumpLatest(terminal, element),
+      webgl: null,
+      visible: true, // 懒加载：终端在第一次被切到时才创建，创建时就是可见的
+      lastVisibleAt: performance.now(),
     };
+    // WebGL renderer：多 pane 渲染性能 3-5x，掉帧/拖影消失。失败时回退默认 DOM 渲染。
+    // 花屏的第二个根因出在这个 renderer 的共享字形图集里（见上面 rendererPref 的注释），
+    // 靠升级到 0.20.0-beta 拿到上游修复。开关留着做 A/B、也留作最后的退路：
+    //   localStorage.setItem('makit-renderer','dom')  → 关掉 WebGL，重启后生效
+    this.loadWebgl(inst);
 
     // OSC 7：shell 通过 \033]7;file://host/path\033\\ 通知 cwd 变化
     // pty.rs 已通过 ZDOTDIR 注入 zsh chpwd_functions 自动发送
@@ -790,6 +792,49 @@ class TerminalManager {
     return true;
   }
 
+  private loadWebgl(inst: TerminalInstance) {
+    if (inst.webgl || rendererPref() === "dom") return;
+    try {
+      const addon = new WebglAddon();
+      addon.onContextLoss(() => {
+        // 被浏览器挤掉：退回 DOM；重新可见时 rebalanceWebgl 会再给（#230，以前是永久 DOM）
+        if (inst.webgl === addon) inst.webgl = null;
+        addon.dispose();
+      });
+      inst.terminal.loadAddon(addon);
+      inst.webgl = addon;
+    } catch (e) {
+      console.warn("[TerminalManager] WebGL renderer unavailable, fallback to DOM:", e);
+    }
+  }
+
+  /// 终端可见性变化（Terminal.tsx 在 visible 变化时调用），重新分配 WebGL 预算（#230）
+  setVisible(paneId: string, visible: boolean) {
+    const inst = this.instances.get(paneId);
+    if (!inst || inst.disposed) return;
+    inst.visible = visible;
+    if (visible) inst.lastVisibleAt = performance.now();
+    this.rebalanceWebgl();
+  }
+
+  private rebalanceWebgl() {
+    if (rendererPref() === "dom") return;
+    const live = [...this.instances.values()].filter((x) => !x.disposed);
+    const plan = planWebgl(
+      live.map((x) => ({ id: x.paneId, visible: x.visible, hasGl: !!x.webgl, lastVisibleAt: x.lastVisibleAt })),
+      WEBGL_BUDGET,
+    );
+    for (const id of plan.release) {
+      const inst = this.instances.get(id);
+      inst?.webgl?.dispose();
+      if (inst) inst.webgl = null;
+    }
+    for (const id of plan.acquire) {
+      const inst = this.instances.get(id);
+      if (inst) this.loadWebgl(inst);
+    }
+  }
+
   destroy(paneId: string) {
     const inst = this.instances.get(paneId);
     if (!inst) return;
@@ -810,9 +855,11 @@ class TerminalManager {
     // 尺寸账要跟着 pane 一起销毁，否则 paneId 复用时会继承上一条命的账，
     // 第一次 fit 就被判成「没变」而跳过 —— 又是一次 #156
     forgetPane(paneId);
+    inst.webgl = null; // terminal.dispose 会连同 addon 一起释放
     inst.terminal.dispose();
     inst.element.remove();
     this.instances.delete(paneId);
+    this.rebalanceWebgl(); // 腾出了一个上下文，给还没有的可见终端
   }
 
   destroyAll() {

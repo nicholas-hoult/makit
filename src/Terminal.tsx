@@ -26,6 +26,11 @@ export const TerminalView = memo(function TerminalView({ id, cwd, visible, isAct
     terminalManager.mount(id, containerRef.current);
   }, [id, cwd, initCommand]);
 
+  // 可见性交给 TerminalManager 分配 WebGL 预算（#230）
+  useEffect(() => {
+    terminalManager.setVisible(id, visible);
+  }, [visible, id]);
+
   // visible/active 切换时 focus（fit 需要等 reflow 完成，放到下面的 useEffect+rAF）
   useLayoutEffect(() => {
     if (!visible || !isActive) return;
