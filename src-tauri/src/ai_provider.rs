@@ -6,7 +6,8 @@ use std::time::UNIX_EPOCH;
 
 use chrono::TimeZone;
 
-use crate::{ConversationMessage, SessionMeta};
+use crate::running::RunningInfo;
+use crate::sessions::{get_git_root, humanize_duration, ConversationMessage, SessionMeta};
 
 /// 「这条会话属于哪个 AI 工具」—— **为统一 claude / codex 两条路预留的抽象，目前只接了一半。**
 ///
@@ -104,7 +105,7 @@ pub fn parse_codex_session(
     path: &Path,
     mtime: i64,
     now: i64,
-    running_info: &HashMap<String, crate::RunningInfo>,
+    running_info: &HashMap<String, RunningInfo>,
     git_cache: &mut HashMap<String, Option<String>>,
 ) -> Option<SessionMeta> {
     let file = fs::File::open(path).ok()?;
@@ -204,7 +205,7 @@ pub fn parse_codex_session(
     let short_id = session_id.chars().take(8).collect::<String>();
 
     // git_root: 使用 git_cache 查询
-    let git_root = crate::get_git_root(&cwd, git_cache).unwrap_or_default();
+    let git_root = get_git_root(&cwd, git_cache).unwrap_or_default();
 
     // 运行状态：纯进程检测，Codex 无 JSONL status 字段
     let ri = running_info.get(&session_id);
@@ -219,7 +220,7 @@ pub fn parse_codex_session(
         short_id.clone()
     };
 
-    let humanize = crate::humanize_duration(now - mtime);
+    let humanize = humanize_duration(now - mtime);
     let mtime_display = {
         let dt = chrono::Local
             .timestamp_opt(mtime, 0)

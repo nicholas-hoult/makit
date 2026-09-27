@@ -49,3 +49,8 @@ pub fn list_worktrees_for(git_root: &str) -> Vec<WorktreeInfo> {
     }
     result
 }
+
+#[tauri::command(async)]
+pub fn list_worktrees(git_root: String) -> Result<Vec<WorktreeInfo>, String> {
+    Ok(list_worktrees_for(&git_root))
+}
