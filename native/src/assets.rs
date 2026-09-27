@@ -16,6 +16,14 @@ macro_rules! asset {
 }
 
 const FILES: &[(&str, &[u8])] = &[
+    // ---- C 工作区（ContainerView.tsx / App.tsx 标题栏）----
+    asset!("icons/container-new-terminal.svg"),
+    asset!("icons/container-split-v.svg"),
+    asset!("icons/container-split-h.svg"),
+    asset!("icons/container-maximize.svg"),
+    asset!("icons/container-restore.svg"),
+    asset!("icons/titlebar-sidebar-toggle.svg"),
+    asset!("icons/titlebar-bell.svg"),
     // ---- B 侧栏（SessionTree.tsx）----
     // 「显示选项」按钮的三横线：SessionTree.tsx:811 原样
     asset!("icons/session-tree-options.svg"),
@@ -57,5 +65,9 @@ mod tests {
         }
         assert!(Assets.load("icons/没有这个.svg").unwrap().is_none());
         assert!(Assets.list("icons/").unwrap().len() >= 2);
+        // C 工作区的图标是 ContainerView / 标题栏原来那几个 16×16 内联 SVG
+        for (p, bytes) in FILES.iter().filter(|(p, _)| p.starts_with("icons/container-") || p.starts_with("icons/titlebar-")) {
+            assert!(std::str::from_utf8(bytes).unwrap().contains("viewBox=\"0 0 16 16\""), "{p} 不是原来那个 16×16 的 svg");
+        }
     }
 }

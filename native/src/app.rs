@@ -37,6 +37,11 @@ pub struct Root {
 }
 
 impl Root {
+    /// 工作区视图（自检 / 别的包要调工作区方法时用，比如 E 包从通知跳转后闪牌）
+    pub fn workspace_view(&self) -> Entity<WorkspaceView> {
+        self.workspace.clone()
+    }
+
     fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let sidebar = cx.new(|cx| SidebarView::new(state.clone(), cx));
         let workspace = cx.new(|cx| WorkspaceView::new(state.clone(), cx));
@@ -142,8 +147,19 @@ impl Render for Root {
             });
         // A 终端：⌘= / ⌘- / ⌘0 由 TerminalView 自己处理（快捷键表里限定在 Terminal 上下文），不再挂占位
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
-        el.when(!collapsed, |d| d.child(self.sidebar.clone()))
-            .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
+        // C 工作区：自绘标题栏在最上面一条（红绿灯 / 折叠按钮 / 标题），下面是侧栏 + 工作区
+        let titlebar = workspace::titlebar::render_titlebar(&self.state, window, cx);
+        el.flex_col()
+            .child(titlebar)
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .when(!collapsed, |d| d.child(self.sidebar.clone()))
+                    .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone())),
+            )
             // E 通知：⌘I 抽屉 + 窗口闪一下（deferred 浮层）
             .child(crate::notify::layer(window, cx))
             .child(self.overlays.clone())
@@ -199,7 +215,8 @@ pub fn run() {
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), ..Default::default() }),
+                    // C 工作区：透明标题栏（= Tauri 的 titleBarStyle Overlay + hiddenTitle），标题栏由 workspace::titlebar 自绘
+                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), appears_transparent: true, ..Default::default() }),
                     window_min_size: Some(size(px(900.0), px(560.0))),
                     // 自检时用：不抢用户正在用的键盘焦点（B 侧栏包加的，见 sidebar/selftest.rs）
                     focus: std::env::var_os("MAKIT_NATIVE_BACKGROUND").is_none(),
