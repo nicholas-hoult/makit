@@ -1,0 +1,200 @@
+//! 全部 action 和快捷键表 —— **单一数据源**（修 #224 里「两份快捷键表」）。
+//!
+//! - action 按归属包分组声明在这里（`actions!`），处理函数在各包自己的视图里 `.on_action(...)`。
+//! - `keymap()` 是唯一的快捷键表：启动时整张绑定（`bind_all`），欢迎卡 / 设置里展示快捷键也读它。
+//! - 还没实现的 action 在根视图里挂了占位处理（打一行「[未实现] …归 X 包」），各包实现时把占位删掉、
+//!   在自己的视图上 `.on_action` —— GPUI 按焦点链冒泡，离焦点近的先处理。
+//!
+//! **加一个快捷键**：① 在对应包的 `actions!` 列表里加 action；② 在 `keymap()` 里加一行
+//! `sc("cmd-x", None, Owner::Xxx, "说明", Xxx)`；③ 在处理它的视图上 `.on_action(cx.listener(...))`。
+//! 组件内部的键（侧栏 ↑↓、面板 Enter……）也写进这张表，用 `context` 限定到组件的 key_context。
+//! `tests` 会检查同一 context 下不重键。
+
+use gpui::{Action, App, KeyBinding};
+
+/// 快捷键归哪个包实现（对应 TRD #226 的并行拆分）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Owner {
+    /// 地基：已实现
+    F0,
+    /// A 终端
+    Terminal,
+    /// B 侧栏
+    Sidebar,
+    /// C 工作区（F0 已实现基本分屏 / 标签切换，细节归 C）
+    Workspace,
+    /// D 浮层（⌘K、搜索条、设置、详情……）
+    Overlays,
+    /// E 通知
+    Notify,
+}
+
+impl Owner {
+    pub fn label(self) -> &'static str {
+        match self {
+            Owner::F0 => "F0 地基",
+            Owner::Terminal => "A 终端",
+            Owner::Sidebar => "B 侧栏",
+            Owner::Workspace => "C 工作区",
+            Owner::Overlays => "D 浮层",
+            Owner::Notify => "E 通知",
+        }
+    }
+}
+
+/// 应用级（F0）
+pub mod app {
+    gpui::actions!(makit, [Quit, Refresh, ToggleSidebar]);
+}
+
+/// 工作区（C；F0 已实现的在 workspace/mod.rs）
+pub mod workspace {
+    gpui::actions!(
+        workspace,
+        [
+            NewTab, CloseTab, SplitRight, SplitDown, NextTab, PrevTab, ToggleMaximize,
+            ActivateTab1, ActivateTab2, ActivateTab3, ActivateTab4, ActivateTab5, ActivateTab6, ActivateTab7, ActivateTab8, ActivateTab9,
+            FocusPane1, FocusPane2, FocusPane3, FocusPane4, FocusPane5, FocusPane6, FocusPane7, FocusPane8, FocusPane9,
+            FocusPaneLeft, FocusPaneRight, FocusPaneUp, FocusPaneDown,
+        ]
+    );
+}
+
+/// 侧栏（B）
+pub mod sidebar {
+    gpui::actions!(sidebar, [FocusSearch, RevealActive]);
+}
+
+/// 浮层（D）
+pub mod overlays {
+    gpui::actions!(overlays, [TogglePalette, OpenSettings, FindInTerminal]);
+}
+
+/// 通知（E）
+pub mod notify {
+    gpui::actions!(notify, [ToggleNotificationCenter]);
+}
+
+/// 终端（A）。Copy / Paste / 翻页沿用原型在 terminal 模块里的声明
+pub mod terminal {
+    pub use crate::terminal::{Copy, Paste, ScrollPageDown, ScrollPageUp};
+    gpui::actions!(terminal, [FontIncrease, FontDecrease, FontReset]);
+}
+
+pub struct Shortcut {
+    /// GPUI 键位写法：`cmd-shift-d`、`alt-cmd-left`
+    pub keys: &'static str,
+    /// None = 全局；Some("Terminal") = 只在终端获得焦点时
+    pub context: Option<&'static str>,
+    pub owner: Owner,
+    pub desc: &'static str,
+    pub action: Box<dyn Action>,
+    binding: KeyBinding,
+}
+
+fn sc<A: Action + Clone>(keys: &'static str, context: Option<&'static str>, owner: Owner, desc: &'static str, a: A) -> Shortcut {
+    Shortcut { keys, context, owner, desc, action: a.boxed_clone(), binding: KeyBinding::new(keys, a, context) }
+}
+
+/// 快捷键总表（界面清单 O 节）。顺序即展示顺序。
+pub fn keymap() -> Vec<Shortcut> {
+    use workspace as w;
+    use Owner::*;
+    const T: Option<&str> = Some("Terminal");
+    vec![
+        sc("cmd-k", None, Overlays, "命令面板", overlays::TogglePalette),
+        sc("cmd-f", None, Overlays, "当前终端内搜索", overlays::FindInTerminal),
+        sc("cmd-shift-f", None, Sidebar, "聚焦侧栏搜索", sidebar::FocusSearch),
+        sc("cmd-l", None, Sidebar, "侧栏定位当前会话", sidebar::RevealActive),
+        sc("cmd-b", None, F0, "侧栏折叠 / 展开", app::ToggleSidebar),
+        sc("cmd-r", None, F0, "刷新会话列表", app::Refresh),
+        sc("cmd-q", None, F0, "退出", app::Quit),
+        sc("cmd-t", None, Workspace, "新终端", w::NewTab),
+        sc("cmd-w", None, Workspace, "关闭当前标签", w::CloseTab),
+        sc("cmd-d", None, Workspace, "左右分屏", w::SplitRight),
+        sc("cmd-shift-d", None, Workspace, "上下分屏", w::SplitDown),
+        sc("alt-cmd-enter", None, Workspace, "当前 pane 最大化 / 还原", w::ToggleMaximize),
+        sc("cmd-]", None, Workspace, "下一个标签", w::NextTab),
+        sc("cmd-[", None, Workspace, "上一个标签", w::PrevTab),
+        sc("cmd-shift-]", None, Workspace, "下一个标签", w::NextTab),
+        sc("cmd-shift-[", None, Workspace, "上一个标签", w::PrevTab),
+        sc("cmd-right", None, Workspace, "下一个标签", w::NextTab),
+        sc("cmd-down", None, Workspace, "下一个标签", w::NextTab),
+        sc("cmd-left", None, Workspace, "上一个标签", w::PrevTab),
+        sc("cmd-up", None, Workspace, "上一个标签", w::PrevTab),
+        sc("ctrl-tab", None, Workspace, "下一个标签", w::NextTab),
+        sc("ctrl-shift-tab", None, Workspace, "上一个标签", w::PrevTab),
+        sc("cmd-1", None, Workspace, "第 1 个标签", w::ActivateTab1),
+        sc("cmd-2", None, Workspace, "第 2 个标签", w::ActivateTab2),
+        sc("cmd-3", None, Workspace, "第 3 个标签", w::ActivateTab3),
+        sc("cmd-4", None, Workspace, "第 4 个标签", w::ActivateTab4),
+        sc("cmd-5", None, Workspace, "第 5 个标签", w::ActivateTab5),
+        sc("cmd-6", None, Workspace, "第 6 个标签", w::ActivateTab6),
+        sc("cmd-7", None, Workspace, "第 7 个标签", w::ActivateTab7),
+        sc("cmd-8", None, Workspace, "第 8 个标签", w::ActivateTab8),
+        sc("cmd-9", None, Workspace, "第 9 个标签", w::ActivateTab9),
+        sc("alt-cmd-1", None, Workspace, "第 1 个 pane", w::FocusPane1),
+        sc("alt-cmd-2", None, Workspace, "第 2 个 pane", w::FocusPane2),
+        sc("alt-cmd-3", None, Workspace, "第 3 个 pane", w::FocusPane3),
+        sc("alt-cmd-4", None, Workspace, "第 4 个 pane", w::FocusPane4),
+        sc("alt-cmd-5", None, Workspace, "第 5 个 pane", w::FocusPane5),
+        sc("alt-cmd-6", None, Workspace, "第 6 个 pane", w::FocusPane6),
+        sc("alt-cmd-7", None, Workspace, "第 7 个 pane", w::FocusPane7),
+        sc("alt-cmd-8", None, Workspace, "第 8 个 pane", w::FocusPane8),
+        sc("alt-cmd-9", None, Workspace, "第 9 个 pane", w::FocusPane9),
+        sc("alt-cmd-left", None, Workspace, "左边的 pane", w::FocusPaneLeft),
+        sc("alt-cmd-right", None, Workspace, "右边的 pane", w::FocusPaneRight),
+        sc("alt-cmd-up", None, Workspace, "上面的 pane", w::FocusPaneUp),
+        sc("alt-cmd-down", None, Workspace, "下面的 pane", w::FocusPaneDown),
+        sc("cmd-i", None, Notify, "通知中心", notify::ToggleNotificationCenter),
+        sc("cmd-,", None, Overlays, "设置", overlays::OpenSettings),
+        sc("cmd-=", T, Terminal, "字号 +1", terminal::FontIncrease),
+        sc("cmd-shift-=", T, Terminal, "字号 +1", terminal::FontIncrease),
+        sc("cmd--", T, Terminal, "字号 -1", terminal::FontDecrease),
+        sc("cmd-0", T, Terminal, "字号重置为 13", terminal::FontReset),
+        sc("cmd-c", T, Terminal, "复制", terminal::Copy),
+        sc("cmd-v", T, Terminal, "粘贴", terminal::Paste),
+        sc("shift-pageup", T, Terminal, "回看上翻一页", terminal::ScrollPageUp),
+        sc("shift-pagedown", T, Terminal, "回看下翻一页", terminal::ScrollPageDown),
+    ]
+}
+
+/// 启动时调一次：整张表绑进 GPUI
+pub fn bind_all(cx: &mut App) {
+    cx.bind_keys(keymap().into_iter().map(|s| s.binding));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_duplicate_keys_in_the_same_context() {
+        let km = keymap();
+        let mut seen = std::collections::HashSet::new();
+        for s in &km {
+            assert!(seen.insert((s.keys, s.context)), "{} 在 {:?} 里绑了两次", s.keys, s.context);
+        }
+    }
+
+    #[test]
+    fn covers_the_checklist_o_table() {
+        let km = keymap();
+        let has = |k: &str| km.iter().any(|s| s.keys == k);
+        for k in [
+            "cmd-k", "cmd-f", "cmd-shift-f", "cmd-w", "cmd-d", "cmd-shift-d", "cmd-t", "cmd-l", "cmd-1", "cmd-9", "alt-cmd-1",
+            "alt-cmd-9", "alt-cmd-left", "alt-cmd-down", "alt-cmd-enter", "cmd-left", "cmd-down", "cmd-[", "cmd-]", "cmd-shift-[",
+            "cmd-shift-]", "ctrl-tab", "ctrl-shift-tab", "cmd-i", "cmd-,", "cmd-r", "cmd-b", "cmd-=", "cmd--", "cmd-0",
+        ] {
+            assert!(has(k), "清单 O 节的 {k} 没进快捷键表");
+        }
+        // 同一个 action 的多个键位描述一致（欢迎卡 / 设置按 action 分组展示）
+        for a in &km {
+            for b in &km {
+                if a.action.partial_eq(b.action.as_ref()) {
+                    assert_eq!(a.desc, b.desc, "{} 和 {} 是同一个 action", a.keys, b.keys);
+                }
+            }
+        }
+    }
+}

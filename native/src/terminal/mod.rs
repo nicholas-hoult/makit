@@ -33,9 +33,12 @@ use gpui::{
     relative, rgb, size,
 };
 
-use makit_native::terminal::grid::{grid_size, point_to_cell, wheel_lines};
-use makit_native::terminal::keys::{Mods, key_to_bytes, sgr_wheel};
-use makit_native::terminal::palette;
+pub mod grid;
+pub mod keys;
+pub mod palette;
+
+use grid::{grid_size, point_to_cell, wheel_lines};
+use keys::{Mods, key_to_bytes, sgr_wheel};
 
 use crate::perf;
 
@@ -83,6 +86,8 @@ impl EventEmitter<TerminalEvent> for TerminalView {}
 
 /// 怎么启动
 pub struct SpawnSpec {
+    /// 标签 id，注入成子进程环境变量 `MAKIT_PTY_ID`（运行状态绑定、关标签杀逃逸进程都认它）
+    pub pty_id: Option<String>,
     pub cwd: Option<String>,
     /// 启动后像打字一样写进 shell 的命令（同 WebView 版的 initCommand：`clear && claude -r <id>`）
     pub init_command: Option<String>,
@@ -143,6 +148,9 @@ impl TerminalView {
         // GUI 启动的子进程可能缺 locale，强制 UTF-8 防中文乱码（同 pty.rs）
         env.insert("LANG".to_string(), "en_US.UTF-8".to_string());
         env.insert("LC_ALL".to_string(), "en_US.UTF-8".to_string());
+        if let Some(id) = &spec.pty_id {
+            env.insert("MAKIT_PTY_ID".to_string(), id.clone());
+        }
         if let Some(sid) = &spec.session_id {
             env.insert("MAKIT_SESSION_ID".to_string(), sid.clone());
         }
@@ -190,8 +198,9 @@ impl TerminalView {
         })
         .detach();
 
+        // 不在这里抢焦点：恢复布局时一次会建好几个终端，焦点由工作区视图给当前标签
         let focus = cx.focus_handle();
-        focus.focus(window);
+        let _ = window;
         Self {
             term,
             notifier,
