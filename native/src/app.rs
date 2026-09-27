@@ -31,6 +31,11 @@ pub struct Root {
 }
 
 impl Root {
+    /// 工作区视图（自检 / 别的包要调工作区方法时用，比如 E 包从通知跳转后闪牌）
+    pub fn workspace_view(&self) -> Entity<WorkspaceView> {
+        self.workspace.clone()
+    }
+
     fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let sidebar = cx.new(|cx| SidebarView::new(state.clone(), cx));
         let workspace = cx.new(|cx| WorkspaceView::new(state.clone(), cx));

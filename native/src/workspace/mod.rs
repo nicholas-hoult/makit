@@ -14,6 +14,7 @@
 //! | `titlebar.rs` | 自绘标题栏（铃铛 / 侧栏分隔线的挂点） |
 //! | `dnd.rs` | 拖拽载荷（`TabDrag` / `SessionDrag`）+ 拖动影子 |
 //! | `menu.rs` | 右键菜单的临时最小实现（等 D 包的通用组件） |
+//! | `selftest.rs` | 无人值守自检 `MAKIT_NATIVE_SELFTEST=workspace` |
 //!
 //! 约定：
 //! - 改树一律 `state.update(cx, |s, cx| { s.workspace.xxx(..); s.workspace_changed(cx) })`，
@@ -28,6 +29,7 @@ pub mod flash;
 pub mod labels;
 pub mod menu;
 pub mod model;
+pub mod selftest;
 pub mod splitter;
 pub mod titlebar;
 pub mod welcome;
