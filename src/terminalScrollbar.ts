@@ -16,9 +16,9 @@
  * 底部的那种 onScroll **不算** —— 否则 Claude 一刷屏条子就一直闪。
  *
  * 滑块长度封顶 1/4 轨道：xterm 的长度 = 可见行 / 总行数，新开的 pane 回滚少，滑块能占大半条
- * 轨道。xterm 没有这个选项，只能在它写完 inline style 后改写（`watchSlider`）。代价：按住
- * 滑块拖时，xterm 按它自己的长度换算鼠标位移，截短后滑块会比指针走得略快；滚轮 / 触控板
- * 不受影响。
+ * 轨道。xterm 没有这个选项，只能在它写完 inline style 后改写（`watchSlider`）。截短之后 xterm
+ * 按它自己的长度换算拖动，滑块会比指针走得快，所以拖滑块改由我们接管（`dragToLine`，#228）；
+ * 滚轮 / 触控板不受影响。
  */
 import type { IDisposable, Terminal } from "@xterm/xterm";
 /** 视口不在底部 = 有人在看回滚；贴底的 onScroll 是新输出把视口往下带 */
@@ -51,6 +51,26 @@ export function capSlider(track: number, size: number, top: number, maxRatio = 0
   const range = track - size;
   const ratio = range > 0 ? top / range : 0;
   return { size: cap, top: Math.round(ratio * (track - cap)) };
+}
+
+/**
+ * 拖动滑块时，指针位置 → 应该滚到第几行（#228）。几何和 capSlider 一致：滑块顶可移动范围是
+ * [0, 轨道高 - 滑块高]，线性映射到 [0, baseY]。xterm 自己的拖动按它原来（没封顶）的滑块长度换算，
+ * 封顶之后滑块就比指针走得快 —— 所以拖动由我们接管，用这里的换算。
+ * `grabOffset`：按下时指针在滑块内的位置，拖动中保持不变，滑块才会贴着指针而不是把顶端跳到指针处。
+ */
+export function dragToLine(g: {
+  trackTop: number;
+  trackHeight: number;
+  sliderSize: number;
+  grabOffset: number;
+  pointerY: number;
+  baseY: number;
+}): number {
+  const range = g.trackHeight - g.sliderSize;
+  if (range <= 0 || g.baseY <= 0) return 0;
+  const pos = Math.min(range, Math.max(0, g.pointerY - g.trackTop - g.grabOffset));
+  return Math.round((pos / range) * g.baseY);
 }
 
 /**
@@ -172,11 +192,50 @@ export function installTerminalScrollbar(term: Terminal, el: HTMLElement, idleMs
   const unwatch = watchSlider(el);
   pinScrollbarVisible(term);
 
+  // 拖滑块由我们接管（#228）：滑块被 capSlider 截短后，xterm 按自己原来的长度换算拖动，
+  // 滑块比指针走得快（用户：「拖动的时候会自己跑」）。在捕获阶段拦下落在滑块上的 pointerdown，
+  // preventDefault 连带挡掉兼容的 mouse 事件，xterm 的拖动处理就不会启动；点轨道空白处翻页仍交给 xterm。
+  const onPointerDown = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    const slider = (e.target as Element | null)?.closest?.(
+      ".xterm-scrollable-element > .xterm-scrollbar.xterm-vertical > .xterm-slider",
+    ) as HTMLElement | null;
+    const track = slider?.parentElement;
+    if (!slider || !track || !el.contains(slider)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const trackTop = track.getBoundingClientRect().top;
+    const grabOffset = e.clientY - slider.getBoundingClientRect().top;
+    slider.setPointerCapture?.(e.pointerId);
+    activity.ping();
+    const move = (ev: PointerEvent) => {
+      term.scrollToLine(dragToLine({
+        trackTop,
+        trackHeight: track.clientHeight,
+        sliderSize: slider.offsetHeight,
+        grabOffset,
+        pointerY: ev.clientY,
+        baseY: term.buffer.active.baseY,
+      }));
+      activity.ping();
+    };
+    const end = () => {
+      slider.removeEventListener("pointermove", move);
+      slider.removeEventListener("pointerup", end);
+      slider.removeEventListener("pointercancel", end);
+    };
+    slider.addEventListener("pointermove", move);
+    slider.addEventListener("pointerup", end);
+    slider.addEventListener("pointercancel", end);
+  };
+  el.addEventListener("pointerdown", onPointerDown, { capture: true });
+
   return {
     dispose() {
       el.removeEventListener("wheel", onWheel, { capture: true });
       el.removeEventListener("pointermove", onPointerMove);
       el.removeEventListener("pointerleave", onPointerLeave);
+      el.removeEventListener("pointerdown", onPointerDown, { capture: true });
       el.classList.remove("gutter-hover");
       sub.dispose();
       unwatch();

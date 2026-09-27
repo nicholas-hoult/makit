@@ -16,8 +16,12 @@
  *
  * 4. `capSlider`（#188 追加）：滑块最长只占轨道 1/4。截短后可移动距离变长，位置必须按比例重映射 ——
  *    否则滚到底时滑块停在半空、或者冲出轨道。错了在 UI 上就是「滚到底了条子还没到底」。
+ *
+ * 5. `dragToLine`（#228）：截短滑块后，拖动还交给 xterm 的话它按自己原来的滑块长度换算，
+ *    滑块比指针走得快 —— 用户说「拖动的时候会自己跑」。改成自己接管拖动，用和 capSlider 同一套
+ *    几何换算：滑块必须一直贴着指针。错了在 UI 上就是拖着拖着滑块离开了指针。
  */
-import { GUTTER_PX, capSlider, createActivity, isInScrollbarGutter, isUserScroll } from "../src/terminalScrollbar.ts";
+import { GUTTER_PX, capSlider, createActivity, dragToLine, isInScrollbarGutter, isUserScroll } from "../src/terminalScrollbar.ts";
 
 let n = 0;
 function eq(name: string, got: unknown, want: unknown) {
@@ -88,5 +92,27 @@ eq(`离右边缘 ${GUTTER_PX - 1}px：在`, isInScrollbarGutter(800 - (GUTTER_PX
 eq(`离右边缘 ${GUTTER_PX}px：不在（刚好在界外）`, isInScrollbarGutter(800 - GUTTER_PX, 800), false);
 eq("终端中间：不在", isInScrollbarGutter(400, 800), false);
 eq("指针跑到终端右侧之外：不在", isInScrollbarGutter(820, 800), false);
+
+
+// ── dragToLine（#228）：轨道顶 100、高 400，滑块封顶后 100 高，可移动 300；baseY 3000 ──
+{
+  const g = { trackTop: 100, trackHeight: 400, sliderSize: 100, baseY: 3000 };
+  // 在滑块中间（偏移 50）按下，滑块顶在 150（= 第 1500 行），不动
+  eq("按下不动：还在原来那行", dragToLine({ ...g, grabOffset: 50, pointerY: 100 + 150 + 50 }), 1500);
+  eq("拖到轨道最下面之外：夹到最后一行", dragToLine({ ...g, grabOffset: 50, pointerY: 900 }), 3000);
+  eq("拖到轨道上面之外：夹到第 0 行", dragToLine({ ...g, grabOffset: 50, pointerY: 0 }), 0);
+  eq("没有可滚内容（baseY 0）：恒为 0", dragToLine({ ...g, baseY: 0, grabOffset: 10, pointerY: 300 }), 0);
+  eq("滑块和轨道一样长（无处可移）：0，不除以零", dragToLine({ ...g, sliderSize: 400, grabOffset: 10, pointerY: 300 }), 0);
+  // 滑块贴着指针：拖到任意位置后，按这行重新算出来的（封顶后的）滑块顶 = 指针 - 偏移
+  const xtermSize = 160;                       // xterm 原本想画的长度（比封顶的 100 长）
+  let maxDrift = 0;
+  for (let y = 100; y <= 400; y += 7) {   // 滑块顶的合法范围：轨道顶 100 到 100 + 可移动 300
+    const line = dragToLine({ ...g, grabOffset: 50, pointerY: y + 50 });
+    const xtermTop = (line / g.baseY) * (g.trackHeight - xtermSize);   // xterm 对这行画的位置
+    const shown = capSlider(g.trackHeight, xtermSize, xtermTop).top;  // 我们改写后的位置
+    maxDrift = Math.max(maxDrift, Math.abs(g.trackTop + shown - y));
+  }
+  eq("拖动全程滑块贴着指针（误差 ≤1px）", maxDrift <= 1, true);
+}
 
 console.log(`✓ 终端滚动条显隐时序与滑块上限全部通过（${n} 项）`);
