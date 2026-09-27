@@ -5,6 +5,10 @@
 //! 说明文字沿用 Tauri 版欢迎卡的措辞（比表里的 desc 更口语，且按「轴」分组在教规则），不从表里取。
 //! 分组、顺序、键帽的拆法（修饰键和方向键分两个键帽）照搬 TS 版。
 
+use gpui::{div, prelude::*, px, AnyElement, FontWeight};
+
+use crate::theme::Theme;
+
 /// 一行左边的键帽怎么排
 #[derive(Clone, Copy, Debug)]
 pub enum Keys {
@@ -127,6 +131,99 @@ pub fn keycaps(keys: Keys) -> Vec<Option<String>> {
         Keys::ModArrows(m) => vec![Some(key_label(&format!("{m}-x")).trim_end_matches('X').to_string()), Some("← → ↑ ↓".into())],
         Keys::Literal(ks) => ks.iter().map(|k| Some(k.to_string())).collect(),
     }
+}
+
+/// 画欢迎卡（App.css `.container-empty` / `.welcome-*` 的数值）
+pub fn render_welcome(t: &Theme) -> AnyElement {
+    let kbd = |text: String| {
+        div()
+            .flex_none()
+            .font_family(crate::terminal::FONT_FAMILY)
+            .text_size(px(11.0))
+            .px(px(6.0))
+            .py(px(2.0))
+            .bg(t.bg_soft)
+            .border_1()
+            .border_b_2()
+            .border_color(t.border)
+            .rounded(px(4.0))
+            .text_color(t.fg)
+            .child(text)
+    };
+    let groups: Vec<AnyElement> = GROUPS
+        .iter()
+        .map(|g| {
+            let rows: Vec<AnyElement> = g
+                .rows
+                .iter()
+                .map(|row| {
+                    let caps: Vec<AnyElement> = keycaps(row.keys)
+                        .into_iter()
+                        .map(|c| match c {
+                            Some(text) => kbd(text).into_any_element(),
+                            None => div().text_size(px(10.0)).opacity(0.45).child("–").into_any_element(),
+                        })
+                        .collect();
+                    // 左列固定 108px、键帽右对齐：键帽宽度参差时右边说明文字仍有一条竖直基线
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.0))
+                        .text_size(px(12.0))
+                        .text_color(t.fg_muted)
+                        .child(div().flex_none().w(px(108.0)).flex().items_center().justify_end().gap(px(3.0)).children(caps))
+                        .child(div().flex_1().min_w_0().child(row.desc))
+                        .into_any_element()
+                })
+                .collect();
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                // 两列；pane 窄到放不下两列（≈ TS 的 700px 断点）时自动折成一列
+                .flex_1()
+                .min_w(px(300.0))
+                .child(
+                    div()
+                        .mb(px(4.0))
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.var("--accent-text"))
+                        // CSS 的 text-transform: uppercase
+                        .child(g.title.to_uppercase()),
+                )
+                .children(rows)
+                .into_any_element()
+        })
+        .collect();
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(24.0))
+        .text_color(t.fg_muted)
+        .child(
+            div()
+                .max_w(px(720.0))
+                .w_full()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(12.0))
+                .child(div().text_size(px(28.0)).font_weight(FontWeight::SEMIBOLD).text_color(t.fg).child("makit"))
+                .child(div().text_size(px(13.0)).opacity(0.8).child("Claude Code Session 管理 · 工作区终端"))
+                .child(
+                    div()
+                        .mt(px(4.0))
+                        .text_size(px(12.0))
+                        .opacity(0.7)
+                        .text_center()
+                        .child("点侧栏 session 卡片恢复对话；点项目 worktree 起新会话；⌘ 点击为纯 shell"),
+                )
+                .child(div().mt(px(24.0)).w_full().flex().flex_wrap().gap_x(px(24.0)).gap_y(px(16.0)).children(groups)),
+        )
+        .into_any_element()
 }
 
 #[cfg(test)]

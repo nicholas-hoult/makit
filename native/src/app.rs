@@ -91,8 +91,17 @@ impl Render for Root {
             .on_action(|_: &term_act::FontDecrease, _, _| todo_action("⌘- 字号 -1", Owner::Terminal))
             .on_action(|_: &term_act::FontReset, _, _| todo_action("⌘0 字号重置", Owner::Terminal));
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
-        el.when(!collapsed, |d| d.child(self.sidebar.clone()))
-            .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
+        // C 工作区：自绘标题栏在最上面一条（红绿灯 / 折叠按钮 / 标题），下面是侧栏 + 工作区
+        let titlebar = workspace::titlebar::render_titlebar(&self.state, window, cx);
+        el.flex_col().child(titlebar).child(
+            div()
+                .flex()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .when(!collapsed, |d| d.child(self.sidebar.clone()))
+                .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone())),
+        )
     }
 }
 
@@ -115,7 +124,8 @@ pub fn run() {
             .open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), ..Default::default() }),
+                    // C 工作区：透明标题栏（= Tauri 的 titleBarStyle Overlay + hiddenTitle），标题栏由 workspace::titlebar 自绘
+                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), appears_transparent: true, ..Default::default() }),
                     window_min_size: Some(size(px(900.0), px(560.0))),
                     ..Default::default()
                 },
