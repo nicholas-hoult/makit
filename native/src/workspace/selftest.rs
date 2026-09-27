@@ -1,6 +1,6 @@
 //! 工作区自检（`MAKIT_NATIVE_SELFTEST=workspace`）：锁屏看不到画面时验证 C 包的界面逻辑 + 渲染代码不 panic。
 //!
-//! 按快捷键表里的键位查出 action 派发（不用 dispatch_keystroke，原因见 `press`）驱动：欢迎卡 → pane 右键菜单 → ⌘T / ⌘D → ⌥⌘1 / ⌥⌘→ 闪牌（图标按 pane 序号）→
+//! 按真实键位（走整张快捷键表）驱动：欢迎卡 → pane 右键菜单 → ⌘T / ⌘D → ⌥⌘1 / ⌥⌘→ 闪牌（图标按 pane 序号）→
 //! 拖分割线（改 ratio）→ 标签右键菜单 → ⌥⌘↩ 最大化 → ⌘W。每一步之后等几帧（配合 `MAKIT_NATIVE_FORCE_DRAW=1`
 //! 逼 GPUI 画），渲染路径有 panic 会直接崩。不恢复任何会话（不碰用户真实的 claude 会话）。
 
@@ -25,12 +25,10 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
             }
         }
         let any: gpui::AnyWindowHandle = handle.into();
-        // 按键位串在快捷键表里查 action 再派发，而不是 dispatch_keystroke：本机（输入法是拼音）上合成的按键
-        // 一个绑定都匹配不上（F0 的 layout 自检同样全不动，原因未查实，疑似按键盘布局匹配），自检结果不能取决于这个。
-        // 键位本身绑没绑对由 actions / welcome 的单元测试管
+        // 真实键位派发（走整张快捷键表 + 焦点链），和用户按键同一条路
         let press = |cx: &mut gpui::AsyncApp, keys: &str| {
-            let action = crate::actions::keymap().into_iter().find(|s| s.keys == keys).map(|s| s.action).expect("键位不在快捷键表里");
-            let _ = cx.update_window(any, |_, window, cx| window.dispatch_action(action, cx));
+            let ks = gpui::Keystroke::parse(keys).expect("键位写错了");
+            let _ = cx.update_window(any, |_, window, cx| window.dispatch_keystroke(ks, cx));
         };
         let mut fails: Vec<String> = Vec::new();
         let mut check = |ok: bool, what: &str| {
