@@ -138,6 +138,14 @@ pub struct SearchResults {
     pub count: usize,
 }
 
+/// 用户在这个终端里打字 / 粘贴了（给 E 通知包：= 看到了这个会话，集成时转给 `Notifier::mark_session_read(session_id)`）。
+/// 连续打字只在距上一次超过 1 秒时发一次
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserInput {
+    pub session_id: Option<String>,
+}
+
+impl EventEmitter<UserInput> for TerminalView {}
 impl EventEmitter<TerminalEvent> for TerminalView {}
 impl EventEmitter<TerminalSpawnEvent> for TerminalView {}
 impl EventEmitter<SearchResults> for TerminalView {}
@@ -251,6 +259,7 @@ pub struct TerminalView {
     first_paint_logged: bool,
     burst: Option<Burst>,
     last_dump: Option<Instant>,
+    last_user_input: Option<Instant>,
 }
 
 impl TerminalView {
@@ -347,6 +356,7 @@ impl TerminalView {
             first_paint_logged: false,
             burst: None,
             last_dump: None,
+            last_user_input: None,
         }
     }
 
@@ -737,6 +747,16 @@ impl TerminalView {
         }
     }
 
+    /// 用户输入（键盘 / 输入法 / 粘贴 / 拖入）：发 `UserInput`（节流 1 秒）后照常写
+    fn write_user_cx(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
+        let now = Instant::now();
+        if self.last_user_input.map(|t| now.duration_since(t).as_millis() >= 1000).unwrap_or(true) {
+            self.last_user_input = Some(now);
+            cx.emit(UserInput { session_id: self.spec.session_id.clone() });
+        }
+        self.write_user(bytes);
+    }
+
     /// 用户输入：回到底部、清掉选区、光标重新亮起
     fn write_user(&mut self, bytes: Vec<u8>) {
         {
@@ -759,7 +779,7 @@ impl TerminalView {
             return false;
         }
         let bytes = self.paste_bytes(text);
-        self.write_user(bytes);
+        self.write_user_cx(bytes, cx);
         cx.notify();
         true
     }
@@ -793,7 +813,7 @@ impl TerminalView {
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
         let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else { return };
         let bytes = self.paste_bytes(&text);
-        self.write_user(bytes);
+        self.write_user_cx(bytes, cx);
         cx.notify();
     }
 
@@ -898,10 +918,11 @@ impl TerminalView {
         }
         let mode = *term.mode();
         format!(
-            "cols={} rows={} pty={:?} font={} cell={:.3}x{:.3} alt_screen={} display_offset={} history={} cwd={}\n{}\n",
+            "cols={} rows={} pty={:?} font={}@{} cell={:.3}x{:.3} alt_screen={} display_offset={} history={} cwd={}\n{}\n",
             self.size.cols,
             self.size.rows,
             self.ledger.known().map(|s| (s.cols, s.rows)),
+            element::picked_family().unwrap_or_default(),
             self.font_size,
             f32::from(self.cell_w),
             f32::from(self.line_h),

@@ -118,9 +118,15 @@ fn resolve(color: AnsiColor, overrides: &Colors, c: &TermColors, bold: bool) -> 
     }
 }
 
+static PICKED: OnceLock<SharedString> = OnceLock::new();
+
+/// 实际用上的等宽字体（调试导出用）
+pub(super) fn picked_family() -> Option<SharedString> {
+    PICKED.get().cloned()
+}
+
 /// 字体栈里第一个能加载的（结果缓存：进程里只挑一次）
 fn font_family(window: &Window) -> SharedString {
-    static PICKED: OnceLock<SharedString> = OnceLock::new();
     PICKED
         .get_or_init(|| {
             let ts = window.text_system();

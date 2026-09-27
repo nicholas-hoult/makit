@@ -60,7 +60,7 @@ impl TerminalView {
         let m = &ev.keystroke.modifiers;
         let mode = self.mode();
         if let Some(bytes) = key_to_bytes(&ev.keystroke.key, mods_of(m), mode.contains(TermMode::APP_CURSOR)) {
-            self.write_user(bytes);
+            self.write_user_cx(bytes, cx);
             cx.stop_propagation();
             cx.notify();
         }
@@ -585,7 +585,7 @@ impl EntityInputHandler for TerminalView {
     fn replace_text_in_range(&mut self, _: Option<Range<usize>>, text: &str, _: &mut Window, cx: &mut Context<Self>) {
         self.marked_text = None;
         if !text.is_empty() {
-            self.write_user(text.as_bytes().to_vec());
+            self.write_user_cx(text.as_bytes().to_vec(), cx);
         }
         cx.notify();
     }
