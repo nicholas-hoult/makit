@@ -63,7 +63,7 @@ pub fn quote_for_shell(path: &str) -> String {
 /// 什么都没有才看 `text/plain`；按路径去重
 pub fn parse_dropped_paths(uri_list: &str, plain: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    let mut collect = |blob: &str, out: &mut Vec<String>| {
+    let collect = |blob: &str, out: &mut Vec<String>| {
         for line in blob.split('\n') {
             // RFC 2483：# 开头是注释
             if line.trim().starts_with('#') {

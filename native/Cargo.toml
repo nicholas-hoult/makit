@@ -26,6 +26,8 @@ regex = "1"
 url = "2"
 percent-encoding = "2"
 core-foundation-sys = "0.8"
+# alacritty 的 EventedReadWrite 要 polling 的类型（OSC 7 扫描包在 tty 外面，见 terminal/pty.rs）
+polling = "3"
 
 [profile.release]
 # 原型阶段要反复编 release 做测量，开增量编译省时间

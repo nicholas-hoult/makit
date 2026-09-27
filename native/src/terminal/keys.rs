@@ -117,6 +117,45 @@ pub fn sgr_wheel(up: bool, col: usize, row: usize) -> Vec<u8> {
     format!("\x1b[<{};{};{}M", if up { 64 } else { 65 }, col + 1, row + 1).into_bytes()
 }
 
+/// 鼠标按键（上报给开了鼠标模式的程序用）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseBtn {
+    Left,
+    Middle,
+    Right,
+    WheelUp,
+    WheelDown,
+}
+
+/// 程序开了鼠标上报（DECSET 1000/1002/1003）时，点击 / 拖动 / 滚轮编码成鼠标事件发给它（claude 全屏界面、vim、htop）。
+/// `sgr`：程序开了 1006（`CSI < b;x;y M/m`，坐标无上限）；否则走 X10 老格式（`CSI M` + 三个 32 起的字节，
+/// 坐标超过 222 编不出来，返回 None）。`motion` = 拖动 / 移动（按键码 +32）。修饰键：Shift 4、Alt 8、Ctrl 16。
+/// 列、行从 0 起传进来，编码时 +1。
+pub fn mouse_report(btn: MouseBtn, pressed: bool, motion: bool, col: usize, row: usize, mods: Mods, sgr: bool) -> Option<Vec<u8>> {
+    let mut code: u32 = match btn {
+        MouseBtn::Left => 0,
+        MouseBtn::Middle => 1,
+        MouseBtn::Right => 2,
+        MouseBtn::WheelUp => 64,
+        MouseBtn::WheelDown => 65,
+    };
+    if motion {
+        code += 32;
+    }
+    code += 4 * mods.shift as u32 + 8 * mods.alt as u32 + 16 * mods.ctrl as u32;
+    if sgr {
+        return Some(format!("\x1b[<{code};{};{}{}", col + 1, row + 1, if pressed { 'M' } else { 'm' }).into_bytes());
+    }
+    // X10：松开统一报 3（不知道是哪个键）
+    if !pressed {
+        code = (code & !0b11) | 3;
+    }
+    if col > 222 || row > 222 {
+        return None;
+    }
+    Some(vec![0x1b, b'[', b'M', 32 + code as u8, 33 + col as u8, 33 + row as u8])
+}
+
 /// xterm 修饰键编码：1 + Shift(1) + Alt(2) + Ctrl(4)
 fn modifier_code(m: Mods) -> u8 {
     1 + m.shift as u8 + 2 * m.alt as u8 + 4 * m.ctrl as u8
@@ -189,6 +228,19 @@ mod tests {
     fn sgr_wheel_is_one_based() {
         assert_eq!(sgr_wheel(true, 0, 0), b"\x1b[<64;1;1M".to_vec());
         assert_eq!(sgr_wheel(false, 9, 4), b"\x1b[<65;10;5M".to_vec());
+    }
+
+    #[test]
+    fn mouse_reports() {
+        let r = |b, p, m, c, rw, mods, sgr| mouse_report(b, p, m, c, rw, mods, sgr);
+        assert_eq!(r(MouseBtn::Left, true, false, 0, 0, NONE, true), Some(b"\x1b[<0;1;1M".to_vec()), "SGR 按下");
+        assert_eq!(r(MouseBtn::Left, false, false, 9, 4, NONE, true), Some(b"\x1b[<0;10;5m".to_vec()), "SGR 松开是小写 m");
+        assert_eq!(r(MouseBtn::Left, true, true, 2, 3, NONE, true), Some(b"\x1b[<32;3;4M".to_vec()), "拖动 +32");
+        assert_eq!(r(MouseBtn::WheelUp, true, false, 0, 0, CTRL, true), Some(b"\x1b[<80;1;1M".to_vec()), "滚轮 64 + Ctrl 16");
+        assert_eq!(r(MouseBtn::Right, true, false, 0, 0, NONE, false), Some(vec![0x1b, b'[', b'M', 34, 33, 33]), "X10 按下");
+        assert_eq!(r(MouseBtn::Right, false, false, 0, 0, NONE, false), Some(vec![0x1b, b'[', b'M', 35, 33, 33]), "X10 松开报 3");
+        assert_eq!(r(MouseBtn::Left, true, false, 300, 0, NONE, false), None, "X10 编不出大坐标");
+        assert_eq!(r(MouseBtn::Left, true, false, 300, 0, NONE, true).map(|v| v.len()), Some(11), "SGR 没有上限（ESC[<0;301;1M）");
     }
 
     #[test]

@@ -2797,6 +2797,7 @@ dependencies = [
  "libc",
  "makit-core",
  "percent-encoding",
+ "polling",
  "regex",
  "serde",
  "serde_json",

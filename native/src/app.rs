@@ -14,7 +14,7 @@ use gpui::{
     WindowOptions,
 };
 
-use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, terminal as term_act, Owner};
+use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, Owner};
 use crate::persist;
 use crate::perf;
 use crate::sidebar::SidebarView;
@@ -86,10 +86,8 @@ impl Render for Root {
             .on_action(|_: &ov::OpenSettings, _, _| todo_action("⌘, 设置", Owner::Overlays))
             .on_action(|_: &sb::FocusSearch, _, _| todo_action("⌘⇧F 侧栏搜索", Owner::Sidebar))
             .on_action(|_: &sb::RevealActive, _, _| todo_action("⌘L 侧栏定位", Owner::Sidebar))
-            .on_action(|_: &notify_act::ToggleNotificationCenter, _, _| todo_action("⌘I 通知中心", Owner::Notify))
-            .on_action(|_: &term_act::FontIncrease, _, _| todo_action("⌘= 字号 +1", Owner::Terminal))
-            .on_action(|_: &term_act::FontDecrease, _, _| todo_action("⌘- 字号 -1", Owner::Terminal))
-            .on_action(|_: &term_act::FontReset, _, _| todo_action("⌘0 字号重置", Owner::Terminal));
+            .on_action(|_: &notify_act::ToggleNotificationCenter, _, _| todo_action("⌘I 通知中心", Owner::Notify));
+        // A 终端：⌘= / ⌘- / ⌘0 由 TerminalView 自己处理（快捷键表里限定在 Terminal 上下文），不再挂占位
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
         el.when(!collapsed, |d| d.child(self.sidebar.clone()))
             .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
