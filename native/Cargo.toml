@@ -21,6 +21,15 @@ serde = { version = "1", features = ["derive"] }
 dirs = "5"
 libc = "0.2"
 serde_json = "1"
+# 通知（E 包，#215）：macOS 原生 UNUserNotificationCenter —— 点横幅回调、撤回、按会话替换都靠它
+# （notify_rust 发出去就不管，做不到）。只开用到的 feature，少编一点
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSString", "NSArray", "NSError", "NSBundle", "NSObject", "NSDictionary", "NSSet", "NSEnumerator"] }
+objc2-user-notifications = { version = "0.3", default-features = false, features = [
+    "std", "block2", "bitflags", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest",
+    "UNNotificationResponse", "UNNotification", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger",
+] }
 
 [profile.release]
 # 原型阶段要反复编 release 做测量，开增量编译省时间
