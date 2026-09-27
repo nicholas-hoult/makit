@@ -35,3 +35,7 @@ dist-ssr
 
 # git worktree（实验分支的独立工作目录）
 /.worktrees/
+
+# makit-core / GPUI 各自单独编译时的产物
+/core/target
+/native/target
