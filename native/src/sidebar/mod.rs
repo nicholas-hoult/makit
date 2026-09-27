@@ -7,14 +7,21 @@
 //! 打开会话：`state.update(cx, |s, cx| { s.workspace.open_session(..); s.workspace_changed(cx) })`，
 //! 工作区视图会自己起终端、给焦点。
 
+pub mod collapse;
 pub mod groups;
+pub mod hover;
+pub mod tree;
 
 use gpui::{div, prelude::*, px, uniform_list, AnyElement, App, ClickEvent, Context, Entity, MouseButton, SharedString, Subscription, Window};
 
 use crate::state::AppState;
 use crate::theme::ActiveTheme;
 use crate::workspace::model::opened_order;
-use groups::{project_groups, project_name, relative_time, run_state, session_title, status_groups, Group, Row, RunState};
+use groups::{project_name, relative_time, run_state, session_title, RunState};
+
+#[derive(Clone)]
+pub struct Row { pub session_id: String, pub title: String, pub project: String, pub cwd: String, pub mtime: i64, pub running: bool, pub status: String }
+struct Group { id: String, label: String, rows: Vec<usize> }
 
 const ROW_H: f32 = 44.0;
 
@@ -50,11 +57,8 @@ impl SidebarView {
     fn rebuild(&mut self, cx: &App) {
         let s = self.state.read(cx);
         self.rows = s.sessions.iter().map(to_row).collect();
-        let groups: Vec<Group> = if s.prefs.sidebar.view == "project" {
-            project_groups(&self.rows)
-        } else {
-            status_groups(&self.rows, &opened_order(&s.workspace.state))
-        };
+        let _ = opened_order(&s.workspace.state);
+        let groups: Vec<Group> = vec![Group { id: "all".into(), label: "全部".into(), rows: (0..self.rows.len()).collect() }];
         let collapsed = &s.prefs.sidebar.group_collapsed;
         let mut items = Vec::new();
         for g in groups {
