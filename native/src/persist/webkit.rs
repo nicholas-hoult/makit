@@ -18,6 +18,11 @@ pub fn default_root() -> Option<PathBuf> {
 
 /// root 下所有 localstorage.sqlite3 里最近修改的那个
 pub fn find_localstorage(root: &Path) -> Option<PathBuf> {
+    find_localstorage_with_mtime(root).map(|(_, f)| f)
+}
+
+/// 同 `find_localstorage`，另外给出它最后一次写的时间（含 -wal）
+pub fn find_localstorage_with_mtime(root: &Path) -> Option<(std::time::SystemTime, PathBuf)> {
     let default = root.join("WebsiteData").join("Default");
     let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
     for a in std::fs::read_dir(&default).ok()?.flatten() {
@@ -32,7 +37,7 @@ pub fn find_localstorage(root: &Path) -> Option<PathBuf> {
             }
         }
     }
-    best.map(|(_, f)| f)
+    best
 }
 
 /// 只读导出 `makit-*` 键值

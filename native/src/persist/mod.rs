@@ -48,15 +48,23 @@ pub fn save_to(path: &Path, state: &NativeState) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// 启动时读状态：文件在就用它；不在就尝试从 WebKit localStorage 导入（只这一次），然后立刻写盘。
-/// `webkit_root` 是 `~/Library/WebKit/com.hoult.makit`（测试可注入）。
+/// 启动时读状态：文件在、且比 Tauri 版的 localStorage 新就用它；否则从 localStorage 导入，然后立刻写盘。
+/// 迁移期两个版本并存，谁最后用过听谁的（同 hook「谁后启动给谁」）：GPUI 存过之后又在 Tauri 版里
+/// 开 / 关了标签，下次启动 GPUI 跟上 Tauri。`webkit_root` 是 `~/Library/WebKit/com.hoult.makit`（测试可注入）。
 pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
+    let tauri_newer = || {
+        let saved = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+        let ls = webkit_root.and_then(webkit::find_localstorage_with_mtime).map(|(t, _)| t);
+        matches!((saved, ls), (Some(a), Some(b)) if b > a)
+    };
     if let Some(s) = load_from(path) {
-        return s;
+        if !tauri_newer() {
+            return s;
+        }
     }
     let state = match webkit_root.and_then(webkit::import_from) {
         Some((s, from)) => {
-            eprintln!("[persist] 首次启动，已从 {from} 导入 Tauri 版的设置");
+            eprintln!("[persist] 从 {from} 导入 Tauri 版的设置（首次启动，或 Tauri 版在这之后用过）");
             s
         }
         None => NativeState::default(),
@@ -194,6 +202,25 @@ mod tests {
         changed.theme.id = "nord".into();
         save_to(&p, &changed).unwrap();
         assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "nord");
+    }
+
+    /// 迁移期两个版本并存：GPUI 存过之后又在 Tauri 版里开 / 关了标签，下次启动 GPUI 要跟上 Tauri
+    /// （错了就是「GPUI 恢复的是几天前的标签，刚在 Tauri 里开的会话没恢复」）
+    #[test]
+    fn reimports_when_tauri_was_used_after_gpui_saved() {
+        let d = tmp("reimport");
+        let p = d.join("native-state.json");
+        let wk = d.join("WebKit");
+        webkit::tests::make_localstorage(&wk, &[("makit-theme", "dracula")]);
+        let mut s = load_or_import(&p, Some(&wk));
+        s.theme.id = "nord".into();
+        save_to(&p, &s).unwrap();
+        // GPUI 存盘在前，之后 Tauri 写了 localStorage
+        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&p).unwrap().set_modified(old).unwrap();
+        webkit::tests::make_localstorage(&wk, &[("makit-theme", "solarized")]);
+        assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "solarized", "Tauri 更新 → 重新导入");
+        assert!(load_from(&p).unwrap().theme.id == "solarized", "重新导入后立刻写盘");
     }
 
     #[test]
