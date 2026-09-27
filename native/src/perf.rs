@@ -1,11 +1,11 @@
-//! 性能埋点（#221）：和 Tauri 版写同一个 `~/.claude/makit/perf.log`（复用 `makit_lib::perf`），
+//! 性能埋点（#221）：和 Tauri 版写同一个 `~/.claude/makit/perf.log`（复用 `makit_core::perf`），
 //! 多一个 `"app": "gpui"` 字段区分。启动时间线以进程启动（内核记录的时刻）为 0，
 //! 和 Tauri 版的 `startup` 记录同一把尺子。
 
 use std::sync::Mutex;
 
-pub use makit_lib::perf::record;
-use makit_lib::perf::{now_epoch_ms, process_start_epoch_ms};
+pub use makit_core::perf::record;
+use makit_core::perf::{now_epoch_ms, process_start_epoch_ms};
 
 static MARKS: Mutex<Vec<(String, f64)>> = Mutex::new(Vec::new());
 

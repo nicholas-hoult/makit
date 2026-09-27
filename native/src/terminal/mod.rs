@@ -33,9 +33,9 @@ use gpui::{
     relative, rgb, size,
 };
 
-use makit_native::grid::{grid_size, point_to_cell, wheel_lines};
-use makit_native::keys::{Mods, key_to_bytes, sgr_wheel};
-use makit_native::palette;
+use makit_native::terminal::grid::{grid_size, point_to_cell, wheel_lines};
+use makit_native::terminal::keys::{Mods, key_to_bytes, sgr_wheel};
+use makit_native::terminal::palette;
 
 use crate::perf;
 

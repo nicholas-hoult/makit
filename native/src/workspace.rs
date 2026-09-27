@@ -1,7 +1,7 @@
 //! 主窗口：左侧会话侧栏 + 右侧终端区（多标签，最多左右两栏）（#221）。
 //!
-//! 会话数据直接调 Tauri 版后端的 `makit_lib::api::list_sessions` / `list_running_sessions`，
-//! 分组 / 标题 / 相对时间走 `makit_native::sessions`（照搬 WebView 前端的规则）。
+//! 会话数据直接调 Tauri 版后端的 `makit_core::sessions::list_sessions` / `list_running_sessions`，
+//! 分组 / 标题 / 相对时间走 `makit_native::sidebar::groups`（照搬 WebView 前端的规则）。
 
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
@@ -11,8 +11,8 @@ use gpui::{
     MouseButton, SharedString, Subscription, Window, actions, div, prelude::*, px, rgb,
     uniform_list,
 };
-use makit_lib::SessionMeta;
-use makit_native::sessions::{
+use makit_core::SessionMeta;
+use makit_native::sidebar::groups::{
     Group, Row, RunState, project_groups, project_name, relative_time, run_state, session_title,
     status_groups,
 };
@@ -91,7 +91,7 @@ impl Workspace {
             let t = Instant::now();
             let list = cx
                 .background_executor()
-                .spawn(async { makit_lib::api::list_sessions(None).unwrap_or_default() })
+                .spawn(async { makit_core::sessions::list_sessions(None).unwrap_or_default() })
                 .await;
             perf::mark("会话列表返回");
             eprintln!("list_sessions: {} 条，{:?}", list.len(), t.elapsed());
@@ -107,13 +107,13 @@ impl Workspace {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
                 tick += 1;
                 if tick % 15 == 0 {
-                    let list = cx.background_executor().spawn(async { makit_lib::api::list_sessions(None).unwrap_or_default() }).await;
+                    let list = cx.background_executor().spawn(async { makit_core::sessions::list_sessions(None).unwrap_or_default() }).await;
                     if this.update(cx, |ws, cx| { ws.set_sessions(list); cx.notify(); }).is_err() {
                         break;
                     }
                     continue;
                 }
-                let running = cx.background_executor().spawn(async { makit_lib::api::list_running_sessions() }).await;
+                let running = cx.background_executor().spawn(async { makit_core::running::list_running_sessions() }).await;
                 if this.update(cx, |ws, cx| ws.apply_running(running, cx)).is_err() {
                     break;
                 }
@@ -139,7 +139,7 @@ impl Workspace {
         self.rebuild_items();
     }
 
-    fn apply_running(&mut self, running: Vec<makit_lib::RunningMeta>, cx: &mut Context<Self>) {
+    fn apply_running(&mut self, running: Vec<makit_core::RunningMeta>, cx: &mut Context<Self>) {
         let mut changed = false;
         for (row, meta) in self.rows.iter_mut().zip(self.metas.iter_mut()) {
             let r = running.iter().find(|r| r.session_id == row.session_id);

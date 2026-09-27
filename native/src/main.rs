@@ -1,5 +1,5 @@
 //! makit 的 GPUI 原生界面原型（#221 实验）。
-//! 侧栏会话 + 多标签终端（左右分屏），后端复用 Tauri 版的 `makit_lib`。
+//! 侧栏会话 + 多标签终端（左右分屏），业务逻辑用 makit-core（不依赖 src-tauri）。
 
 mod perf;
 mod terminal;
