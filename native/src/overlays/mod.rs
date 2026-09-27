@@ -44,17 +44,26 @@
 //! 每个浮层的 key_context 都带 `Overlay`。输入框是 `text_input::TextInput`（带输入法），别的包也可以用。
 
 pub mod context_menu;
+pub mod detail;
 pub mod detail_logic;
+pub mod icons;
+pub mod palette;
 pub mod palette_logic;
+pub mod recover;
 pub mod recover_logic;
+pub mod search_bar;
 pub mod search_count;
+pub mod selftest;
+pub mod session_ops;
+pub mod settings;
 pub mod shortcuts;
 pub mod style;
 pub mod text_input;
 pub mod toast;
 
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FocusHandle, Global, MouseButton, Pixels, Point, SharedString, Task, Window,
+    div, prelude::*, px, App, Context, Entity, FocusHandle, Global, MouseButton, Pixels, Point, SharedString, Subscription, Task,
+    Window,
 };
 
 use crate::actions::overlays as act;
@@ -79,10 +88,46 @@ pub fn show_context_menu(position: Point<Pixels>, window: &mut Window, cx: &mut 
     }
 }
 
+/// 打开会话详情面板（侧栏右键「查看对话」）
+pub fn open_detail(session_id: &str, window: &mut Window, cx: &mut App) {
+    if let Some(h) = host(cx) {
+        h.update(cx, |h, cx| h.open_detail(session_id, window, cx));
+    }
+}
+
+/// 打开 ⌘F 搜索条并填入文字（终端右键「搜索选中内容」）
+pub fn find_in_terminal(initial: Option<String>, window: &mut Window, cx: &mut App) {
+    if let Some(h) = host(cx) {
+        h.update(cx, |h, cx| h.open_search(initial, window, cx));
+    }
+}
+
+/// 打开设置（侧栏菜单「设置…」；⌘, 走 action）
+pub fn open_settings(window: &mut Window, cx: &mut App) {
+    if let Some(h) = host(cx) {
+        h.update(cx, |h, cx| h.open_settings(window, cx));
+    }
+}
+
 /// 底部 toast，`ms` 毫秒后消失；新的直接替换旧的
 pub fn show_toast(text: impl Into<SharedString>, ms: u64, cx: &mut App) {
     if let Some(h) = host(cx) {
         h.update(cx, |h, cx| h.toast(text.into(), ms, cx));
+    }
+}
+
+/// 一个打开着的浮层视图 + 打开前的焦点（关掉后还回去）
+struct Open<V> {
+    view: Entity<V>,
+    prev: Option<FocusHandle>,
+    _sub: Subscription,
+}
+
+impl<V> Open<V> {
+    fn close(self, window: &mut Window) {
+        if let Some(p) = self.prev {
+            window.focus(&p);
+        }
     }
 }
 
@@ -95,13 +140,26 @@ struct MenuState {
 }
 
 pub struct OverlayHost {
-    #[allow(dead_code)]
     state: Entity<AppState>,
-    #[allow(dead_code)]
-    workspace: Entity<WorkspaceView>,
+    pub(crate) workspace: Entity<WorkspaceView>,
     menu: Option<MenuState>,
     toast: Option<SharedString>,
     toast_task: Option<Task<()>>,
+    palette: Option<Open<palette::PaletteView>>,
+    settings: Option<Open<settings::SettingsView>>,
+    detail: Option<Open<detail::DetailView>>,
+    recover: Option<Open<recover::RecoverDialog>>,
+    search: Option<Open<search_bar::SearchBar>>,
+}
+
+/// 关掉某个槽位里的浮层（焦点还回去）
+macro_rules! close_slot {
+    ($this:ident . $slot:ident, $window:ident, $cx:ident) => {
+        if let Some(o) = $this.$slot.take() {
+            o.close($window);
+            $cx.notify();
+        }
+    };
 }
 
 impl OverlayHost {
@@ -109,10 +167,120 @@ impl OverlayHost {
     pub fn install(state: Entity<AppState>, workspace: Entity<WorkspaceView>, cx: &mut App) -> Entity<Self> {
         let host = cx.new(|cx| {
             cx.observe(&state, |_, _, cx| cx.notify()).detach();
-            Self { state, workspace, menu: None, toast: None, toast_task: None }
+            Self {
+                state,
+                workspace,
+                menu: None,
+                toast: None,
+                toast_task: None,
+                palette: None,
+                settings: None,
+                detail: None,
+                recover: None,
+                search: None,
+            }
         });
         cx.set_global(GlobalOverlays(host.clone()));
         host
+    }
+
+    // ---- ⌘K ----
+
+    /// ⌘K：开着就关，关着就开（每次打开都是新实体 = 重置 query / 光标 / 筛选栏 / 历史）
+    pub fn toggle_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(p) = self.palette.take() {
+            p.close(window);
+        } else {
+            let prev = window.focused(cx);
+            let state = self.state.clone();
+            let view = cx.new(|cx| palette::PaletteView::new(state, window, cx));
+            let sub = cx.subscribe_in(&view, window, |this, _, ev: &palette::PaletteEvent, window, cx| match ev {
+                palette::PaletteEvent::Close => {
+                    if let Some(p) = this.palette.take() {
+                        p.close(window);
+                        cx.notify();
+                    }
+                }
+            });
+            self.palette = Some(Open { view, prev, _sub: sub });
+        }
+        cx.notify();
+    }
+
+    // ---- 设置 ⌘, ----
+
+    pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(s) = &self.settings {
+            window.focus(&s.view.read(cx).focus_handle());
+            return;
+        }
+        let prev = window.focused(cx);
+        let state = self.state.clone();
+        let view = cx.new(|cx| settings::SettingsView::new(state, window, cx));
+        let sub = cx.subscribe_in(&view, window, |this, _, ev: &settings::SettingsEvent, window, cx| match ev {
+            settings::SettingsEvent::Close => close_slot!(this.settings, window, cx),
+        });
+        self.settings = Some(Open { view, prev, _sub: sub });
+        cx.notify();
+    }
+
+    // ---- 会话详情 ----
+
+    pub fn open_detail(&mut self, session_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let prev = match self.detail.take() {
+            Some(o) => o.prev,
+            None => window.focused(cx),
+        };
+        let Some(meta) = self.state.read(cx).session(session_id).cloned() else { return };
+        let view = cx.new(|cx| detail::DetailView::new(meta, window, cx));
+        let sub = cx.subscribe_in(&view, window, |this, _, ev: &detail::DetailEvent, window, cx| match ev {
+            detail::DetailEvent::Close => close_slot!(this.detail, window, cx),
+        });
+        self.detail = Some(Open { view, prev, _sub: sub });
+        cx.notify();
+    }
+
+    // ---- 恢复 cwd 对话框 ----
+
+    /// 同一时间只弹一个：已经有一个开着就什么都不做（那个 pane 的终端里留着提示）
+    pub fn open_recover(&mut self, tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.recover.is_some() {
+            return;
+        }
+        let prev = window.focused(cx);
+        let state = self.state.clone();
+        let view = cx.new(|cx| recover::RecoverDialog::new(state, tab_id, cwd, session_id, window, cx));
+        let sub = cx.subscribe_in(&view, window, |this, _, ev: &recover::RecoverEvent, window, cx| match ev {
+            recover::RecoverEvent::Close => close_slot!(this.recover, window, cx),
+        });
+        self.recover = Some(Open { view, prev, _sub: sub });
+        cx.notify();
+    }
+
+    // ---- ⌘F 搜索条 ----
+
+    pub fn search_bar(&self) -> Option<Entity<search_bar::SearchBar>> {
+        self.search.as_ref().map(|o| o.view.clone())
+    }
+
+    pub fn open_search(&mut self, initial: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(o) = &self.search {
+            let v = o.view.clone();
+            v.update(cx, |b, cx| {
+                if let Some(t) = initial {
+                    b.set_text(t, cx);
+                }
+                b.focus(window, cx);
+            });
+            return;
+        }
+        let prev = window.focused(cx);
+        let view = cx.new(|cx| search_bar::SearchBar::new(initial, window, cx));
+        let sub = cx.subscribe_in(&view, window, |this, _, ev: &search_bar::SearchBarEvent, window, cx| match ev {
+            search_bar::SearchBarEvent::Close => close_slot!(this.search, window, cx),
+        });
+        self.search = Some(Open { view, prev, _sub: sub });
+        cx.notify();
     }
 
     // ---- 右键菜单 ----
@@ -142,6 +310,25 @@ impl OverlayHost {
         self.menu.is_some()
     }
 
+    /// 自检用：现在开着哪些浮层（逗号分隔）
+    pub fn debug_open(&self) -> String {
+        let mut v = Vec::new();
+        for (on, name) in [
+            (self.palette.is_some(), "palette"),
+            (self.settings.is_some(), "settings"),
+            (self.search.is_some(), "search"),
+            (self.detail.is_some(), "detail"),
+            (self.recover.is_some(), "recover"),
+            (self.menu.is_some(), "menu"),
+            (self.toast.is_some(), "toast"),
+        ] {
+            if on {
+                v.push(name);
+            }
+        }
+        v.join(",")
+    }
+
     fn render_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         use context_menu::*;
         let m = self.menu.as_ref()?;
@@ -150,17 +337,30 @@ impl OverlayHost {
         let max_label = items
             .iter()
             .filter_map(|i| match i {
-                MenuItem::Action { label, .. } => Some(measure(label, window)),
+                MenuItem::Action { label, .. } | MenuItem::Header(label) => Some(measure(label, window)),
                 MenuItem::Separator => None,
             })
             .fold(0.0_f32, f32::max);
+        let check_slot = has_checks(&items);
+        let max_label = max_label + if check_slot { CHECK_W } else { 0.0 };
         let (w, h) = (menu_width(max_label), menu_height(&items));
         let vp = window.viewport_size();
         let (x, y) = clamp_menu_position(f32::from(m.pos.x), f32::from(m.pos.y), w, h, f32::from(vp.width), f32::from(vp.height));
         let host = cx.entity();
         let rows = items.into_iter().enumerate().map(|(i, item)| match item {
             MenuItem::Separator => div().h(px(1.0)).mx(px(6.0)).my(px(4.0)).bg(theme.border).into_any_element(),
-            MenuItem::Action { label, disabled, handler } => {
+            MenuItem::Header(label) => div()
+                .h(px(HEADER_H))
+                .px(px(ITEM_PAD_X))
+                .pt(px(6.0))
+                .text_size(px(11.0))
+                .line_height(px(14.0))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme.fg_subtle)
+                .whitespace_nowrap()
+                .child(label)
+                .into_any_element(),
+            MenuItem::Action { label, disabled, checked, handler } => {
                 let host = host.clone();
                 let hover = theme.bg_hover;
                 div()
@@ -181,6 +381,7 @@ impl OverlayHost {
                             handler(window, cx);
                         })
                     })
+                    .when(check_slot, |d| d.child(div().w(px(CHECK_W)).flex_none().text_color(theme.accent).child(if checked { "✓" } else { "" })))
                     .child(label)
                     .into_any_element()
             }
@@ -276,7 +477,19 @@ impl Render for OverlayHost {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let toast = self.render_toast(cx);
         let menu = self.render_menu(window, cx);
-        // 铺满窗口的透明层；自己不挂任何鼠标处理，不挡底下的点击 —— 只有打开的浮层才挡
-        div().absolute().top_0().left_0().size_full().children(toast).children(menu)
+        // 铺满窗口的透明层；自己不挂任何鼠标处理，不挡底下的点击 —— 只有打开的浮层才挡。
+        // 叠放顺序照 CSS 的 z-index：搜索条(150) < ⌘K / 设置 / 恢复(200) < toast(1000) < 详情(2000) < 右键菜单(9999)
+        div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .children(self.search.as_ref().map(|p| p.view.clone()))
+            .children(self.palette.as_ref().map(|p| p.view.clone()))
+            .children(self.settings.as_ref().map(|p| p.view.clone()))
+            .children(self.recover.as_ref().map(|p| p.view.clone()))
+            .children(toast)
+            .children(self.detail.as_ref().map(|p| p.view.clone()))
+            .children(menu)
     }
 }

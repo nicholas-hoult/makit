@@ -27,6 +27,10 @@ pub const ITEM_PAD_X: f32 = 12.0;
 pub const SEP_H: f32 = 9.0;
 /// 字号
 pub const FONT: f32 = 12.0;
+/// 小标题一行的高度（11px 字，上 6 下 2）
+pub const HEADER_H: f32 = 22.0;
+/// ✓ 的槽宽
+pub const CHECK_W: f32 = 16.0;
 
 type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -35,12 +39,19 @@ type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 #[derive(Clone)]
 pub enum MenuItem {
     Separator,
-    Action { label: SharedString, disabled: bool, handler: Handler },
+    /// 不可点的小标题（下拉选择里的「深色 / 浅色 / 导入」分组）
+    Header(SharedString),
+    /// `checked` 为真时前面画 ✓（下拉选择的当前项）；菜单里只要有一项打了勾，所有项都留出勾的位置
+    Action { label: SharedString, disabled: bool, checked: bool, handler: Handler },
 }
 
 impl MenuItem {
     pub fn action(label: impl Into<SharedString>, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        MenuItem::Action { label: label.into(), disabled: false, handler: Rc::new(handler) }
+        MenuItem::Action { label: label.into(), disabled: false, checked: false, handler: Rc::new(handler) }
+    }
+
+    pub fn header(label: impl Into<SharedString>) -> Self {
+        MenuItem::Header(label.into())
     }
 
     pub fn separator() -> Self {
@@ -50,7 +61,15 @@ impl MenuItem {
     /// `MenuItem::action(..).disabled(条件)`
     pub fn disabled(self, yes: bool) -> Self {
         match self {
-            MenuItem::Action { label, handler, .. } => MenuItem::Action { label, disabled: yes, handler },
+            MenuItem::Action { label, handler, checked, .. } => MenuItem::Action { label, disabled: yes, checked, handler },
+            s => s,
+        }
+    }
+
+    /// `MenuItem::action(..).checked(是当前值)`
+    pub fn checked(self, yes: bool) -> Self {
+        match self {
+            MenuItem::Action { label, handler, disabled, .. } => MenuItem::Action { label, disabled, checked: yes, handler },
             s => s,
         }
     }
@@ -83,11 +102,23 @@ pub fn clamp_menu_position(x: f32, y: f32, width: f32, height: f32, vw: f32, vh:
 
 /// 菜单外框高度（含外圈 padding 和 1px 边框），用来算落点
 pub fn menu_height(items: &[MenuItem]) -> f32 {
-    let inner: f32 = items.iter().map(|i| if matches!(i, MenuItem::Separator) { SEP_H } else { ITEM_H }).sum();
+    let inner: f32 = items
+        .iter()
+        .map(|i| match i {
+            MenuItem::Separator => SEP_H,
+            MenuItem::Header(_) => HEADER_H,
+            MenuItem::Action { .. } => ITEM_H,
+        })
+        .sum();
     inner + MENU_PAD * 2.0 + 2.0
 }
 
-/// 菜单外框宽度：最长一项的文字宽 + 左右 padding，不小于 min-width
+/// 有没有打勾的项（有就给所有项留勾的位置）
+pub fn has_checks(items: &[MenuItem]) -> bool {
+    items.iter().any(|i| matches!(i, MenuItem::Action { checked: true, .. }))
+}
+
+/// 菜单外框宽度：最长一项的文字宽（含勾槽）+ 左右 padding，不小于 min-width
 pub fn menu_width(max_label_w: f32) -> f32 {
     (max_label_w + ITEM_PAD_X * 2.0).max(MENU_MIN_W) + MENU_PAD * 2.0 + 2.0
 }
@@ -130,8 +161,10 @@ mod tests {
     #[test]
     fn size_follows_items() {
         let noop = || MenuItem::action("x", |_, _| {});
-        let items = vec![noop(), MenuItem::separator(), noop()];
-        assert_eq!(menu_height(&items), ITEM_H * 2.0 + SEP_H + MENU_PAD * 2.0 + 2.0);
+        let items = vec![MenuItem::header("组"), noop(), MenuItem::separator(), noop()];
+        assert_eq!(menu_height(&items), HEADER_H + ITEM_H * 2.0 + SEP_H + MENU_PAD * 2.0 + 2.0);
+        assert!(!has_checks(&items));
+        assert!(has_checks(&[noop().checked(true)]));
         assert_eq!(menu_width(10.0), MENU_MIN_W + MENU_PAD * 2.0 + 2.0, "短文字用 min-width");
         assert_eq!(menu_width(200.0), 200.0 + ITEM_PAD_X * 2.0 + MENU_PAD * 2.0 + 2.0);
     }

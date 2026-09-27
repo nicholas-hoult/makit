@@ -92,9 +92,18 @@ impl Render for Root {
                 move |_: &app_act::ToggleSidebar, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = !p.sidebar.collapsed))
             })
             // ---- 占位：各包实现后删掉 ----
-            .on_action(|_: &ov::TogglePalette, _, _| todo_action("⌘K 命令面板", Owner::Overlays))
-            .on_action(|_: &ov::FindInTerminal, _, _| todo_action("⌘F 终端内搜索", Owner::Overlays))
-            .on_action(|_: &ov::OpenSettings, _, _| todo_action("⌘, 设置", Owner::Overlays))
+            .on_action({
+                let host = self.overlays.clone();
+                move |_: &ov::TogglePalette, window, cx| host.update(cx, |o, cx| o.toggle_palette(window, cx))
+            })
+            .on_action({
+                let host = self.overlays.clone();
+                move |_: &ov::FindInTerminal, window, cx| host.update(cx, |o, cx| o.open_search(None, window, cx))
+            })
+            .on_action({
+                let host = self.overlays.clone();
+                move |_: &ov::OpenSettings, window, cx| host.update(cx, |o, cx| o.open_settings(window, cx))
+            })
             .on_action(|_: &sb::FocusSearch, _, _| todo_action("⌘⇧F 侧栏搜索", Owner::Sidebar))
             .on_action(|_: &sb::RevealActive, _, _| todo_action("⌘L 侧栏定位", Owner::Sidebar))
             .on_action(|_: &notify_act::ToggleNotificationCenter, _, _| todo_action("⌘I 通知中心", Owner::Notify))
@@ -111,7 +120,7 @@ impl Render for Root {
 /// 应用入口（main.rs 只调这个）
 pub fn run() {
     perf::mark("main 开始");
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(crate::overlays::icons::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
             None => persist::NativeState::default(),

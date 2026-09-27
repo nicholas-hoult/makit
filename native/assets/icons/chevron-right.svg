@@ -1,0 +1,3 @@
+<!-- ⌘K 组头的折叠箭头。Tauri 版是字符 ▸（src/CommandPalette.tsx:400，9px）靠 CSS transform 转 90°；
+     GPUI 的文字不能旋转，画成同形的实心三角，用 svg 的 transformation 旋转 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="9" height="9" viewBox="0 0 9 9" fill="currentColor"><path d="M2.5 1.5 L7 4.5 L2.5 7.5 Z"/></svg>
