@@ -10,7 +10,12 @@
 //!   这个视图 observe 了 AppState，会自己重画、自己把焦点给当前标签的终端。
 //! - 关标签返回的 tab id 必须交给 `shutdown_tabs` 杀终端（模型不碰终端）。
 
+pub mod drop;
+pub mod flash;
+pub mod labels;
 pub mod model;
+pub mod splitter;
+pub mod welcome;
 
 use std::collections::HashMap;
 use std::time::Instant;
