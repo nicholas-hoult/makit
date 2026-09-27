@@ -130,18 +130,35 @@ fn base36(mut n: u64) -> String {
 }
 
 fn make_id(prefix: &str) -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    let ms = std::time::SystemTime::now()
+    use std::sync::Mutex;
+    // (上次的毫秒, 这一毫秒的起点, 这一毫秒里已经造了几个)
+    static LAST: Mutex<(u64, u64, u64)> = Mutex::new((u64::MAX, 0, 0));
+    const SPACE: u64 = 36 * 36 * 36 * 36;
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    // 同一毫秒里连造多个 id 也不能撞：随机部分 = 时间 + 进程内序号 过一遍 xorshift
-    let mut x = ms ^ (SEQ.fetch_add(1, Ordering::Relaxed).wrapping_mul(0x9E37_79B9_7F4A_7C15)) ^ std::process::id() as u64;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    let rand4: String = (0..4).map(|i| base36((x >> (i * 8)) % 36)).collect();
+    // 4 位「随机」= 每毫秒一个随机起点 + 这一毫秒里的序号（mod 36⁴）。
+    // 以前是 (时间 ^ 序号) 过一遍 xorshift 再逐字节 mod 36：那不是单射，36⁴ 的空间里同一毫秒造 500 个
+    // 有约 7% 的生日碰撞（并行跑测试时同一毫秒里挤进的 id 更多，偶发失败就是这么来的）。
+    // 起点 + 序号在同一毫秒内严格不重（除非一毫秒造满 36⁴ 个），跨进程靠随机起点和 pid 错开。
+    // 时间戳必须在锁里取、且不许倒退：锁外取的话，线程 A 取到第 100ms、线程 B 取到 101ms 并先拿到锁，
+    // A 再进来会把第 100ms 的序号从 0 重来 —— 和 A 之前在 100ms 造过的撞上（这就是并行跑偶发失败的第二个原因）
+    let (ms, n) = {
+        let mut g = LAST.lock().unwrap_or_else(|e| e.into_inner());
+        let ms = if g.0 != u64::MAX && now < g.0 { g.0 } else { now };
+        if g.0 != ms {
+            let mut x = ms ^ (std::process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (&now as *const _ as u64);
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            *g = (ms, x % SPACE, 0);
+        }
+        let n = (g.1 + g.2) % SPACE;
+        g.2 += 1;
+        (ms, n)
+    };
+    let rand4: String = (0..4).rev().map(|i| base36((n / 36u64.pow(i)) % 36)).collect();
     format!("{prefix}{}{rand4}", base36(ms))
 }
 
@@ -1379,6 +1396,18 @@ mod tests {
         s.dedup();
         assert_eq!(s.len(), ids.len(), "同一毫秒里连造也不能撞");
         assert!(make_container_id().starts_with("c_"));
+    }
+
+    /// 回归：并行跑测试时 ids_have_… 偶发撞 id（旧实现是非单射哈希，36⁴ 空间里有生日碰撞）。
+    /// 多线程同时造 2 万个，一个都不能撞
+    #[test]
+    fn ids_do_not_collide_across_threads() {
+        let hs: Vec<_> = (0..8).map(|_| std::thread::spawn(|| (0..2500).map(|_| make_tab_id()).collect::<Vec<_>>())).collect();
+        let mut all: Vec<String> = hs.into_iter().flat_map(|h| h.join().unwrap()).collect();
+        let n = all.len();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), n);
     }
 
     #[test]
