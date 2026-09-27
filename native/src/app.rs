@@ -44,6 +44,13 @@ impl Root {
     }
 }
 
+impl Root {
+    /// 自检用（selftest.rs 的 sidebar 模式）
+    pub fn sidebar(&self) -> Entity<SidebarView> {
+        self.sidebar.clone()
+    }
+}
+
 fn todo_action(what: &str, owner: Owner) {
     eprintln!("[未实现] {what}（归 {} 包）", owner.label());
 }
@@ -135,6 +142,8 @@ pub fn run() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), ..Default::default() }),
                     window_min_size: Some(size(px(900.0), px(560.0))),
+                    // 自检时用：不抢用户正在用的键盘焦点（B 侧栏包加的，见 sidebar/selftest.rs）
+                    focus: std::env::var_os("MAKIT_NATIVE_BACKGROUND").is_none(),
                     ..Default::default()
                 },
                 |_, cx| cx.new(|cx| Root::new(root_state, cx)),
@@ -166,6 +175,8 @@ pub fn run() {
             crate::selftest::run(mode, handle, state, cx);
         }
         cx.on_window_closed(|cx| cx.quit()).detach();
-        cx.activate(true);
+        if std::env::var_os("MAKIT_NATIVE_BACKGROUND").is_none() {
+            cx.activate(true);
+        }
     });
 }

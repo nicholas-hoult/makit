@@ -26,6 +26,7 @@ pub mod hover;
 mod popups;
 mod render;
 pub mod search_input;
+pub mod selftest;
 pub mod tree;
 
 use std::collections::{HashMap, HashSet};
@@ -707,6 +708,73 @@ impl SidebarView {
         if self.popup.take().is_some() {
             cx.notify();
         }
+    }
+}
+
+impl SidebarView {
+    /// 自检用的摘要：`行数 / 会话行数 / 选中 / 搜索词 / 组头`
+    pub fn debug_summary(&self, cx: &App) -> String {
+        let headers: Vec<String> = self
+            .tree
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                tree::Item::GroupHeader { label, count, collapsed, .. } => Some(format!("{label}{}{count}", if *collapsed { "-" } else { "+" })),
+                tree::Item::ProjectHeader { name, count, collapsed, .. } => Some(format!("P:{name}{}{count}", if *collapsed { "-" } else { "+" })),
+                _ => None,
+            })
+            .collect();
+        let sel = self.selected.as_deref().and_then(|id| self.state.read(cx).session(id)).map(|m| m.short_id.clone());
+        format!(
+            "items={} rows={} selected={:?} query={:?} popup={} hover={} [{}]",
+            self.tree.items.len(),
+            self.tree.order.len(),
+            sel,
+            self.query,
+            self.popup.is_some(),
+            self.hover.is_some(),
+            headers.join(" ")
+        )
+    }
+
+    /// 自检：滚动（同滚轮），并走一遍滚动后的处理（关悬停卡、滚动条显形）
+    pub fn debug_scroll_by(&mut self, dy: f32, cx: &mut Context<Self>) {
+        self.list.scroll_by(px(dy));
+        self.on_scrolled(cx);
+    }
+
+    pub fn debug_focus_list(&self, window: &mut Window) {
+        self.list_focus.focus(window);
+    }
+
+    pub fn debug_rows(&self) -> usize {
+        self.tree.order.len()
+    }
+
+    pub fn debug_selected(&self) -> Option<String> {
+        self.selected.clone()
+    }
+
+    pub fn debug_list_focused(&self, window: &Window) -> bool {
+        self.list_focus.is_focused(window)
+    }
+
+    pub fn debug_search_focused(&self, window: &Window, cx: &App) -> bool {
+        self.search.read(cx).is_focused(window)
+    }
+
+    /// 自检：直接往搜索框填字（dispatch_keystroke 不走输入法那条插字的路）
+    pub fn debug_set_query(&mut self, q: &str, cx: &mut Context<Self>) {
+        self.search.update(cx, |s, cx| s.set_text(q, cx));
+    }
+
+    /// 自检：打开某条会话的右键菜单 / 悬停卡
+    pub fn debug_open_menu(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_popup(Popup::SessionMenu { at: Point::new(px(100.), px(100.)), session_id: id.into() }, window, cx);
+    }
+
+    pub fn debug_open_options(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_popup(Popup::Options, window, cx);
     }
 }
 
