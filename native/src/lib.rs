@@ -13,6 +13,7 @@
 //! | `terminal/` | alacritty 终端视图 + 键位 / 网格 / 调色板纯逻辑 | A 终端 |
 //! | `overlays/` | ⌘K、搜索条、详情、设置、toast、右键菜单 | D 浮层 |
 //! | `notify/` | hook、通知中心、系统通知 | E 通知 |
+//! | `assets.rs` | 内嵌图标（AssetSource，`native/assets/`） | 公共（E 包先建） |
 //! | `app.rs` | 启动流程 + 根视图（全局 action 的落脚点） | F0 |
 //! | `selftest.rs` | 无人值守自检（`MAKIT_NATIVE_SELFTEST`） | F0 |
 //!
@@ -20,6 +21,7 @@
 
 pub mod actions;
 pub mod app;
+pub mod assets;
 pub mod notify;
 pub mod overlays;
 pub mod perf;
