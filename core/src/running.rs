@@ -111,7 +111,7 @@ pub fn list_running_sessions() -> Vec<RunningMeta> {
     result
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct RunningMeta {
     pub session_id: String,
     pub status: String,
@@ -122,7 +122,7 @@ pub struct RunningMeta {
     pub name: String,
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
 pub struct PtyBinding {
     pub pty_id: String,
     pub session_id: String,
