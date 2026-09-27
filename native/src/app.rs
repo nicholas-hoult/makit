@@ -99,7 +99,7 @@ impl Render for Root {
 /// 应用入口（main.rs 只调这个）
 pub fn run() {
     perf::mark("main 开始");
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
             None => persist::NativeState::default(),
