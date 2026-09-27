@@ -29,6 +29,9 @@ pub struct Root {
     workspace: Entity<WorkspaceView>,
     /// D 浮层：铺满窗口的最上层（右键菜单、toast、⌘K、设置……）
     overlays: Entity<OverlayHost>,
+    /// 兜底焦点：窗口里什么都没聚焦时（空工作区、浮层刚关掉）键盘事件的派发路径只有根节点，
+    /// 挂在根 div 上的全局 action（⌘K、⌘T……）收不到。给根 div 一个焦点、没人聚焦时落到它上
+    focus: gpui::FocusHandle,
     first_frame_marked: bool,
     startup_reported: bool,
 }
@@ -39,7 +42,7 @@ impl Root {
         let workspace = cx.new(|cx| WorkspaceView::new(state.clone(), cx));
         let overlays = OverlayHost::install(state.clone(), workspace.clone(), cx);
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        Self { state, sidebar, workspace, overlays, first_frame_marked: false, startup_reported: false }
+        Self { state, sidebar, workspace, overlays, focus: cx.focus_handle(), first_frame_marked: false, startup_reported: false }
     }
 }
 
@@ -64,11 +67,15 @@ impl Render for Root {
                 perf::report_startup(n);
             });
         }
+        if window.focused(cx).is_none() {
+            window.focus(&self.focus);
+        }
         let theme = cx.theme().clone();
         let state = self.state.clone();
         let el = div()
             .id("root")
             .key_context("Root")
+            .track_focus(&self.focus)
             .flex()
             .size_full()
             .bg(theme.bg)
