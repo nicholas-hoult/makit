@@ -103,6 +103,7 @@ pub fn run() {
             commands::read_session_meta,
             pty::pty_spawn,
             pty::pty_write,
+            pty::pty_ack,
             pty::pty_resize,
             pty::pty_kill,
             commands::kill_pids,

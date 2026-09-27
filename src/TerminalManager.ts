@@ -482,20 +482,32 @@ class TerminalManager {
     const { cols, rows } = fitSize(terminal);
     terminal.onResize(({ cols: c, rows: r }) => traceXtermResize(paneId, c, r));
 
-    // batch write：累积 PTY 输出，每帧只 write 一次（减少 xterm 内部渲染次数）
+    // batch write：累积 PTY 输出，每帧只 write 一次（减少 xterm 内部渲染次数）。
+    // 背压（#229）：xterm 处理完这一批后 pty_ack 这批的事件数，后端在途事件到上限就停发、
+    // 进而停读 PTY —— 否则 `yes` 刷屏时事件在主线程无限积压。rAF 在窗口被遮住时会停，
+    // 所以再挂一个 100ms 定时器兜底，不然后台终端每批都要等后端 3 秒超时才放行。
     let outputBuffer = "";
+    let pendingEvents = 0;
     let outputRaf: number | null = null;
+    let outputTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushOutput = () => {
+      if (outputRaf !== null) cancelAnimationFrame(outputRaf);
+      if (outputTimer !== null) clearTimeout(outputTimer);
+      outputRaf = null;
+      outputTimer = null;
+      if (!outputBuffer) return;
+      const n = pendingEvents;
+      pendingEvents = 0;
+      terminal.write(outputBuffer, () => { invoke("pty_ack", { id: paneId, n }).catch(() => {}); });
+      outputBuffer = "";
+    };
     inst.unlistenData = await listen<string>(`pty:data:${paneId}`, (e) => {
       if (firstOutput) { firstOutput = false; span.end("首次输出"); }
       outputBuffer += e.payload;
+      pendingEvents++;
       if (outputRaf === null) {
-        outputRaf = requestAnimationFrame(() => {
-          outputRaf = null;
-          if (outputBuffer) {
-            terminal.write(outputBuffer);
-            outputBuffer = "";
-          }
-        });
+        outputRaf = requestAnimationFrame(flushOutput);
+        outputTimer = setTimeout(flushOutput, 100);
       }
     });
     inst.unlistenExit = await listen<number>(`pty:exit:${paneId}`, () => {

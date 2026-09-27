@@ -19,6 +19,13 @@ pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
+    flow: std::sync::Arc<PtyFlow>,
+}
+
+/// 输出背压（#229）：发送线程和 `pty_ack` 共用。在途事件到上限时发送线程在 cv 上等确认。
+pub struct PtyFlow {
+    inflight: Mutex<makit_core::pty_batch::Inflight>,
+    cv: std::sync::Condvar,
 }
 
 #[derive(Default)]
@@ -147,7 +154,17 @@ pub async fn pty_spawn(
     // 以前每读一次就 emit 一个事件 —— `seq 1 300000` 发了 7.8 万个，界面冻住 9 秒。
     // 读线程只管把字节塞进通道；发送线程按 pty_batch 的节奏合并（空闲后第一块立刻发，
     // 连续输出每 8ms 最多一次），并负责只发完整的 UTF-8 字符。
-    let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    // 有界（#229）：发送线程因背压停发时不再从这里收，通道满了读线程就阻塞在 send 上，
+    // 不再读 PTY → 内核缓冲区满 → 程序自己的 write 被卡住。容量 × 每块最多 32KB = 最坏 512KB。
+    let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(16);
+    let flow = std::sync::Arc::new(PtyFlow {
+        inflight: Mutex::new(makit_core::pty_batch::Inflight::new(
+            makit_core::pty_batch::MAX_INFLIGHT,
+            makit_core::pty_batch::ACK_TIMEOUT,
+        )),
+        cv: std::sync::Condvar::new(),
+    });
+    let flow_for_emit = flow.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 32768];
         loop {
@@ -173,6 +190,13 @@ pub async fn pty_spawn(
         let mut batch = Batcher::new(EMIT_INTERVAL, MAX_BATCH_BYTES);
         let mut open = true;
         while open {
+            // 背压（#229）：在途事件到上限就等前端确认，期间不从通道收数据
+            {
+                let mut f = flow_for_emit.inflight.lock().unwrap();
+                while !f.can_emit(Instant::now()) {
+                    f = flow_for_emit.cv.wait_timeout(f, std::time::Duration::from_millis(100)).unwrap().0;
+                }
+            }
             // 通道里已经到了的先全部收进来
             while let Ok(chunk) = rx.try_recv() {
                 batch.push(&chunk);
@@ -183,6 +207,7 @@ pub async fn pty_spawn(
                     if win.emit(&event, text).is_err() {
                         return;
                     }
+                    flow_for_emit.inflight.lock().unwrap().on_emit();
                 }
                 Next::WaitUntil(t) => {
                     let wait = t.saturating_duration_since(Instant::now());
@@ -209,10 +234,26 @@ pub async fn pty_spawn(
         master: pair.master,
         writer,
         child,
+        flow,
     };
 
     state.inner.lock().unwrap().insert(id, handle);
     Ok(corrected)
+}
+
+/// 前端 `terminal.write` 处理完一批后确认（#229 背压），`n` 是这批包含的 `pty:data` 事件数
+#[tauri::command]
+pub async fn pty_ack(state: State<'_, PtyState>, id: String, n: usize) -> Result<(), String> {
+    let flow = {
+        let map = state.inner.lock().unwrap();
+        match map.get(&id) {
+            Some(h) => h.flow.clone(),
+            None => return Ok(()), // 已经关掉的终端，迟到的确认直接忽略
+        }
+    };
+    flow.inflight.lock().unwrap().on_ack(n);
+    flow.cv.notify_one();
+    Ok(())
 }
 
 #[tauri::command]

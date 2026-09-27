@@ -14,7 +14,11 @@
 use std::time::{Duration, Instant};
 
 pub const EMIT_INTERVAL: Duration = Duration::from_millis(8);
-pub const MAX_BATCH_BYTES: usize = 1024 * 1024;
+pub const MAX_BATCH_BYTES: usize = 256 * 1024;
+/// 在途事件上限（#229）：× MAX_BATCH_BYTES 就是最坏积压量，1MB 以内 xterm 半秒处理完
+pub const MAX_INFLIGHT: usize = 4;
+/// 这么久收不到确认就放行，防止前端卡死 / 丢消息时终端永远不出字
+pub const ACK_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, PartialEq)]
 pub enum Next {
@@ -84,6 +88,47 @@ impl Batcher {
     }
 }
 
+/// 已发给前端、前端还没确认处理完的事件数（#229 背压）。
+///
+/// 以前发送端不管前端有没有消费：`yes` 刷屏时事件在 WebView 主线程上无限积压，
+/// 30 秒内存涨到 3.3GB，Ctrl-C 的 pty_write 排队 124 秒。现在在途事件到上限就停发；
+/// 发送端一停，读→发之间的有界通道很快就满，读线程阻塞，PTY 缓冲区满后程序自己被卡住。
+/// 前端在 `terminal.write` 回调里 `pty_ack`。长时间收不到确认（前端卡死 / 丢消息）就放行，
+/// 宁可多发一点也不能把终端永远卡死。
+pub struct Inflight {
+    count: usize,
+    max: usize,
+    timeout: Duration,
+    stalled_since: Option<Instant>,
+}
+
+impl Inflight {
+    pub fn new(max: usize, timeout: Duration) -> Self {
+        Self { count: 0, max, timeout, stalled_since: None }
+    }
+    /// 现在能不能再发一个
+    pub fn can_emit(&mut self, now: Instant) -> bool {
+        if self.count < self.max {
+            self.stalled_since = None;
+            return true;
+        }
+        let since = *self.stalled_since.get_or_insert(now);
+        if now.duration_since(since) >= self.timeout {
+            // 等太久了：多半是前端卡死或确认丢了，清零放行
+            self.count = 0;
+            self.stalled_since = None;
+            return true;
+        }
+        false
+    }
+    pub fn on_emit(&mut self) {
+        self.count += 1;
+    }
+    pub fn on_ack(&mut self, n: usize) {
+        self.count = self.count.saturating_sub(n);
+    }
+}
+
 /// 发不发、什么时候发出了错，界面上的样子是：打字有延迟（前沿没做好）、刷屏又冻住
 /// （合并没生效）、中文变乱码或丢字（UTF-8 切断处理错）。
 #[cfg(test)]
@@ -143,6 +188,41 @@ mod tests {
         assert_eq!(b.take(t0 + ms(8)), "好a", "完整的先发，切断的尾巴留下");
         b.push(&"文".as_bytes()[1..]);
         assert_eq!(b.take(t0 + ms(16)), "文");
+    }
+
+    #[test]
+    fn inflight_blocks_at_limit_and_ack_releases() {
+        let t0 = Instant::now();
+        let mut f = Inflight::new(2, ms(3000));
+        assert!(f.can_emit(t0));
+        f.on_emit();
+        assert!(f.can_emit(t0));
+        f.on_emit();
+        assert!(!f.can_emit(t0), "在途 2 个到上限，停发");
+        f.on_ack(1);
+        assert!(f.can_emit(t0), "前端确认一个，放行");
+    }
+
+    #[test]
+    fn inflight_releases_after_timeout_without_ack() {
+        let t0 = Instant::now();
+        let mut f = Inflight::new(1, ms(3000));
+        f.on_emit();
+        assert!(!f.can_emit(t0));
+        assert!(!f.can_emit(t0 + ms(2999)), "超时前继续等");
+        assert!(f.can_emit(t0 + ms(3000)), "3 秒收不到确认就放行，不能把终端永远卡死");
+        f.on_emit();
+        assert!(!f.can_emit(t0 + ms(3001)), "放行后重新计数，不是从此不限");
+    }
+
+    #[test]
+    fn extra_acks_do_not_underflow() {
+        let t0 = Instant::now();
+        let mut f = Inflight::new(1, ms(3000));
+        f.on_ack(5);
+        assert!(f.can_emit(t0));
+        f.on_emit();
+        assert!(!f.can_emit(t0), "多余的确认不能攒成「额度」");
     }
 
     #[test]
