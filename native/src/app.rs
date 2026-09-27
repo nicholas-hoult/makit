@@ -52,15 +52,19 @@ impl Root {
             SidebarEvent::ReturnFocus => this.workspace.update(cx, |w, cx| w.refocus(cx)),
         })
         .detach();
-        // E 通知 → B 侧栏：跳转的会话不在任何标签里时，在侧栏定位它（只定位，不打开）
-        cx.subscribe(&crate::notify::Notifier::global(cx), |this: &mut Self, _, ev: &crate::notify::NotifyEvent, cx| {
-            if let crate::notify::NotifyEvent::RevealSession { session_id } = ev {
+        // E 通知跳转：会话在某个标签里 → C 在那个 pane 上闪落点牌；不在 → B 在侧栏定位它（只定位，不打开）
+        cx.subscribe(&crate::notify::Notifier::global(cx), |this: &mut Self, _, ev: &crate::notify::NotifyEvent, cx| match ev {
+            crate::notify::NotifyEvent::FlashPane { container_id } => {
+                this.workspace.update(cx, |w, cx| w.flash_container(container_id, cx));
+            }
+            crate::notify::NotifyEvent::RevealSession { session_id } => {
                 this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
                 let id = Some(session_id.clone());
                 this.sidebar.update(cx, |s, cx| s.reveal_session(id, cx));
             }
         })
         .detach();
+        wire_search(workspace.clone(), cx);
         Self { state, sidebar, workspace, overlays, focus: cx.focus_handle(), first_frame_marked: false, startup_reported: false }
     }
 }
@@ -164,6 +168,31 @@ impl Render for Root {
             .child(crate::notify::layer(window, cx))
             .child(self.overlays.clone())
     }
+}
+
+/// D 的 ⌘F 搜索条 → A 当前终端的搜索引擎；搜索条贴当前 pane（C）的右上角
+fn wire_search(ws: Entity<WorkspaceView>, cx: &mut App) {
+    use crate::overlays::search_bar::{set_hooks, SearchDir, SearchHooks};
+    let (w1, w2, w3) = (ws.clone(), ws.clone(), ws);
+    set_hooks(
+        SearchHooks {
+            search: std::rc::Rc::new(move |q: &str, dir, _, cx| {
+                let Some(t) = w1.read(cx).active_terminal(cx) else { return };
+                t.update(cx, |t, cx| match dir {
+                    SearchDir::Incremental => t.search_set_query(q, cx),
+                    SearchDir::Next => t.search_step(true, cx),
+                    SearchDir::Prev => t.search_step(false, cx),
+                });
+            }),
+            clear: std::rc::Rc::new(move |_, cx| {
+                if let Some(t) = w2.read(cx).active_terminal(cx) {
+                    t.update(cx, |t, cx| t.search_clear(cx));
+                }
+            }),
+            anchor: std::rc::Rc::new(move |cx| w3.read(cx).active_pane_bounds(cx)),
+        },
+        cx,
+    );
 }
 
 /// E 通知 → D 设置页：授权状态、请求授权、测试通知

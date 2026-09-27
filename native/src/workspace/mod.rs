@@ -34,7 +34,7 @@ pub mod splitter;
 pub mod titlebar;
 pub mod welcome;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -47,7 +47,7 @@ use gpui::{
 
 use crate::actions::workspace as act;
 use crate::state::AppState;
-use crate::terminal::{SpawnSpec, TerminalEvent, TerminalView};
+use crate::terminal::{SearchResults, SpawnSpec, TerminalEvent, TerminalSpawnEvent, TerminalView, UserInput};
 use crate::theme::{ActiveTheme, Theme};
 use dnd::{SessionDrag, TabDrag};
 use drop::{accepts_pane_drop, format_paths_for_terminal, insert_marker, is_tab_drag, overlay_fraction, tab_insert_index, DragKind};
@@ -64,7 +64,7 @@ pub const TAB_BAR_H: f32 = 28.0;
 
 struct Term {
     view: Entity<TerminalView>,
-    _sub: Subscription,
+    _subs: Vec<Subscription>,
 }
 
 /// 拖分割线时 on_drag 的载荷（只用来让 GPUI 进入拖拽状态、保持光标）
@@ -115,6 +115,8 @@ pub struct WorkspaceView {
     menu: Option<(Point<Pixels>, MenuTarget)>,
     /// 每个 container 的标签条滚动 + 上次滚到的 active 标签（active 变了才滚）
     tab_scroll: HashMap<String, (ScrollHandle, String)>,
+    /// 每个 pane 上一帧的窗口坐标矩形（⌘F 搜索条贴当前 pane 的右上角）
+    pane_bounds: Rc<RefCell<HashMap<String, gpui::Bounds<Pixels>>>>,
 }
 
 impl WorkspaceView {
@@ -133,6 +135,7 @@ impl WorkspaceView {
             focused_tab: None,
             _observe: observe,
             activation_sub: None,
+            pane_bounds: Rc::default(),
             size: Rc::new(Cell::new(Size { width: px(1000.0), height: px(600.0) })),
             split_drag: None,
             hover_split: None,
@@ -350,6 +353,7 @@ impl WorkspaceView {
         };
         let tab_id = tab.id.clone();
         let view = cx.new(|cx| TerminalView::new(spec, window, cx));
+        let tid = tab_id.clone();
         let sub = cx.subscribe(&view, move |this: &mut Self, _, ev: &TerminalEvent, cx| match ev {
             TerminalEvent::Exited => {
                 let loc = this.state.read(cx).workspace.locate_tab(&tab_id).map(|(c, _)| c.id.clone());
@@ -359,7 +363,25 @@ impl WorkspaceView {
             }
             TerminalEvent::TitleChanged => cx.notify(),
         });
-        self.terminals.insert(tab.id.clone(), Term { view, _sub: sub });
+        // 启动目录：不在了 → D 的恢复对话框；按会话起始目录校正了 → 写回标签的 cwd
+        let spawn_sub = cx.subscribe_in(&view, window, move |this: &mut Self, _, ev: &TerminalSpawnEvent, window, cx| match ev {
+            TerminalSpawnEvent::CwdMissing(dir) => crate::overlays::recover::cwd_missing(&tid, dir, window, cx),
+            TerminalSpawnEvent::CwdCorrected(dir) => this.state.update(cx, |s, cx| {
+                s.workspace.update_tab_cwd(&tid, dir);
+                s.workspace_changed(cx);
+            }),
+        });
+        // 在某个会话的终端里打字 = 看过它的通知（E）
+        let input_sub = cx.subscribe(&view, |_, _, ev: &UserInput, cx| {
+            if let Some(sid) = ev.session_id.clone() {
+                crate::notify::Notifier::global(cx).update(cx, |n, cx| n.mark_session_read(&sid, cx));
+            }
+        });
+        // 搜索进度 → D 的搜索条计数
+        let search_sub = cx.subscribe(&view, |_, _, ev: &SearchResults, cx| {
+            crate::overlays::search_bar::report_progress(Some(crate::overlays::search_count::SearchProgress { index: ev.index, count: ev.count }), cx);
+        });
+        self.terminals.insert(tab.id.clone(), Term { view, _subs: vec![sub, spawn_sub, input_sub, search_sub] });
     }
 
     fn title_of(&self, tab: &model::PaneTab, cx: &App) -> String {
@@ -606,6 +628,9 @@ impl WorkspaceView {
         if self.split_drag.take().is_some() {
             // 松手：终端把延后的列数重排立即做掉（#203，见 splitter::PaneResizing）
             cx.set_global(PaneResizing(false));
+            for t in self.terminals.values() {
+                t.view.update(cx, |v, cx| v.flush_resize(cx));
+            }
             cx.refresh_windows();
             cx.notify();
         }
@@ -622,8 +647,10 @@ impl WorkspaceView {
         let tab_bar = self.render_tab_bar(c, is_active, is_max, focused, &theme, cx);
         let body = self.render_body(c, &theme, window, cx);
         let cid = c.id.clone();
+        let (rects, rect_id) = (self.pane_bounds.clone(), c.id.clone());
         div()
             .id(SharedString::from(format!("pane-{}", c.id)))
+            .child(canvas(move |b, _, _| { rects.borrow_mut().insert(rect_id, b); }, |_, _, _, _| {}).absolute().size_full())
             .relative()
             .flex()
             .flex_col()
@@ -963,6 +990,18 @@ impl WorkspaceView {
     }
 
     /// 把焦点还给当前标签的终端（侧栏 Esc 用；B 侧栏包加的）：清掉「上次给过谁」，下一帧 sync_focus 重新给
+    /// 当前标签的终端（没开过 / 空工作区为 None）
+    pub fn active_terminal(&self, cx: &App) -> Option<Entity<TerminalView>> {
+        let id = self.state.read(cx).workspace.active_tab()?.id.clone();
+        self.terminals.get(&id).map(|t| t.view.clone())
+    }
+
+    /// 当前 pane 上一帧的窗口坐标矩形
+    pub fn active_pane_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
+        let cid = self.state.read(cx).workspace.state.active_container_id.clone();
+        self.pane_bounds.borrow().get(&cid).copied()
+    }
+
     pub fn refocus(&mut self, cx: &mut Context<Self>) {
         self.focused_tab = None;
         cx.notify();

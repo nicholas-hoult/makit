@@ -47,34 +47,6 @@ impl Render for Tip {
     }
 }
 
-pub(super) fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
-    let text: SharedString = text.into();
-    move |_, cx| cx.new(|_| Tip(text.clone())).into()
-}
-
-/// 拖会话时跟着鼠标的标签（App.css `.drag-ghost`）
-struct DragGhost(SharedString);
-
-impl Render for DragGhost {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme();
-        div()
-            .px(px(10.))
-            .py(px(4.))
-            .max_w(px(280.))
-            .truncate()
-            .bg(t.accent)
-            .text_color(t.accent_fg)
-            .rounded(px(4.))
-            .text_size(px(12.))
-            .line_height(px(16.))
-            .font_weight(FontWeight::MEDIUM)
-            .font_family(".SystemUIFont")
-            .shadow(vec![gpui::BoxShadow { color: t.shadow, offset: gpui::point(px(0.), px(4.)), blur_radius: px(12.), spread_radius: px(0.) }])
-            .child(self.0.clone())
-    }
-}
-
 /// 拖动条 / 滑块拖动时的占位（不画东西）
 struct Nothing;
 
@@ -82,6 +54,11 @@ impl Render for Nothing {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
     }
+}
+
+pub(super) fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    let text: SharedString = text.into();
+    move |_, cx| cx.new(|_| Tip(text.clone())).into()
 }
 
 /// 折叠箭头（`.tree-group-arrow` / `.tree-project-arrow`：› 展开时转 90°）
@@ -421,7 +398,14 @@ impl SidebarView {
                 }),
             )
             .on_hover(cx.listener(move |this, hovered: &bool, window, cx| this.row_hovered(ix, sid_hover.clone(), *hovered, window, cx)))
-            .on_drag(DraggedSession::from_meta(&m), |d, _, _, cx| cx.new(|_| DragGhost(d.label.clone().into())));
+            // 落点由 C 工作区包处理（workspace::dnd::SessionDrag，四区分屏 / 插进标签条）
+            .on_drag(
+                {
+                    let d = DraggedSession::from_meta(&m);
+                    crate::workspace::dnd::SessionDrag { spec: d.tab_spec(), title: d.label }
+                },
+                |d, _, _, cx| crate::workspace::dnd::ghost(&d.title, cx),
+            );
         div().h(px(SESSION_H)).px(px(4.)).child(li).into_any_element()
     }
 

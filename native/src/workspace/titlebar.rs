@@ -13,7 +13,7 @@
 //! - 右键：什么都不弹（GPUI 没有 WebView 那种默认菜单，天然满足）
 //!
 //! **挂点**（别的包往标题栏里放东西，不用改这个文件）：
-//! - 铃铛（E 通知包）：`cx.set_global(TitlebarBell(view.into()))`，画在折叠按钮右边；
+//! - 铃铛（E 通知包）：`crate::notify::bell(cx)`，画在折叠按钮右边；
 //!   它的左边界 = `BELL_LEFT`（通知抽屉按这个定位，同 TS 的 `bellBtnRef.getBoundingClientRect().left`）
 //! - 侧栏分隔线高亮（B 侧栏包）：拖 / 悬停侧栏 resizer 时 `cx.set_global(TitlebarResizerHot(true))`
 
@@ -34,10 +34,6 @@ pub const ICON_BTN_W: f32 = 24.0;
 pub const ICON_BTN_H: f32 = 22.0;
 /// 铃铛按钮的左边界（窗口坐标）：折叠按钮右边
 pub const BELL_LEFT: f32 = CONTROLS_LEFT + ICON_BTN_W;
-
-/// E 通知包挂铃铛
-pub struct TitlebarBell(pub AnyView);
-impl Global for TitlebarBell {}
 
 /// B 侧栏包：侧栏 resizer 悬停 / 拖动中
 #[derive(Clone, Copy, Default)]
@@ -71,7 +67,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
     let meta = tab.and_then(|t| t.session_id.as_deref()).and_then(|id| s.session(id));
     let title = titlebar_text(tab, meta);
     let hot = cx.try_global::<TitlebarResizerHot>().map(|h| h.0).unwrap_or(false);
-    let bell = cx.try_global::<TitlebarBell>().map(|b| b.0.clone());
+    let bell = crate::notify::bell(cx);
     let _fullscreen = window.is_fullscreen(); // 全屏时 TS 只去掉 `.tab` 的装饰线，工作区这边没有对应的线，不用改
 
     div()
@@ -119,7 +115,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                             window.dispatch_action(Box::new(app_act::ToggleSidebar), cx);
                         }),
                 )
-                .when_some(bell, |d, bell| d.child(bell)),
+                .child(bell),
         )
         .into_any_element()
 }
