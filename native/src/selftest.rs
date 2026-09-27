@@ -3,6 +3,7 @@
 //! - `MAKIT_NATIVE_SELFTEST=layout`：等会话列表加载 → 按真实键位（`window.dispatch_keystroke`，
 //!   走整张快捷键表）新建标签、左右分屏、上下分屏、切标签、几何切 pane、最大化 / 还原、关标签，
 //!   再从侧栏恢复第一个会话（有的话），每步打印布局摘要，最后写盘退出。
+//! - `MAKIT_NATIVE_SELFTEST=sidebar`：侧栏（B 包）的按键 / 分组 / 性能自检，见 `sidebar/selftest.rs`。
 //! - `MAKIT_NATIVE_SELFTEST=restore`：启动后打印恢复出来的布局摘要，退出（配合上一步验证布局能保存 / 恢复）。
 //!
 //! 配合 `MAKIT_NATIVE_FORCE_DRAW=1`（锁屏时逼 GPUI 每帧画）和 `MAKIT_NATIVE_DUMP=<文件>`（终端网格导出）。
@@ -35,6 +36,11 @@ pub fn summary(s: &AppState) -> String {
 }
 
 pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
+    // B 侧栏：`MAKIT_NATIVE_SELFTEST=sidebar`（见 sidebar/selftest.rs）
+    if mode == "sidebar" {
+        crate::sidebar::selftest::run(handle, state, cx);
+        return;
+    }
     cx.spawn(async move |cx| {
         let ex = cx.background_executor().clone();
         let pause = move |ms| ex.timer(Duration::from_millis(ms));

@@ -17,7 +17,7 @@ use gpui::{
 use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, Owner};
 use crate::persist;
 use crate::perf;
-use crate::sidebar::SidebarView;
+use crate::sidebar::{SidebarEvent, SidebarView};
 use crate::state::AppState;
 use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::{self, WorkspaceView};
@@ -35,7 +35,19 @@ impl Root {
         let sidebar = cx.new(|cx| SidebarView::new(state.clone(), cx));
         let workspace = cx.new(|cx| WorkspaceView::new(state.clone(), cx));
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
+        // B 侧栏：Esc 把焦点还给当前终端
+        cx.subscribe(&sidebar, |this: &mut Self, _, ev: &SidebarEvent, cx| match ev {
+            SidebarEvent::ReturnFocus => this.workspace.update(cx, |w, cx| w.refocus(cx)),
+        })
+        .detach();
         Self { state, sidebar, workspace, first_frame_marked: false, startup_reported: false }
+    }
+}
+
+impl Root {
+    /// 自检用（selftest.rs 的 sidebar 模式）
+    pub fn sidebar(&self) -> Entity<SidebarView> {
+        self.sidebar.clone()
     }
 }
 
@@ -84,8 +96,21 @@ impl Render for Root {
             .on_action(|_: &ov::TogglePalette, _, _| todo_action("⌘K 命令面板", Owner::Overlays))
             .on_action(|_: &ov::FindInTerminal, _, _| todo_action("⌘F 终端内搜索", Owner::Overlays))
             .on_action(|_: &ov::OpenSettings, _, _| todo_action("⌘, 设置", Owner::Overlays))
-            .on_action(|_: &sb::FocusSearch, _, _| todo_action("⌘⇧F 侧栏搜索", Owner::Sidebar))
-            .on_action(|_: &sb::RevealActive, _, _| todo_action("⌘L 侧栏定位", Owner::Sidebar))
+            // ---- B 侧栏：先展开侧栏（折叠时侧栏不渲染，收不到 action），再转给侧栏 ----
+            .on_action({
+                let (state, sidebar) = (state.clone(), self.sidebar.clone());
+                move |_: &sb::FocusSearch, _, cx| {
+                    state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
+                    sidebar.update(cx, |s, cx| s.request_focus_search(cx));
+                }
+            })
+            .on_action({
+                let (state, sidebar) = (state.clone(), self.sidebar.clone());
+                move |_: &sb::RevealActive, _, cx| {
+                    state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
+                    sidebar.update(cx, |s, cx| s.reveal_active(cx));
+                }
+            })
             .on_action(|_: &notify_act::ToggleNotificationCenter, _, _| todo_action("⌘I 通知中心", Owner::Notify));
         // A 终端：⌘= / ⌘- / ⌘0 由 TerminalView 自己处理（快捷键表里限定在 Terminal 上下文），不再挂占位
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
@@ -97,7 +122,7 @@ impl Render for Root {
 /// 应用入口（main.rs 只调这个）
 pub fn run() {
     perf::mark("main 开始");
-    Application::new().run(|cx: &mut App| {
+    Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
             None => persist::NativeState::default(),
@@ -115,6 +140,8 @@ pub fn run() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), ..Default::default() }),
                     window_min_size: Some(size(px(900.0), px(560.0))),
+                    // 自检时用：不抢用户正在用的键盘焦点（B 侧栏包加的，见 sidebar/selftest.rs）
+                    focus: std::env::var_os("MAKIT_NATIVE_BACKGROUND").is_none(),
                     ..Default::default()
                 },
                 |_, cx| cx.new(|cx| Root::new(root_state, cx)),
@@ -146,6 +173,8 @@ pub fn run() {
             crate::selftest::run(mode, handle, state, cx);
         }
         cx.on_window_closed(|cx| cx.quit()).detach();
-        cx.activate(true);
+        if std::env::var_os("MAKIT_NATIVE_BACKGROUND").is_none() {
+            cx.activate(true);
+        }
     });
 }
