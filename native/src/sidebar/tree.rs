@@ -131,7 +131,7 @@ pub fn flatten(input: &TreeInput) -> Tree {
     let collapsed_groups = input.collapsed_groups;
 
     // 一组 = 可选的组标签 + 会话行；组之间 10px（`.tree-group + .tree-group`）。空组整块不渲染
-    let mut push_group = |t: &mut Tree, prev: &mut Prev, g: &TreeGroup| {
+    let push_group = |t: &mut Tree, prev: &mut Prev, g: &TreeGroup| {
         let collapsible = !g.id.is_empty() && !g.label.is_empty();
         let gref = if collapsible { GroupRef::Status(g.id.clone()) } else { GroupRef::None };
         for &row in &g.rows {
@@ -270,6 +270,31 @@ pub fn splice_plan(old: &[f32], new: &[f32]) -> Option<(Range<usize>, usize)> {
     let max_suffix = old.len().min(new.len()) - prefix;
     let suffix = old.iter().rev().zip(new.iter().rev()).take(max_suffix).take_while(|(a, b)| a == b).count();
     Some((prefix..old.len() - suffix, new.len() - prefix - suffix))
+}
+
+/// 滚动条（App.css 全局 `::-webkit-scrollbar`）：轨道 9px 占宽；滑块看着 5px 宽，两端各缩 3px，
+/// 最短 34px（含两端缩进）。返回滑块的 (top, height)，都相对列表视口；内容没溢出返回 None
+pub const SCROLLBAR_W: f32 = 9.0;
+pub const THUMB_MIN_H: f32 = 34.0;
+
+pub fn thumb_geometry(total: f32, viewport_h: f32, scroll_top: f32) -> Option<(f32, f32)> {
+    if total <= viewport_h || viewport_h <= 0.0 {
+        return None;
+    }
+    let h = (viewport_h * viewport_h / total).max(THUMB_MIN_H).min(viewport_h);
+    let max_scroll = total - viewport_h;
+    let top = (scroll_top.clamp(0.0, max_scroll) / max_scroll) * (viewport_h - h);
+    Some((top, h))
+}
+
+/// 拖滑块：滑块顶在 `thumb_top` 时对应的内容滚动量（thumb_geometry 的反函数，夹在有效范围）
+pub fn scroll_for_thumb(total: f32, viewport_h: f32, thumb_top: f32) -> f32 {
+    let Some((_, h)) = thumb_geometry(total, viewport_h, 0.0) else { return 0.0 };
+    let track = viewport_h - h;
+    if track <= 0.0 {
+        return 0.0;
+    }
+    (thumb_top / track).clamp(0.0, 1.0) * (total - viewport_h)
 }
 
 /// 侧栏宽度范围（`makit-project-list-width`，180–480）
@@ -524,6 +549,17 @@ mod tests {
         assert_eq!(splice_plan(&[], &[1.0, 2.0]), Some((0..0, 2)));
         assert_eq!(splice_plan(&[1.0, 1.0], &[1.0, 1.0, 1.0]), Some((2..2, 1)), "前缀后缀重叠时不越界");
         assert_eq!(splice_plan(&[5.0], &[]), Some((0..1, 0)));
+    }
+
+    #[test]
+    fn scrollbar_thumb() {
+        assert_eq!(thumb_geometry(500.0, 600.0, 0.0), None, "没溢出不画");
+        assert_eq!(thumb_geometry(2000.0, 500.0, 0.0), Some((0.0, 125.0)));
+        assert_eq!(thumb_geometry(2000.0, 500.0, 1500.0), Some((375.0, 125.0)), "滚到底，滑块贴底");
+        assert_eq!(thumb_geometry(100_000.0, 500.0, 0.0).unwrap().1, THUMB_MIN_H, "会话再多也不压成一个点");
+        assert_eq!(scroll_for_thumb(2000.0, 500.0, 187.5), 750.0);
+        assert_eq!(scroll_for_thumb(2000.0, 500.0, -50.0), 0.0);
+        assert_eq!(scroll_for_thumb(2000.0, 500.0, 9999.0), 1500.0);
     }
 
     #[test]

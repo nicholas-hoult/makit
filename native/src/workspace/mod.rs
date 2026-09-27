@@ -325,6 +325,12 @@ impl WorkspaceView {
             .into_any_element()
     }
 
+    /// 把焦点还给当前标签的终端（侧栏 Esc 用；B 侧栏包加的）：清掉「上次给过谁」，下一帧 sync_focus 重新给
+    pub fn refocus(&mut self, cx: &mut Context<Self>) {
+        self.focused_tab = None;
+        cx.notify();
+    }
+
     /// 当前标签变了就把焦点给它的终端
     fn sync_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.state.read(cx).workspace.active_tab().map(|t| t.id.clone());

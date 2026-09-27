@@ -62,7 +62,20 @@ pub mod workspace {
 
 /// 侧栏（B）
 pub mod sidebar {
-    gpui::actions!(sidebar, [FocusSearch, RevealActive]);
+    gpui::actions!(
+        sidebar,
+        [
+            FocusSearch, RevealActive,
+            // 会话列表（context "SessionList"，只在侧栏列表有焦点时生效，D7）
+            SelectNext, SelectPrev, OpenSelected, OpenSelectedSplitRight, OpenSelectedSplitDown, ToggleHoverCard,
+            CollapseGroup, ExpandGroup, ClearSelection,
+            // 搜索框（context "SidebarSearch"）
+            SearchToList, SearchBackspace, SearchDelete, SearchLeft, SearchRight, SearchSelectLeft, SearchSelectRight,
+            SearchSelectAll, SearchHome, SearchEnd, SearchPaste, SearchCopy, SearchCut,
+            // 侧栏自己的浮层（显示选项 / 右键菜单 / 工具选择器，context "SidebarMenu"）
+            DismissMenu,
+        ]
+    );
 }
 
 /// 浮层（D）
@@ -101,11 +114,41 @@ pub fn keymap() -> Vec<Shortcut> {
     use workspace as w;
     use Owner::*;
     const T: Option<&str> = Some("Terminal");
+    // B 侧栏的三个组件 context（见 sidebar/mod.rs）
+    const L: Option<&str> = Some("SessionList");
+    const S: Option<&str> = Some("SidebarSearch");
+    const M: Option<&str> = Some("SidebarMenu");
     vec![
         sc("cmd-k", None, Overlays, "命令面板", overlays::TogglePalette),
         sc("cmd-f", None, Overlays, "当前终端内搜索", overlays::FindInTerminal),
         sc("cmd-shift-f", None, Sidebar, "聚焦侧栏搜索", sidebar::FocusSearch),
         sc("cmd-l", None, Sidebar, "侧栏定位当前会话", sidebar::RevealActive),
+        // ---- B 侧栏：组件内部的键（D7）----
+        sc("down", L, Sidebar, "侧栏：下一条", sidebar::SelectNext),
+        sc("up", L, Sidebar, "侧栏：上一条", sidebar::SelectPrev),
+        sc("enter", L, Sidebar, "侧栏：打开选中的会话", sidebar::OpenSelected),
+        sc("cmd-enter", L, Sidebar, "侧栏：左右分屏打开", sidebar::OpenSelectedSplitRight),
+        sc("shift-enter", L, Sidebar, "侧栏：上下分屏打开", sidebar::OpenSelectedSplitDown),
+        sc("space", L, Sidebar, "侧栏：悬停卡开 / 关", sidebar::ToggleHoverCard),
+        sc("left", L, Sidebar, "侧栏：折叠所在的组", sidebar::CollapseGroup),
+        sc("right", L, Sidebar, "侧栏：展开所在的组", sidebar::ExpandGroup),
+        sc("escape", L, Sidebar, "侧栏：清除选中，回到终端", sidebar::ClearSelection),
+        sc("down", S, Sidebar, "搜索框：进入列表", sidebar::SearchToList),
+        sc("backspace", S, Sidebar, "搜索框：删前一个字", sidebar::SearchBackspace),
+        sc("delete", S, Sidebar, "搜索框：删后一个字", sidebar::SearchDelete),
+        sc("left", S, Sidebar, "搜索框：光标左移", sidebar::SearchLeft),
+        sc("right", S, Sidebar, "搜索框：光标右移", sidebar::SearchRight),
+        sc("shift-left", S, Sidebar, "搜索框：向左选", sidebar::SearchSelectLeft),
+        sc("shift-right", S, Sidebar, "搜索框：向右选", sidebar::SearchSelectRight),
+        sc("cmd-a", S, Sidebar, "搜索框：全选", sidebar::SearchSelectAll),
+        sc("home", S, Sidebar, "搜索框：到行首", sidebar::SearchHome),
+        sc("cmd-left", S, Sidebar, "搜索框：到行首", sidebar::SearchHome),
+        sc("end", S, Sidebar, "搜索框：到行尾", sidebar::SearchEnd),
+        sc("cmd-right", S, Sidebar, "搜索框：到行尾", sidebar::SearchEnd),
+        sc("cmd-v", S, Sidebar, "搜索框：粘贴", sidebar::SearchPaste),
+        sc("cmd-c", S, Sidebar, "搜索框：复制", sidebar::SearchCopy),
+        sc("cmd-x", S, Sidebar, "搜索框：剪切", sidebar::SearchCut),
+        sc("escape", M, Sidebar, "关闭侧栏菜单", sidebar::DismissMenu),
         sc("cmd-b", None, F0, "侧栏折叠 / 展开", app::ToggleSidebar),
         sc("cmd-r", None, F0, "刷新会话列表", app::Refresh),
         sc("cmd-q", None, F0, "退出", app::Quit),
