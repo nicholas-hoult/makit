@@ -8,12 +8,12 @@ use std::sync::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use tauri::{Emitter, State, Window};
 
-use crate::pty_prep::{
+use makit_core::pty_prep::{
     env_session_id, expand_tilde, is_zsh, must_refuse_cwd, prepare_zsh_integration, resolve_existing_cwd,
     resume_cwd_correction,
 };
 #[cfg(unix)]
-use crate::process::{kill_by_env_marker, kill_pty_by_pid, kill_tree};
+use makit_core::process::{kill_by_env_marker, kill_pty_by_pid, kill_tree};
 
 pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
@@ -166,7 +166,7 @@ pub async fn pty_spawn(
     let id_for_thread = id.clone();
     let win = window.clone();
     std::thread::spawn(move || {
-        use crate::pty_batch::{Batcher, Next, EMIT_INTERVAL, MAX_BATCH_BYTES};
+        use makit_core::pty_batch::{Batcher, Next, EMIT_INTERVAL, MAX_BATCH_BYTES};
         use std::sync::mpsc::RecvTimeoutError;
         use std::time::Instant;
         let event = format!("pty:data:{}", id_for_thread);

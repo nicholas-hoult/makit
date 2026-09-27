@@ -45,17 +45,9 @@ tauri-plugin-notification = "2"
 # 就不弹框、`confirm()` 直接返回 false。于是 `window.confirm()` 在这个 webview 里恒假 ——
 # 不弹框、不报错、不抛异常，调用方看不出任何区别。alert/prompt 同理。
 tauri-plugin-dialog = "2"
-serde = { version = "1", features = ["derive"] }
+# 业务逻辑（会话扫描、运行状态、恢复、杀进程、hook、perf……），和 GPUI 版共用（#226）
+makit-core = { path = "../core" }
 serde_json = "1"
-chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 portable-pty = "0.8"
-notify = "6"
-notify-debouncer-mini = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-base64 = "0.22"
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
-tokio = { version = "1", features = ["net", "io-util"] }
 

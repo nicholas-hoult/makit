@@ -5,7 +5,7 @@
 
 use serde_json::Value;
 
-use crate::{archive, hook_server, paths, perf, process, recovery, running, sessions, worktree};
+use makit_core::{archive, hook, paths, perf, process, recovery, running, sessions, worktree};
 
 #[tauri::command(async)]
 pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<sessions::SessionMeta>, String> {
@@ -95,7 +95,7 @@ pub fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<running::PtyBinding> {
 
 #[tauri::command(async)]
 pub fn install_claude_hook() -> Result<String, String> {
-    hook_server::install_claude_hook()
+    hook::install_claude_hook()
 }
 
 #[tauri::command(async)]

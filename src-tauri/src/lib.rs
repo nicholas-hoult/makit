@@ -1,23 +1,13 @@
-mod ai_provider;
-mod commands;
-mod archive;
-mod hook_server;
-mod paths;
-mod perf;
-mod process;
-mod pty;
-mod pty_batch;
-mod pty_prep;
-mod recovery;
-mod running;
-mod scan_cache;
-mod sessions;
-mod watcher;
-mod worktree;
+//! Tauri 外壳：命令薄转发（commands.rs）、PTY（pty.rs）、窗口事件和 emit。
+//! 业务逻辑全在 makit-core（#226）。
 
-pub use sessions::{humanize_duration, get_git_root, ConversationMessage, SessionMeta};
-pub use process::ProcessInfo;
-pub use running::PtyBinding;
+mod commands;
+mod pty;
+
+use makit_core::{hook, perf, watcher};
+
+pub use makit_core::sessions::{get_git_root, humanize_duration, ConversationMessage, SessionMeta};
+pub use makit_core::{ProcessInfo, PtyBinding};
 
 /// #216：Tauri 2 里不带 async 的命令在**主线程**上跑（macOS 上 IPC 回调就在主线程），
 /// 命令执行期间窗口、终端、侧栏全部冻住 —— 会话输出时每 1 秒多一次的增量解析
@@ -85,7 +75,7 @@ pub fn run() {
             });
             // claude 的 Notification hook → 前端 `claude-hook` 事件（原样一行 JSON）
             let handle = app.handle().clone();
-            hook_server::start(move |line| {
+            hook::start(move |line| {
                 use tauri::Emitter;
                 let _ = handle.emit("claude-hook", line);
             });

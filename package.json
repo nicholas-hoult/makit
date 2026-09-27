@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node scripts/run-tests.mjs",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path core/Cargo.toml",
     "tauri": "tauri"
   },
   "dependencies": {

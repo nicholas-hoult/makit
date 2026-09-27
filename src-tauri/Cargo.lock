@@ -2221,15 +2221,9 @@ dependencies = [
 name = "makit"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
- "chrono",
  "dirs 5.0.1",
- "libc",
- "notify",
- "notify-debouncer-mini",
+ "makit-core",
  "portable-pty",
- "reqwest 0.12.28",
- "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -2237,7 +2231,21 @@ dependencies = [
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
- "tokio",
+]
+
+[[package]]
+name = "makit-core"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "libc",
+ "notify",
+ "notify-debouncer-mini",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
