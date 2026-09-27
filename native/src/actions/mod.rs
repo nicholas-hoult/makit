@@ -93,9 +93,9 @@ pub mod overlays {
     );
 }
 
-/// 通知（E）
+/// 通知（E）。SelectNext / SelectPrev / Confirm / Dismiss 只在抽屉有焦点时（context `NotificationCenter`）
 pub mod notify {
-    gpui::actions!(notify, [ToggleNotificationCenter]);
+    gpui::actions!(notify, [ToggleNotificationCenter, SelectNext, SelectPrev, Confirm, Dismiss]);
 }
 
 /// 终端（A）。Copy / Paste / 翻页沿用原型在 terminal 模块里的声明
@@ -130,6 +130,7 @@ pub fn keymap() -> Vec<Shortcut> {
     const M: Option<&str> = Some("SidebarMenu");
     const OV: Option<&str> = Some("Overlay");
     const TI: Option<&str> = Some("TextInput");
+    const N: Option<&str> = Some("NotificationCenter");
     vec![
         sc("cmd-k", None, Overlays, "命令面板", overlays::TogglePalette),
         sc("cmd-f", None, Overlays, "当前终端内搜索", overlays::FindInTerminal),
@@ -202,6 +203,10 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("alt-cmd-up", None, Workspace, "上面的 pane", w::FocusPaneUp),
         sc("alt-cmd-down", None, Workspace, "下面的 pane", w::FocusPaneDown),
         sc("cmd-i", None, Notify, "通知中心", notify::ToggleNotificationCenter),
+        sc("down", N, Notify, "通知中心：下一条", notify::SelectNext),
+        sc("up", N, Notify, "通知中心：上一条", notify::SelectPrev),
+        sc("enter", N, Notify, "通知中心：已读并跳转", notify::Confirm),
+        sc("escape", N, Notify, "通知中心：关闭", notify::Dismiss),
         sc("cmd-,", None, Overlays, "设置", overlays::OpenSettings),
         sc("cmd-=", T, Terminal, "字号 +1", terminal::FontIncrease),
         sc("cmd-shift-=", T, Terminal, "字号 +1", terminal::FontIncrease),

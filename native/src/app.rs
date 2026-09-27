@@ -14,7 +14,7 @@ use gpui::{
     WindowOptions,
 };
 
-use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, Owner};
+use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb};
 use crate::overlays::OverlayHost;
 use crate::persist;
 use crate::perf;
@@ -58,10 +58,6 @@ impl Root {
     }
 }
 
-fn todo_action(what: &str, owner: Owner) {
-    eprintln!("[未实现] {what}（归 {} 包）", owner.label());
-}
-
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.first_frame_marked {
@@ -99,11 +95,15 @@ impl Render for Root {
                 let state = state.clone();
                 move |_: &app_act::Refresh, _, cx| state.update(cx, |s, cx| s.refresh(cx))
             })
+            // ---- E 通知 ----
+            .on_action(|_: &notify_act::ToggleNotificationCenter, window, cx| {
+                crate::notify::Notifier::global(cx).update(cx, |n, cx| n.toggle(window, cx))
+            })
             .on_action({
                 let state = state.clone();
                 move |_: &app_act::ToggleSidebar, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = !p.sidebar.collapsed))
             })
-            // ---- 占位：各包实现后删掉 ----
+            // ---- D 浮层 ----
             .on_action({
                 let host = self.overlays.clone();
                 move |_: &ov::TogglePalette, window, cx| host.update(cx, |o, cx| o.toggle_palette(window, cx))
@@ -130,12 +130,13 @@ impl Render for Root {
                     state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
                     sidebar.update(cx, |s, cx| s.reveal_active(cx));
                 }
-            })
-            .on_action(|_: &notify_act::ToggleNotificationCenter, _, _| todo_action("⌘I 通知中心", Owner::Notify));
+            });
         // A 终端：⌘= / ⌘- / ⌘0 由 TerminalView 自己处理（快捷键表里限定在 Terminal 上下文），不再挂占位
         let el = workspace::register_actions(el, self.workspace.clone(), cx);
         el.when(!collapsed, |d| d.child(self.sidebar.clone()))
             .child(div().flex_1().min_w_0().h_full().child(self.workspace.clone()))
+            // E 通知：⌘I 抽屉 + 窗口闪一下（deferred 浮层）
+            .child(crate::notify::layer(window, cx))
             .child(self.overlays.clone())
     }
 }
@@ -151,6 +152,7 @@ pub fn run() {
         cx.set_global(Theme::by_id(&prefs.theme.id, &prefs.theme.imported));
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
+        crate::notify::Notifier::init(state.clone(), cx);
         actions::bind_all(cx);
 
         let bounds = Bounds::centered(None, size(px(1400.0), px(900.0)), cx);
@@ -169,6 +171,7 @@ pub fn run() {
             )
             .expect("窗口创建失败");
         perf::mark("窗口创建");
+        crate::notify::attach_window(handle, cx);
 
         // 退出前把防抖中的状态写掉
         let quit_state = state.clone();

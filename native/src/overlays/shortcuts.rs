@@ -69,9 +69,9 @@ pub struct ShortcutGroup {
 /// 分组顺序（照 Tauri 版设置页的五组，加一组「终端」）
 pub const GROUP_TITLES: [&str; 6] = ["搜索 / 命令", "Tab（⌘ 轴）", "Pane（⌥⌘ 轴）", "侧栏 / 视图", "终端", "面板内"];
 
-/// 输入框的编辑键不是 makit 的快捷键，不展示
+/// 输入框的编辑键不是 makit 的快捷键，不展示（浮层的单行输入框、侧栏搜索框）
 pub fn is_listed(s: &Shortcut) -> bool {
-    s.context != Some("TextInput")
+    !matches!(s.context, Some("TextInput") | Some("SidebarSearch"))
 }
 
 /// 一条快捷键归哪一组（GROUP_TITLES 的下标）
@@ -175,9 +175,13 @@ mod tests {
         assert_eq!(groups.iter().map(|g| g.title).collect::<Vec<_>>(), GROUP_TITLES.to_vec());
         for s in km.iter().filter(|s| is_listed(s)) {
             let shown = format_keys(s.keys);
+            // 同一个键在不同面板里含义不同（↓ = 侧栏下一条 / 通知下一条 / ⌘K 下一项），各占一行；
+            // 要核对的是：这一条落在**它自己 action 那一行**里，正好一次。行按 action 合并，说明取该 action 第一条的
+            let desc = km.iter().find(|k| is_listed(k) && k.action.partial_eq(s.action.as_ref())).unwrap().desc;
             let hits: usize = groups
                 .iter()
                 .flat_map(|g| &g.rows)
+                .filter(|r| r.desc == desc || r.range)
                 .filter(|r| {
                     if r.range {
                         // 连号行：首尾之间的都算

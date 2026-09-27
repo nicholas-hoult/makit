@@ -26,6 +26,9 @@ const FILES: &[(&str, &[u8])] = &[
     asset!("icons/filter.svg"),
     // ⌘K 组头折叠箭头：▸ 画成同形三角
     asset!("icons/chevron-right.svg"),
+    // ---- E 通知 ----
+    asset!("icons/notif-bell.svg"),
+    asset!("icons/notif-empty-bell-off.svg"),
 ];
 
 pub struct Assets;
