@@ -2790,13 +2790,17 @@ name = "makit-native"
 version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
+ "core-foundation-sys",
  "dirs 5.0.1",
  "futures",
  "gpui",
  "libc",
  "makit-core",
+ "percent-encoding",
+ "regex",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

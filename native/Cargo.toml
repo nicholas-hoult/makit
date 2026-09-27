@@ -21,6 +21,11 @@ serde = { version = "1", features = ["derive"] }
 dirs = "5"
 libc = "0.2"
 serde_json = "1"
+# 终端（A 包，#226）：链接识别正则、OSC 8 / OSC 7 的 URL 解析、中文分词（系统 CFStringTokenizer）
+regex = "1"
+url = "2"
+percent-encoding = "2"
+core-foundation-sys = "0.8"
 
 [profile.release]
 # 原型阶段要反复编 release 做测量，开增量编译省时间

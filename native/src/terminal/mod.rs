@@ -33,9 +33,18 @@ use gpui::{
     relative, rgb, size,
 };
 
+pub mod contrast;
+pub mod drop_paths;
 pub mod grid;
 pub mod keys;
+pub mod links;
+pub mod osc;
 pub mod palette;
+pub mod scrollbar;
+pub mod segment;
+pub mod size;
+pub mod wheel;
+pub mod zoom;
 
 use grid::{grid_size, point_to_cell, wheel_lines};
 use keys::{Mods, key_to_bytes, sgr_wheel};
