@@ -41,13 +41,22 @@ pub fn find_localstorage_with_mtime(root: &Path) -> Option<(std::time::SystemTim
 }
 
 /// 只读导出 `makit-*` 键值
+/// 读库。库是 WAL 模式：Tauri 退出后 -shm 被清掉，`-readonly` 打不开（要建 -shm）；直接读又会在 Tauri 的
+/// 目录里留下 -shm。所以连同 -wal / -shm 拷到临时目录读副本（Tauri 开着时 -wal 里的最新写也带上），原库不碰
 pub fn read_localstorage(db: &Path) -> Option<std::collections::BTreeMap<String, String>> {
-    let out = Command::new("/usr/bin/sqlite3")
-        .arg("-readonly")
-        .arg(db)
-        .arg("select key, hex(value) from ItemTable")
-        .output()
-        .ok()?;
+    let dir = std::env::temp_dir().join(format!("makit-ls-{}-{:?}", std::process::id(), std::thread::current().id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).ok()?;
+    let copy = dir.join("localstorage.sqlite3");
+    let out = (|| {
+        std::fs::copy(db, &copy).ok()?;
+        for ext in ["sqlite3-wal", "sqlite3-shm"] {
+            let _ = std::fs::copy(db.with_extension(ext), copy.with_extension(ext));
+        }
+        Command::new("/usr/bin/sqlite3").arg(&copy).arg("select key, hex(value) from ItemTable").output().ok()
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    let out = out?;
     if !out.status.success() {
         eprintln!("[persist] 读 {} 失败：{}", db.display(), String::from_utf8_lossy(&out.stderr).trim());
         return None;
@@ -86,6 +95,23 @@ pub(crate) mod tests {
         let st = Command::new("/usr/bin/sqlite3").arg(&db).arg(&sql).status().unwrap();
         assert!(st.success());
         db
+    }
+
+    /// WebKit 的库是 WAL 模式；Tauri 退出后 -shm 被清掉，`sqlite3 -readonly` 直接报 unable to open（14）。
+    /// 错了就是「Tauri 关着时 GPUI 启动，导入静默失败，恢复不出 Tauri 里的标签」
+    #[test]
+    fn reads_wal_mode_db_after_tauri_quit() {
+        let root = std::env::temp_dir().join(format!("makit-webkit-wal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let db = make_localstorage(&root, &[("makit-theme", "nord")]);
+        let st = Command::new("/usr/bin/sqlite3").arg(&db).arg("pragma journal_mode=wal;").output().unwrap();
+        assert!(String::from_utf8_lossy(&st.stdout).contains("wal"));
+        assert!(!db.with_extension("sqlite3-shm").exists(), "干净关闭后 -shm 不在（复现 Tauri 退出后的样子）");
+        let before = std::fs::read(&db).unwrap();
+        let ls = read_localstorage(&db).expect("WAL 且没有 -shm 也要读得出");
+        assert_eq!(ls.get("makit-theme").map(String::as_str), Some("nord"));
+        assert_eq!(std::fs::read(&db).unwrap(), before, "原库一个字节都不动");
+        assert!(!db.with_extension("sqlite3-shm").exists(), "不在 Tauri 的目录里留 -shm");
     }
 
     #[test]

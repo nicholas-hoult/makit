@@ -57,9 +57,10 @@ pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
         let ls = webkit_root.and_then(webkit::find_localstorage_with_mtime).map(|(t, _)| t);
         matches!((saved, ls), (Some(a), Some(b)) if b > a)
     };
-    if let Some(s) = load_from(path) {
+    let existing = load_from(path);
+    if let Some(s) = &existing {
         if !tauri_newer() {
-            return s;
+            return s.clone();
         }
     }
     let state = match webkit_root.and_then(webkit::import_from) {
@@ -67,7 +68,11 @@ pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
             eprintln!("[persist] 从 {from} 导入 Tauri 版的设置（首次启动，或 Tauri 版在这之后用过）");
             s
         }
-        None => NativeState::default(),
+        // 读不出来：有旧状态就用旧的（不能退回空白、清掉所有标签），也不写盘
+        None => match existing {
+            Some(s) => return s,
+            None => NativeState::default(),
+        },
     };
     if let Err(e) = save_to(path, &state) {
         eprintln!("[persist] 写 {} 失败：{e}", path.display());
@@ -221,6 +226,23 @@ mod tests {
         webkit::tests::make_localstorage(&wk, &[("makit-theme", "solarized")]);
         assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "solarized", "Tauri 更新 → 重新导入");
         assert!(load_from(&p).unwrap().theme.id == "solarized", "重新导入后立刻写盘");
+    }
+
+    /// Tauri 更新了但读不出来（库坏了 / 被锁）：保留 GPUI 已有的状态，不能退回空白（那会清掉所有标签）
+    #[test]
+    fn failed_reimport_keeps_existing_state() {
+        let d = tmp("reimport-fail");
+        let p = d.join("native-state.json");
+        let wk = d.join("WebKit");
+        let mut s = NativeState::default();
+        s.theme.id = "nord".into();
+        save_to(&p, &s).unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+        std::fs::File::options().write(true).open(&p).unwrap().set_modified(old).unwrap();
+        let db = webkit::tests::make_localstorage(&wk, &[("makit-theme", "x")]);
+        std::fs::write(&db, b"not a database").unwrap();
+        assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "nord");
+        assert_eq!(load_from(&p).unwrap().theme.id, "nord", "盘上的也没被覆盖");
     }
 
     #[test]
