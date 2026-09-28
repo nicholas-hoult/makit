@@ -51,12 +51,22 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
         let cid = cx.read_entity(&state, |s, _| s.workspace.state.active_container_id.clone()).unwrap_or_default();
         let n = cx.update(|cx| ws.update(cx, |v, cx| v.menu_items(&MenuTarget::Pane { cid: cid.clone() }, cx).len())).unwrap_or(0);
         check(n == 5, &format!("pane 菜单 5 项（左右 / 上下 / 新终端 / ─ / 关闭当前 tab），实际 {n}"));
-        let _ = cx.update(|cx| ws.update(cx, |v, cx| v.open_menu(gpui::point(gpui::px(200.0), gpui::px(200.0)), MenuTarget::Pane { cid: cid.clone() }, cx)));
+        // 弹菜单 / 关菜单现在都是 D 包的通用组件（overlays::OverlayHost），不再是工作区自己的状态
+        let _ = cx.update_window(any, |_, window, cx| {
+            let weak = ws.downgrade();
+            let target = MenuTarget::Pane { cid: cid.clone() };
+            crate::overlays::show_context_menu(gpui::point(gpui::px(200.0), gpui::px(200.0)), window, cx, move |cx| {
+                weak.upgrade().map(|w| w.read(cx).menu_items(&target, cx)).unwrap_or_default()
+            });
+        });
         pause(400).await;
-        let _ = cx.update(|cx| ws.update(cx, |v, cx| {
-            v.menu = None;
-            cx.notify();
-        }));
+        let is_open = cx.update(|cx| crate::overlays::host(cx).map(|h| h.read(cx).menu_open()).unwrap_or(false)).unwrap_or(false);
+        check(is_open, "pane 右键菜单弹出后 OverlayHost.menu_open()");
+        let _ = cx.update_window(any, |_, window, cx| {
+            if let Some(h) = crate::overlays::host(cx) {
+                h.update(cx, |h, cx| h.close_menu(window, cx));
+            }
+        });
 
         // 3. ⌘T ⌘D → 两个 pane
         press(cx, "cmd-t");
@@ -116,12 +126,21 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
             .unwrap_or_default();
         let n = cx.update(|cx| ws.update(cx, |v, cx| v.menu_items(&MenuTarget::Tab { cid: cid.clone(), tid: tid.clone() }, cx).len())).unwrap_or(0);
         check(n == 10, &format!("标签菜单 8 项 + 2 条分隔线（同 TS paneMenuItems，实际 {n}）"));
-        let _ = cx.update(|cx| ws.update(cx, |v, cx| v.open_menu(gpui::point(gpui::px(300.0), gpui::px(60.0)), MenuTarget::Tab { cid, tid }, cx)));
+        let _ = cx.update_window(any, |_, window, cx| {
+            let weak = ws.downgrade();
+            let target = MenuTarget::Tab { cid, tid };
+            crate::overlays::show_context_menu(gpui::point(gpui::px(300.0), gpui::px(60.0)), window, cx, move |cx| {
+                weak.upgrade().map(|w| w.read(cx).menu_items(&target, cx)).unwrap_or_default()
+            });
+        });
         pause(400).await;
-        let _ = cx.update(|cx| ws.update(cx, |v, cx| {
-            v.menu = None;
-            cx.notify();
-        }));
+        let is_open = cx.update(|cx| crate::overlays::host(cx).map(|h| h.read(cx).menu_open()).unwrap_or(false)).unwrap_or(false);
+        check(is_open, "标签右键菜单弹出后 OverlayHost.menu_open()");
+        let _ = cx.update_window(any, |_, window, cx| {
+            if let Some(h) = crate::overlays::host(cx) {
+                h.update(cx, |h, cx| h.close_menu(window, cx));
+            }
+        });
 
         // 7. ⌥⌘↩ 最大化 / 还原，⌘W
         press(cx, "alt-cmd-enter");

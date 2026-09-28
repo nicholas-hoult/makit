@@ -27,7 +27,6 @@ pub mod dnd;
 pub mod drop;
 pub mod flash;
 pub mod labels;
-pub mod menu;
 pub mod model;
 pub mod selftest;
 pub mod splitter;
@@ -52,7 +51,6 @@ use crate::theme::{ActiveTheme, Theme};
 use dnd::{SessionDrag, TabDrag};
 use drop::{accepts_pane_drop, insert_marker, is_tab_drag, overlay_fraction, tab_insert_index, DragKind};
 use labels::{kind_icon, tab_status, tab_title, TabStatus};
-use menu::{item, item_if, render_menu, MenuItem};
 use model::{
     collect_containers, find_container, find_nearest_container, layout_tree, resume_cmd, split_id, tabs_to_close, CloseScope,
     ContainerNode, Dir, Direction, LayoutNode, Rect, Side, SplitNode, TabKind,
@@ -112,9 +110,11 @@ pub struct WorkspaceView {
     dragging_tab: Option<String>,
     flash: Option<Flash>,
     flash_seq: u64,
-    menu: Option<(Point<Pixels>, MenuTarget)>,
     /// 每个 container 的标签条滚动 + 上次滚到的 active 标签（active 变了才滚）
     tab_scroll: HashMap<String, (ScrollHandle, String)>,
+    /// pane / tab 右键菜单要用 D 包的通用组件（`overlays::show_context_menu`），它的 build 闭包
+    /// 只给 `&App`，没有 `cx.entity()` 可拿——自己留一份弱引用
+    self_weak: WeakEntity<Self>,
     /// 每个 pane 上一帧的窗口坐标矩形（⌘F 搜索条贴当前 pane 的右上角）
     pane_bounds: Rc<RefCell<HashMap<String, gpui::Bounds<Pixels>>>>,
 }
@@ -144,8 +144,8 @@ impl WorkspaceView {
             dragging_tab: None,
             flash: None,
             flash_seq: 0,
-            menu: None,
             tab_scroll: HashMap::new(),
+            self_weak: cx.entity().downgrade(),
         }
     }
 
@@ -454,21 +454,25 @@ impl WorkspaceView {
 
     // ---- 右键菜单 ----
 
-    fn menu_items(&self, target: &MenuTarget, cx: &mut Context<Self>) -> Vec<MenuItem> {
-        let w = cx.entity().downgrade();
+    /// D 包的通用右键菜单组件（Esc 关、点外面关、关掉后焦点还回去，都是它管）。
+    /// build 闭包每次弹菜单只给 `&App`，没有 `cx.entity()`，用 `self_weak` 代替
+    fn menu_items(&self, target: &MenuTarget, cx: &App) -> Vec<crate::overlays::MenuItem> {
+        use crate::overlays::{show_toast, toast, MenuItem as OM};
+        let w = self.self_weak.clone();
         let s = self.state.read(cx);
         match target {
             MenuTarget::Pane { cid } => {
                 let Some(c) = find_container(&s.workspace.state.root, cid) else { return vec![] };
                 let (c1, c2, c3, c4, tid) = (cid.clone(), cid.clone(), cid.clone(), cid.clone(), c.active_tab_id.clone());
                 let (w1, w2, w3, w4) = (w.clone(), w.clone(), w.clone(), w);
+                let tid_empty = tid.is_empty();
                 vec![
-                    item("左右分屏", move |_, cx| drop(w1.update(cx, |v, cx| v.split_container(&c1, Dir::V, cx)))),
-                    item("上下分屏", move |_, cx| drop(w2.update(cx, |v, cx| v.split_container(&c2, Dir::H, cx)))),
-                    item("新终端", move |_, cx| drop(w3.update(cx, |v, cx| v.new_shell_in(&c3, cx)))),
-                    MenuItem::Sep,
+                    OM::action("左右分屏", move |_, cx| drop(w1.update(cx, |v, cx| v.split_container(&c1, Dir::V, cx)))),
+                    OM::action("上下分屏", move |_, cx| drop(w2.update(cx, |v, cx| v.split_container(&c2, Dir::H, cx)))),
+                    OM::action("新终端", move |_, cx| drop(w3.update(cx, |v, cx| v.new_shell_in(&c3, cx)))),
+                    OM::separator(),
                     // 明确写「当前」：这个菜单是在 pane 上右键弹的，没有「某个 tab」可指
-                    item_if(!tid.is_empty(), "关闭当前 tab", move |_, cx| drop(w4.update(cx, |v, cx| v.close_tab(&c4, &tid, cx)))),
+                    OM::action("关闭当前 tab", move |_, cx| drop(w4.update(cx, |v, cx| v.close_tab(&c4, &tid, cx)))).disabled(tid_empty),
                 ]
             }
             MenuTarget::Tab { cid, tid } => {
@@ -503,32 +507,33 @@ impl WorkspaceView {
                     }
                 };
                 let (p1, p2) = (cwd.clone(), cwd.clone());
+                let resume_has = resume.is_some();
                 vec![
-                    item("关闭", close_one),
-                    item_if(!others.is_empty(), "关闭其他", close_others),
-                    item_if(!right.is_empty(), "关闭右侧", close_right),
-                    MenuItem::Sep,
+                    OM::action("关闭", close_one),
+                    OM::action("关闭其他", close_others).disabled(others.is_empty()),
+                    OM::action("关闭右侧", close_right).disabled(right.is_empty()),
+                    OM::separator(),
                     // 只有一个 tab 时禁用：拆出去还是「一个 pane 一个 tab」，而且源 container 会先被摘掉
-                    item_if(!single, "移到左右分屏", mv(Dir::V)),
-                    item_if(!single, "移到上下分屏", mv(Dir::H)),
-                    MenuItem::Sep,
-                    item("在 Finder 中显示", move |_, _| {
+                    OM::action("移到左右分屏", mv(Dir::V)).disabled(single),
+                    OM::action("移到上下分屏", mv(Dir::H)).disabled(single),
+                    OM::separator(),
+                    OM::action("在 Finder 中显示", move |_, _| {
                         let _ = makit_core::paths::open_path(p1.clone(), true);
                     }),
-                    item("复制路径", move |_, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(p2.clone()))),
-                    item_if(resume.is_some(), "复制恢复命令", move |_, cx| {
+                    OM::action("复制路径", move |_, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(p2.clone()));
+                        show_toast("已复制", toast::COPY_OK, cx);
+                    }),
+                    OM::action("复制恢复命令", move |_, cx| {
                         if let Some(r) = &resume {
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(r.clone()));
+                            show_toast("已复制", toast::COPY_OK, cx);
                         }
-                    }),
+                    })
+                    .disabled(!resume_has),
                 ]
             }
         }
-    }
-
-    fn open_menu(&mut self, pos: Point<Pixels>, target: MenuTarget, cx: &mut Context<Self>) {
-        self.menu = Some((pos, target));
-        cx.notify();
     }
 
     // ---- 渲染 ----
@@ -769,10 +774,13 @@ impl WorkspaceView {
                     })
                     .on_mouse_down(MouseButton::Right, {
                         let (cid, tid) = (cid.clone(), tid.clone());
-                        cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                        cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                             // 拦住：冒到 pane 上弹的是 pane 菜单，那个菜单的「关闭」关的是 active tab
                             cx.stop_propagation();
-                            this.open_menu(ev.position, MenuTarget::Tab { cid: cid.clone(), tid: tid.clone() }, cx);
+                            let (weak, target) = (this.self_weak.clone(), MenuTarget::Tab { cid: cid.clone(), tid: tid.clone() });
+                            crate::overlays::show_context_menu(ev.position, window, cx, move |cx| {
+                                weak.upgrade().map(|w| w.read(cx).menu_items(&target, cx)).unwrap_or_default()
+                            });
                         })
                     })
                     .on_drag(drag, move |d: &TabDrag, _, _, cx| {
@@ -893,9 +901,12 @@ impl WorkspaceView {
                 }
             }))
             .on_mouse_down(MouseButton::Right, {
-                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                     cx.stop_propagation();
-                    this.open_menu(ev.position, MenuTarget::Pane { cid: c6.clone() }, cx);
+                    let (weak, target) = (this.self_weak.clone(), MenuTarget::Pane { cid: c6.clone() });
+                    crate::overlays::show_context_menu(ev.position, window, cx, move |cx| {
+                        weak.upgrade().map(|w| w.read(cx).menu_items(&target, cx)).unwrap_or_default()
+                    });
                 })
             })
             .on_drag_move({
@@ -966,7 +977,12 @@ impl WorkspaceView {
             .when(c.tabs.is_empty(), |d| {
                 d.on_mouse_down(
                     MouseButton::Right,
-                    cx.listener(move |this, ev: &MouseDownEvent, _, cx| this.open_menu(ev.position, MenuTarget::Pane { cid: c6.clone() }, cx)),
+                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                        let (weak, target) = (this.self_weak.clone(), MenuTarget::Pane { cid: c6.clone() });
+                        crate::overlays::show_context_menu(ev.position, window, cx, move |cx| {
+                            weak.upgrade().map(|w| w.read(cx).menu_items(&target, cx)).unwrap_or_default()
+                        });
+                    }),
                 )
             })
             .when_some(overlay, |d, (x, y, w, h)| {
@@ -1123,17 +1139,6 @@ impl Render for WorkspaceView {
         self.shutdown_tabs(&dead, cx);
         self.tab_scroll.retain(|cid, _| find_container(&ws.root, cid).is_some());
         self.sync_focus(window, cx);
-        let menu = self.menu.clone().map(|(pos, target)| {
-            let items = self.menu_items(&target, cx);
-            let this = cx.entity().downgrade();
-            let close: Rc<dyn Fn(&mut Window, &mut App)> = Rc::new(move |_, cx| {
-                let _ = this.update(cx, |v, cx| {
-                    v.menu = None;
-                    cx.notify();
-                });
-            });
-            render_menu(pos, items, close, cx)
-        });
         let size = self.size.clone();
         div()
             .id("workspace")
@@ -1144,7 +1149,6 @@ impl Render for WorkspaceView {
             .bg(cx.theme().bg)
             .child(canvas(move |b, _, _| size.set(b.size), |_, _, _, _| {}).absolute().size_full())
             .child(content)
-            .children(menu)
     }
 }
 
