@@ -23,6 +23,7 @@
 //! ```
 //! 改完**一定**调对应的 `*_changed` / `update_prefs`，否则不存盘、别的视图也不知道。
 
+pub mod binding;
 pub mod sessions;
 
 use std::collections::HashSet;
@@ -58,6 +59,8 @@ pub struct AppState {
     /// 正在归档写盘的会话（这期间增量结果不覆盖它，同 TS 版的 archivingRef）
     pub archiving: HashSet<String>,
     saver: Option<Saver>,
+    /// 上次读 `~/.claude/sessions/*.json` 绑标签的时间（running-changed 活跃时每 500ms 一发，2s 节流，同 Tauri）
+    last_bind_attempt: Option<std::time::Instant>,
 }
 
 impl EventEmitter<AppEvent> for AppState {}
@@ -77,6 +80,7 @@ impl AppState {
                 prefs,
                 archiving: HashSet::new(),
                 saver,
+                last_bind_attempt: None,
             };
             s.start_session_feed(cx);
             s
@@ -105,15 +109,25 @@ impl AppState {
                     WatchEvent::RunningChanged => running = true,
                     WatchEvent::SessionsChanged(p) => paths.extend(p),
                 };
+                let first_is_file = matches!(first, WatchEvent::SessionsChanged(_));
                 absorb(first);
-                // 尾部合并：会话活跃时事件每 500ms 一发，每次都要解析 jsonl + 跑 ps，标题同步不在乎这点延迟
-                cx.background_executor().timer(std::time::Duration::from_millis(800)).await;
+                // 尾部合并只给 jsonl 那条路（每次都要解析文件，标题同步不在乎这点延迟）；
+                // 运行状态收到就处理，同 Tauri（running-changed 立即 list_running_sessions）
+                if first_is_file {
+                    cx.background_executor().timer(std::time::Duration::from_millis(800)).await;
+                }
                 while let Ok(ev) = rx.try_recv() {
                     absorb(ev);
                 }
                 if running {
                     let list = cx.background_executor().spawn(async { makit_core::running::list_running_sessions() }).await;
-                    if this.update(cx, |s, cx| s.apply_running(list, cx)).is_err() {
+                    if this
+                        .update(cx, |s, cx| {
+                            s.apply_running(list, cx);
+                            s.bind_pending_tabs(false, cx);
+                        })
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -144,9 +158,13 @@ impl AppState {
             crate::perf::mark("会话列表返回");
             eprintln!("[state] list_sessions: {} 条，{:?}", list.len(), t.elapsed());
             let _ = this.update(cx, |s, cx| {
+                let first = !s.loaded;
                 s.sessions = list;
                 s.loaded = true;
                 s.sessions_changed(cx);
+                if first {
+                    s.bind_pending_tabs(true, cx);
+                }
             });
         })
         .detach();
@@ -154,7 +172,8 @@ impl AppState {
 
     fn apply_running(&mut self, list: Vec<makit_core::RunningMeta>, cx: &mut Context<Self>) {
         let archiving = self.archiving.clone();
-        if sessions::merge_running(&mut self.sessions, &list, |s| archiving.contains(&s.session_id)) {
+        // 已归档的不合并运行状态（同 Tauri mergeRunning 的 `s.archived || archivingRef`）
+        if sessions::merge_running(&mut self.sessions, &list, |s| s.archived || archiving.contains(&s.session_id)) {
             self.sessions_changed(cx);
         }
     }
@@ -189,6 +208,63 @@ impl AppState {
     pub fn sessions_changed(&mut self, cx: &mut Context<Self>) {
         cx.emit(AppEvent::SessionsChanged);
         cx.notify();
+        self.bind_running_tabs(cx);
+    }
+
+    /// 运行中会话的 `pty_id` 等于某个未绑定标签的 id → 绑上（同 Tauri App.tsx 的 `[sessions]` effect）
+    fn bind_running_tabs(&mut self, cx: &mut Context<Self>) {
+        let pending = binding::pending_tabs(&self.workspace.state.root);
+        if pending.is_empty() {
+            return;
+        }
+        let hits: Vec<(binding::PendingTab, String, String, String)> = binding::match_running(&pending, &self.sessions)
+            .into_iter()
+            .map(|(p, s)| (p, s.session_id.clone(), s.short_id.clone(), s.cwd.clone()))
+            .collect();
+        if hits.is_empty() {
+            return;
+        }
+        for (p, sid, short, cwd) in &hits {
+            self.workspace.bind_session_to_tab(&p.container_id, &p.tab_id, sid, short, None, Some(cwd));
+        }
+        self.workspace_changed(cx);
+    }
+
+    /// 还没发第一条消息（jsonl 不存在、不在会话列表里）的 claude：读 `~/.claude/sessions/<pid>.json`
+    /// （core `resolve_pty_bindings`，同 Tauri `tryBindPtyTabs`）。没有待绑定标签就什么都不做；2s 节流，`force` 跳过节流
+    pub fn bind_pending_tabs(&mut self, force: bool, cx: &mut Context<Self>) {
+        let pending = binding::pending_tabs(&self.workspace.state.root);
+        if pending.is_empty() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        if !force && self.last_bind_attempt.is_some_and(|t| now.duration_since(t) < std::time::Duration::from_secs(2)) {
+            return;
+        }
+        self.last_bind_attempt = Some(now);
+        let ids: Vec<String> = pending.iter().map(|p| p.tab_id.clone()).collect();
+        cx.spawn(async move |this, cx| {
+            let bindings = cx.background_executor().spawn(async move { makit_core::running::resolve_pty_bindings(ids) }).await;
+            if bindings.is_empty() {
+                return;
+            }
+            let _ = this.update(cx, |s, cx| {
+                // 等后台跑完的这段时间里标签可能已经被别的路径绑上 / 关掉：以现在的工作区为准
+                let still = binding::pending_tabs(&s.workspace.state.root);
+                let mut changed = false;
+                for b in bindings {
+                    let Some(p) = still.iter().find(|p| p.tab_id == b.pty_id) else { continue };
+                    let cwd = s.session(&b.session_id).map(|m| m.cwd.clone());
+                    let label = (!b.name.is_empty()).then_some(b.name.as_str());
+                    s.workspace.bind_session_to_tab(&p.container_id, &p.tab_id, &b.session_id, &b.short_id, label, cwd.as_deref());
+                    changed = true;
+                }
+                if changed {
+                    s.workspace_changed(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     pub fn workspace_changed(&mut self, cx: &mut Context<Self>) {

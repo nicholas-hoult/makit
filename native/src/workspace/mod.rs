@@ -354,6 +354,7 @@ impl WorkspaceView {
         let tab_id = tab.id.clone();
         let view = cx.new(|cx| TerminalView::new(spec, window, cx));
         let tid = tab_id.clone();
+        let tid_input = tab_id.clone();
         let sub = cx.subscribe(&view, move |this: &mut Self, _, ev: &TerminalEvent, cx| match ev {
             TerminalEvent::Exited => {
                 let loc = this.state.read(cx).workspace.locate_tab(&tab_id).map(|(c, _)| c.id.clone());
@@ -371,9 +372,11 @@ impl WorkspaceView {
                 s.workspace_changed(cx);
             }),
         });
-        // 在某个会话的终端里打字 = 看过它的通知（E）
-        let input_sub = cx.subscribe(&view, |_, _, ev: &UserInput, cx| {
-            if let Some(sid) = ev.session_id.clone() {
+        // 在某个会话的终端里打字 = 看过它的通知（E）。会话 id 按标签**现在**的绑定查：
+        // shell / 新建标签里手动起的 claude 是后绑上的，终端启动时的 spec 里没有它
+        let input_sub = cx.subscribe(&view, move |this: &mut Self, _, ev: &UserInput, cx| {
+            let bound = this.state.read(cx).workspace.locate_tab(&tid_input).and_then(|(_, t)| t.session_id.clone());
+            if let Some(sid) = bound.or_else(|| ev.session_id.clone()) {
                 crate::notify::Notifier::global(cx).update(cx, |n, cx| n.mark_session_read(&sid, cx));
             }
         });
