@@ -61,6 +61,9 @@ pub struct AppState {
     saver: Option<Saver>,
     /// 上次读 `~/.claude/sessions/*.json` 绑标签的时间（running-changed 活跃时每 500ms 一发，2s 节流，同 Tauri）
     last_bind_attempt: Option<std::time::Instant>,
+    /// 最近一次扫描会话失败的原因（同 Tauri App.tsx 的 error 状态，Root 画一条「加载失败」横幅）。
+    /// 失败时不清空已有的 sessions——不能拿一次扫描失败把用户已经看到的会话列表清没
+    pub load_error: Option<String>,
 }
 
 impl EventEmitter<AppEvent> for AppState {}
@@ -81,6 +84,7 @@ impl AppState {
                 archiving: HashSet::new(),
                 saver,
                 last_bind_attempt: None,
+                load_error: None,
             };
             s.start_session_feed(cx);
             s
@@ -136,9 +140,17 @@ impl AppState {
                     paths.dedup();
                     let updated = cx
                         .background_executor()
-                        .spawn(async move { makit_core::sessions::list_sessions_by_paths(paths, Some("smart".into())).unwrap_or_default() })
+                        .spawn(async move { makit_core::sessions::list_sessions_by_paths(paths, Some("smart".into())) })
                         .await;
-                    if this.update(cx, |s, cx| s.apply_updated(updated, cx)).is_err() {
+                    let ok = this.update(cx, |s, cx| match updated {
+                        Ok(list) => {
+                            s.load_error = None;
+                            s.apply_updated(list, cx);
+                        }
+                        // 增量解析失败：不动现有列表，只记下原因，等下一次成功的扫描自然清掉
+                        Err(e) => s.load_error = Some(e),
+                    });
+                    if ok.is_err() {
                         break;
                     }
                 }
@@ -151,15 +163,18 @@ impl AppState {
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
             let t = std::time::Instant::now();
-            let list = cx
+            let result = cx
                 .background_executor()
-                .spawn(async { makit_core::sessions::list_sessions(Some("smart".into())).unwrap_or_default() })
+                .spawn(async { makit_core::sessions::list_sessions(Some("smart".into())) })
                 .await;
             crate::perf::mark("会话列表返回");
-            eprintln!("[state] list_sessions: {} 条，{:?}", list.len(), t.elapsed());
+            match &result {
+                Ok(list) => eprintln!("[state] list_sessions: {} 条，{:?}", list.len(), t.elapsed()),
+                Err(e) => eprintln!("[state] list_sessions 失败：{e}"),
+            }
             let _ = this.update(cx, |s, cx| {
                 let first = !s.loaded;
-                s.sessions = list;
+                s.load_error = sessions::apply_full_scan(&mut s.sessions, result);
                 s.loaded = true;
                 s.sessions_changed(cx);
                 if first {

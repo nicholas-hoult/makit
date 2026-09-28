@@ -76,6 +76,18 @@ pub fn merge_updated(list: &mut Vec<SessionMeta>, updated: Vec<SessionMeta>, ski
     changed
 }
 
+/// 全量扫描失败时怎么办（同 Tauri App.tsx `load()` 的 catch）：**保留原来的列表**，不能拿一次
+/// 失败的扫描把用户已经看到的会话清空；`error` 进 `load_error`，界面照它显示「加载失败」横幅
+pub fn apply_full_scan(current: &mut Vec<SessionMeta>, result: Result<Vec<SessionMeta>, String>) -> Option<String> {
+    match result {
+        Ok(list) => {
+            *current = list;
+            None
+        }
+        Err(e) => Some(e),
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -177,5 +189,21 @@ pub(crate) mod tests {
         assert_eq!(list[0].user_msg_count, 9);
         assert_eq!(list[0].child_processes.len(), 1, "子进程沿用旧值");
         assert!(!merge_updated(&mut list, vec![SessionMeta { mtime: 99, ..session("a") }], |id| id == "a"), "归档中的跳过");
+    }
+
+    #[test]
+    fn full_scan_failure_keeps_old_list_and_reports_error() {
+        let mut list = vec![session("a"), session("b")];
+        let err = apply_full_scan(&mut list, Err("拒绝访问 ~/.claude/projects".into()));
+        assert_eq!(err.as_deref(), Some("拒绝访问 ~/.claude/projects"));
+        assert_eq!(list.len(), 2, "失败不能把已经看到的会话清空");
+    }
+
+    #[test]
+    fn full_scan_success_replaces_list_and_clears_error() {
+        let mut list = vec![session("a")];
+        let err = apply_full_scan(&mut list, Ok(vec![session("b"), session("c")]));
+        assert_eq!(err, None);
+        assert_eq!(list.iter().map(|s| s.session_id.as_str()).collect::<Vec<_>>(), ["b", "c"]);
     }
 }

@@ -98,6 +98,7 @@ impl Render for Root {
         }
         let theme = cx.theme().clone();
         let state = self.state.clone();
+        let load_error = state.read(cx).load_error.clone();
         let el = div()
             .id("root")
             .key_context("Root")
@@ -167,6 +168,20 @@ impl Render for Root {
         // C 工作区：自绘标题栏在最上面一条（红绿灯 / 折叠按钮 / 标题），下面是侧栏 + 工作区
         let titlebar = workspace::titlebar::render_titlebar(&self.state, window, cx);
         el.flex_col()
+            // 会话扫描失败：不能吞掉，吞了界面上就是一片「什么都没有」（同 Tauri App.tsx 的 .error 横幅）
+            .when_some(load_error, |d, e| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px(px(12.0))
+                        .py(px(8.0))
+                        .bg(theme.bg_soft)
+                        .border_b_1()
+                        .border_color(theme.border)
+                        .text_color(theme.danger)
+                        .child(format!("加载失败: {e}")),
+                )
+            })
             .child(titlebar)
             .child(
                 div()
