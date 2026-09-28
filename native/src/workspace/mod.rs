@@ -41,7 +41,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     canvas, div, point, prelude::*, px, relative, svg, Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context,
-    DragMoveEvent, Empty, Entity, EntityInputHandler, ExternalPaths, FocusHandle, Focusable, FontWeight, MouseButton,
+    DragMoveEvent, Empty, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight, MouseButton,
     MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Size, Subscription, WeakEntity, Window,
 };
 
@@ -50,7 +50,7 @@ use crate::state::AppState;
 use crate::terminal::{SearchResults, SpawnSpec, TerminalEvent, TerminalSpawnEvent, TerminalView, UserInput};
 use crate::theme::{ActiveTheme, Theme};
 use dnd::{SessionDrag, TabDrag};
-use drop::{accepts_pane_drop, format_paths_for_terminal, insert_marker, is_tab_drag, overlay_fraction, tab_insert_index, DragKind};
+use drop::{accepts_pane_drop, insert_marker, is_tab_drag, overlay_fraction, tab_insert_index, DragKind};
 use labels::{kind_icon, tab_status, tab_title, TabStatus};
 use menu::{item, item_if, render_menu, MenuItem};
 use model::{
@@ -437,17 +437,17 @@ impl WorkspaceView {
         self.hover_drop.take().filter(|(c, _, _)| c == cid).map(|(_, d, s)| (d, s))
     }
 
-    /// Finder 拖文件进来：在这个 pane 当前标签的命令行里插路径（不分屏），然后焦点跟过去
+    /// Finder 拖文件进来：在这个 pane 当前标签的命令行里插路径（不分屏），然后焦点跟过去。
+    /// 走 `insert_paths`（= 粘贴语义，按程序状态决定括号粘贴），不走 IME 上屏那条路——
+    /// 文件名可以带换行，裸写进 PTY 的话那个换行就是回车，会把半截命令直接执行掉（#226 修）
     fn on_files_drop(&mut self, cid: &str, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
-        let list: Vec<String> = paths.paths().iter().map(|p| p.to_string_lossy().into_owned()).collect();
-        let text = format_paths_for_terminal(&list);
-        if text.is_empty() {
+        if paths.paths().is_empty() {
             return;
         }
         let tid = find_container(&self.state.read(cx).workspace.state.root, cid).map(|c| c.active_tab_id.clone());
         let Some(view) = tid.and_then(|t| self.terminals.get(&t)).map(|t| t.view.clone()) else { return };
-        // 走终端的文字输入口（和输入法上屏同一条路，= 像打字一样写进 PTY）。A 终端包有专门的 write_text 之后换过去
-        view.update(cx, |v, cx| v.replace_text_in_range(None, &text, window, cx));
+        let list = paths.paths().to_vec();
+        view.update(cx, |v, cx| v.insert_paths(&list, cx));
         self.set_active(cid, cx);
         view.read(cx).focus_handle(cx).focus(window);
     }
