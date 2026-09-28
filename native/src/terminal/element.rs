@@ -2,7 +2,7 @@
 //! 把可见区域拍成背景块 + 文字段 + 选区 / 搜索高亮 / 链接下划线 / 光标 / 滚动条，paint 时画出来，顺带挂鼠标监听。
 //!
 //! 视觉数值照 Tauri 版（App.css / TerminalManager.ts / xterm 6.1 默认）：
-//! - 字体：ui-monospace（SF Mono）→ Menlo，13px；中日韩回退 Apple SD Gothic Neo → Hiragino Sans GB → PingFang SC
+//! - 字体：对标 对标产品（见 `fonts.rs`）——JetBrains Mono 13px，中日韩按系统语言固定 PingFang SC / TC / Hiragino Sans
 //! - 格子：宽 = floor(字宽 × 缩放) / 缩放，高 = ceil((ascent + descent) × 缩放) / 缩放（xterm 的 device 像素取整，
 //!   列数才和 Tauri 版同窗口一致）
 //! - 选区：主题 `--selection-bg`（未聚焦 `--selection-bg-inactive`），画在文字下面
@@ -27,7 +27,7 @@ use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape, NamedColor}
 use super::contrast::cell_fg;
 use super::palette::TermColors;
 use super::scrollbar::SCROLLBAR_W;
-use super::{TerminalView, CJK_FALLBACKS, FONT_STACK};
+use super::{fonts, TerminalView, FONT_STACK};
 
 pub(super) struct TerminalElement {
     pub(super) view: Entity<TerminalView>,
@@ -142,10 +142,13 @@ fn font_family(window: &Window) -> SharedString {
         .clone()
 }
 
-/// 当前字号下的终端字体和格子尺寸（xterm 的 device 像素取整）
+static CJK: OnceLock<Vec<String>> = OnceLock::new();
+
+/// 当前字号下的终端字体和格子尺寸（对标终端 的设备像素四舍五入，见 `fonts::cell_size`）
 pub(super) fn metrics(window: &Window, font_size: f32) -> (Font, Pixels, Pixels) {
     let mut f = gpui::font(font_family(window));
-    f.fallbacks = Some(FontFallbacks::from_fonts(CJK_FALLBACKS.iter().map(|s| s.to_string()).collect()));
+    let cjk = CJK.get_or_init(|| fonts::cjk_fallbacks(&fonts::system_preferred_languages()).into_iter().map(String::from).collect());
+    f.fallbacks = Some(FontFallbacks::from_fonts(cjk.clone()));
     let ts = window.text_system();
     let id = ts.resolve_font(&f);
     let fs = px(font_size);
@@ -153,8 +156,8 @@ pub(super) fn metrics(window: &Window, font_size: f32) -> (Font, Pixels, Pixels)
     let adv = ts.advance(id, fs, 'W').map(|s| f32::from(s.width)).unwrap_or(font_size * 0.6);
     let asc = f32::from(ts.ascent(id, fs));
     let desc = f32::from(ts.descent(id, fs)).abs();
-    let cell_w = (adv * scale).floor().max(1.0) / scale;
-    let line_h = ((asc + desc) * scale).ceil().max(1.0) / scale;
+    // line_gap：GPUI 不公开；JetBrains Mono 的 hhea lineGap 就是 0
+    let (cell_w, line_h) = fonts::cell_size(adv, asc, desc, 0.0, scale);
     (f, px(cell_w), px(line_h))
 }
 

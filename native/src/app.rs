@@ -231,6 +231,10 @@ pub fn run() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
             None => persist::NativeState::default(),
         };
+        // 终端主字体 JetBrains Mono 随程序打包（对标 对标产品 / 对标终端，见 terminal/fonts.rs）
+        if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
+            eprintln!("[font] 加载内置字体失败：{e}");
+        }
         cx.set_global(Theme::by_id(&prefs.theme.id, &prefs.theme.imported));
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);

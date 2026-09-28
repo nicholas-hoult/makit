@@ -43,6 +43,7 @@ mod search;
 
 pub mod contrast;
 pub mod drop_paths;
+pub mod fonts;
 pub mod grid;
 pub mod keys;
 pub mod links;
@@ -73,9 +74,7 @@ actions!(terminal, [Copy, Paste, ScrollPageUp, ScrollPageDown]);
 
 /// 等宽字体栈，同 TS 版 `fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace, …"`：
 /// ui-monospace 在 macOS 上就是 SF Mono；按顺序取第一个能加载的
-pub const FONT_STACK: &[&str] = &["SF Mono", ".AppleSystemUIFontMonospaced", "SFMono-Regular", "Menlo"];
-/// 中日韩回退，同 TS 版字体栈后半段（顺序照抄：Apple SD Gothic Neo 在前）
-pub const CJK_FALLBACKS: &[&str] = &["Apple SD Gothic Neo", "Hiragino Sans GB", "PingFang SC"];
+pub use fonts::FONT_STACK;
 /// `.xterm-inner` 的 inset：top 6 / right 10 / bottom 16 / left 10（App.css；用 inset 不用 padding，
 /// padding 会被算进尺寸导致行数溢出、选区坐标错位）
 pub const INSET_TOP: f32 = 6.0;
