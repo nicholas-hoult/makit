@@ -538,6 +538,36 @@ impl Element for TerminalElement {
                     return;
                 }
                 let local = ev.position - bounds.origin;
+                // 右键：程序接管鼠标时转给它（vim 的右键菜单等）；否则只对已选中的文字弹菜单（同 Tauri，
+                // 没选中不弹 —— 空框更糟）。选中内容在右键这一刻取走：菜单一开、焦点离开终端，之后可能被清掉
+                if ev.button == gpui::MouseButton::Right {
+                    let (reporting, selection) = view.update(cx, |v, _| (v.mouse_reporting(&ev.modifiers), v.selection_text()));
+                    if !reporting {
+                        if super::input::terminal_menu(selection.as_deref()).is_some() {
+                            let text = selection.unwrap();
+                            let v2 = view.clone();
+                            crate::overlays::show_context_menu(ev.position, window, cx, move |_| {
+                                vec![
+                                    crate::overlays::MenuItem::action("复制", {
+                                        let t = text.clone();
+                                        move |_, cx| {
+                                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(t.clone()));
+                                            crate::overlays::show_toast("已复制", crate::overlays::toast::COPY_OK, cx);
+                                        }
+                                    }),
+                                    crate::overlays::MenuItem::action("搜索选中内容", {
+                                        let (t, v2) = (text.clone(), v2.clone());
+                                        move |window, cx| {
+                                            v2.update(cx, |v, _| window.focus(&v.focus));
+                                            crate::overlays::find_in_terminal(Some(t.clone()), window, cx);
+                                        }
+                                    }),
+                                ]
+                            });
+                        }
+                        return;
+                    }
+                }
                 view.update(cx, |v, cx| {
                     window.focus(&v.focus);
                     v.mouse_down(ev.button, local, w, h, ev.click_count, &ev.modifiers, cx)

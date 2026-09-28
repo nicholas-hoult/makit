@@ -94,7 +94,7 @@ impl TerminalView {
     }
 
     /// 程序开了鼠标上报，且没按 Shift（按住 Shift 强制本地选择，同 xterm / iTerm2）
-    fn mouse_reporting(&self, m: &Modifiers) -> bool {
+    pub(super) fn mouse_reporting(&self, m: &Modifiers) -> bool {
         self.mode().intersects(TermMode::MOUSE_MODE) && !m.shift
     }
 
@@ -617,5 +617,25 @@ impl EntityInputHandler for TerminalView {
 
     fn character_index_for_point(&mut self, _: Point<Pixels>, _: &mut Window, _: &mut Context<Self>) -> Option<usize> {
         None
+    }
+}
+
+/// 终端右键菜单要不要弹、弹哪几项（同 Tauri App.tsx paneMenuItems 的 terminal 分支）：
+/// 只对选中的文字做事；没选中不弹（弹个空框更糟）。选中内容在右键那一刻取走（菜单一开焦点就离开终端，之后可能被清掉）
+pub fn terminal_menu(selection: Option<&str>) -> Option<(&'static str, &'static str)> {
+    // 空字符串不算选中（xterm 拿不到选区时也是这个值）；纯空白是用户真选的，照样能复制
+    selection.filter(|s| !s.is_empty()).map(|_| ("复制", "搜索选中内容"))
+}
+
+#[cfg(test)]
+mod menu_tests {
+    use super::terminal_menu;
+
+    #[test]
+    fn right_click_menu_only_with_selection() {
+        assert_eq!(terminal_menu(None), None);
+        assert_eq!(terminal_menu(Some("")), None, "空选区不弹");
+        assert_eq!(terminal_menu(Some("   ")), Some(("复制", "搜索选中内容")), "空白也是用户选的内容，照样可以复制");
+        assert_eq!(terminal_menu(Some("error: foo")), Some(("复制", "搜索选中内容")));
     }
 }
