@@ -270,7 +270,6 @@ mod tests {
         }
     }
 
-    #[test]
     /// macOS 上按 ⇧ + 符号键，GPUI 报出来的是「移位后的字符、去掉 shift」：⌘⇧] → `cmd-}`、⌘⇧= → `cmd-+`
     /// （gpui-0.2.2 platform/mac/events.rs:437-446；按着 ⌘ 时没有 key_char 兜底，只按 key + 修饰键精确比）。
     /// 所以写成 `shift-]` / `shift-=` 的绑定永远按不出来。错了在界面上就是「⌘⇧] 切标签、⌘+ 放大字号没反应」
