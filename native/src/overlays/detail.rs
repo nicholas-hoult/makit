@@ -1,5 +1,5 @@
 //! 会话详情面板（照 App.tsx:1667-1688, 2194-2252 + App.css `.detail-*` / `.msg-*`）。
-//! 右侧滑出、占 70vw（最多 960），点遮罩 / 「关闭」/ **Esc** 关（#224：Tauri 版没有 Esc）。
+//! 右侧滑出、占 50vw（最多 720，用户 2026-09-29 反馈原来 70vw/960 太宽），点遮罩 / 「关闭」/ **Esc** 关（#224：Tauri 版没有 Esc）。
 //! 消息用 GPUI 的 `list`（变高虚拟列表）：长会话几千条也只排版看得见的那几条。
 
 use std::rc::Rc;
@@ -133,7 +133,7 @@ impl Render for DetailView {
                 div()
                     .id("detail-panel")
                     .occlude()
-                    .w((vp.width * 0.7).min(px(960.0)))
+                    .w((vp.width * 0.5).min(px(720.0)))
                     .h_full()
                     .bg(theme.bg)
                     .flex()
