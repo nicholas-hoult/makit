@@ -102,6 +102,8 @@ impl SidebarView {
         let tooltip = if collapsed { format!("展开「{label}」") } else { format!("折叠「{label}」") };
         div()
             .h(px(GROUP_LABEL_H))
+            // 列表条目默认按内容宽：不撑满的话 hover 底色只盖住文字（Tauri 的 .tree-group-label 是整行块级）
+            .w_full()
             .pr(px(4.))
             .child(
                 div()
@@ -150,6 +152,8 @@ impl SidebarView {
             .id(SharedString::from(format!("proj-{key}")))
             .group("tree-project-header")
             .h(px(PROJECT_HEADER_H))
+            // 块级元素撑满侧栏：名字 flex:1 才能把计数和「+」推到最右，hover 底色也是整行（同 .tree-project-header）
+            .w_full()
             .flex()
             .items_center()
             .gap(px(4.))
