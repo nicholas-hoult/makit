@@ -243,8 +243,9 @@ impl SidebarView {
     }
 
     /// `.tree-session`：两行（标题 + 元信息），padding 5 12 5 8、gap 6、圆角 4、左右 margin 4。
-    /// `.focused`（当前打开的）= 15% accent 底 + 左侧 2px 竖条；`.selected`（键盘选中）= 1px accent 描边，两者正交
-    fn render_session(&mut self, ix: usize, row: usize, show_status: bool, t: &Theme, _window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    /// `.focused`（当前打开的）= 15% accent 底 + 左侧 2px 竖条；`.selected`（键盘选中）= 1px accent 描边，两者正交。
+    /// 描边只在列表有焦点（正在用键盘挑）时画：焦点回到终端后还挂着，就成了「两行同时高亮」（用户 2026-09-29）
+    fn render_session(&mut self, ix: usize, row: usize, show_status: bool, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let s = self.state.read(cx);
         let Some(m) = s.sessions.get(row) else { return div().h(px(SESSION_H)).into_any_element() };
         let m = m.clone();
@@ -252,7 +253,7 @@ impl SidebarView {
         let p = &s.prefs.sidebar;
         let (show_id, show_branch) = (p.row_short_id, p.row_branch);
         let focused = s.workspace.active_tab().and_then(|t| t.session_id.as_deref()) == Some(m.session_id.as_str());
-        let selected = self.selected.as_deref() == Some(m.session_id.as_str());
+        let selected = self.selected.as_deref() == Some(m.session_id.as_str()) && self.list_focus.is_focused(window);
         let rs = meta_state(&m);
         let title = session_title(&m.display_name, &m.first_user_msg, &m.short_id);
         let project = super::groups::basename(if m.git_root.is_empty() { &m.cwd } else { &m.git_root });
