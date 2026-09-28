@@ -355,13 +355,9 @@ impl WorkspaceView {
         let view = cx.new(|cx| TerminalView::new(spec, window, cx));
         let tid = tab_id.clone();
         let tid_input = tab_id.clone();
-        let sub = cx.subscribe(&view, move |this: &mut Self, _, ev: &TerminalEvent, cx| match ev {
-            TerminalEvent::Exited => {
-                let loc = this.state.read(cx).workspace.locate_tab(&tab_id).map(|(c, _)| c.id.clone());
-                if let Some(cid) = loc {
-                    this.close_tab(&cid, &tab_id, cx);
-                }
-            }
+        let sub = cx.subscribe(&view, |_: &mut Self, _, ev: &TerminalEvent, cx| match ev {
+            // 进程退出不关标签（同 Tauri）：终端里已经写了「[进程已退出]」，留着能看 claude 最后的输出，用户自己 ⌘W 关
+            TerminalEvent::Exited => cx.notify(),
             TerminalEvent::TitleChanged => cx.notify(),
         });
         // 启动目录：不在了 → D 的恢复对话框；按会话起始目录校正了 → 写回标签的 cwd
