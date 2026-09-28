@@ -2068,8 +2068,8 @@ body.resizing .resizer {
 }
 
 .detail-panel {
-  width: 70vw;
-  max-width: 960px;
+  width: 50vw;
+  max-width: 720px;
   height: 100vh;
   background: var(--bg);
   display: flex;
