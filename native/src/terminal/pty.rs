@@ -84,6 +84,16 @@ pub fn fallback_notice(from: &str, to: &str) -> String {
     format!("\x1b[33m原目录不存在: {from} → 已切换到: {to}\x1b[0m\r\n")
 }
 
+/// 启动目录不存在、这个标签不许降级（resume 标签）时写进面板的说明（同 Tauri App.tsx openRecoverDialog）。
+/// 恢复对话框可能被关掉，或者同一时间已经开着别的面板的对话框（一次只弹一个）—— 这一行必须写，
+/// 不然那块面板就是一块没有任何线索的死屏。不写成红字：这不是故障，会话记录没丢，只是丢了「在哪启动」这把钥匙
+pub fn cwd_missing_notice(cwd: &str) -> String {
+    format!(
+        "\r\n\x1b[33m原启动目录已不存在: {cwd}\x1b[0m\r\n\x1b[2m会话记录没丢，丢的只是「在哪个目录启动」这把钥匙。\
+若关掉了恢复窗口：关掉本面板，再从侧栏重新打开这条会话即可重试。\x1b[0m"
+    )
+}
+
 /// 包在 alacritty 的 tty 外面：读出来的字节先过一遍 OSC 7 扫描器（alacritty 的解析器不处理 OSC 7），
 /// 原样交给 alacritty。读写 / 注册都转给里面的 Pty
 pub struct ScanningPty {
@@ -219,6 +229,14 @@ mod tests {
         let ok = plan_spawn(None, &base.to_string_lossy(), Some(false)).unwrap();
         assert_eq!((ok.cwd.as_str(), ok.fell_back_from.as_deref(), ok.corrected.as_deref()), (&*base.to_string_lossy(), None, None));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn cwd_missing_notice_is_yellow_then_dim_no_red() {
+        let n = cwd_missing_notice("/gone");
+        assert!(n.starts_with("\r\n\x1b[33m原启动目录已不存在: /gone"), "{n}");
+        assert!(n.contains("会话记录没丢"), "第二段要说清楚不是故障");
+        assert!(!n.contains("\x1b[31m"), "不是红字：不能让用户以为坏了");
     }
 
     #[test]

@@ -451,9 +451,11 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// 往屏幕写一行提示（不经过 PTY），比如「启动被拒、对话框被关」之后，免得留下一块没有线索的死面板
+    /// 往屏幕写一行提示（不经过 PTY），比如「启动被拒、对话框被关」之后，免得留下一块没有线索的死面板。
+    /// 原样写（同 Tauri `terminalManager.notice` = `xterm.writeln`），不额外包一层颜色——调用方自己决定
+    /// 用什么颜色、要不要分段（见 `pty::cwd_missing_notice`）
     pub fn notice(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.write_local(&format!("\r\n\x1b[2m{text}\x1b[0m\r\n"));
+        self.write_local(&format!("{text}\r\n"));
         cx.notify();
     }
 

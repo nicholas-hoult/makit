@@ -995,6 +995,11 @@ impl WorkspaceView {
         self.terminals.get(&id).map(|t| t.view.clone())
     }
 
+    /// 随便哪个标签的终端（不要求是当前 active 的）。目录丢失的通知要写进**那一个**面板，不是当前 pane
+    pub fn terminal_for_tab(&self, tab_id: &str) -> Option<Entity<TerminalView>> {
+        self.terminals.get(tab_id).map(|t| t.view.clone())
+    }
+
     /// 当前 pane 上一帧的窗口坐标矩形
     pub fn active_pane_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
         let cid = self.state.read(cx).workspace.state.active_container_id.clone();

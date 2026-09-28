@@ -93,6 +93,11 @@ pub fn cwd_missing(tab_id: &str, cwd: &str, window: &mut Window, cx: &mut App) {
 
 fn open_dialog(tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut App) {
     let Some(h) = host(cx) else { return };
+    // 面板自己先留一行说明（同 Tauri）：对话框「一次只弹一个」，排不上号的、或者对话框被关掉的
+    // 那些面板，都不能是一块没有线索的死屏
+    if let Some(t) = h.read(cx).workspace.read(cx).terminal_for_tab(&tab_id) {
+        t.update(cx, |t, cx| t.notice(&crate::terminal::pty::cwd_missing_notice(&cwd), cx));
+    }
     h.update(cx, |h, cx| h.open_recover(tab_id, cwd, session_id, window, cx));
 }
 
