@@ -225,6 +225,8 @@ pub struct TerminalView {
     /// 下一次布局行列都立即到位（切标签、字号、最大化、松手）
     immediate: bool,
     last_layout: Option<Instant>,
+    /// 上次 layout 量到的区域（调试导出用：核对「区域 ÷ 格宽」和网格 / PTY 列数对不对得上）
+    laid_out: (f32, f32),
     // ── 输入 ──
     /// PTY 就绪前的键入，就绪后按顺序写进去（retry 复用同一份）
     pending_input: Vec<u8>,
@@ -331,6 +333,7 @@ impl TerminalView {
             cols_due: false,
             immediate: true,
             last_layout: None,
+            laid_out: (0.0, 0.0),
             pending_input: Vec::new(),
             marked_text: None,
             precise_pending: 0.0,
@@ -629,6 +632,7 @@ impl TerminalView {
         if !is_visible_area(width, height) {
             return;
         }
+        self.laid_out = (width, height);
         let now = Instant::now();
         // 隔了一阵才又被画（切标签回来、刚显示出来）：这次行列都立即到位
         let long_gap = self.last_layout.map(|t| now.duration_since(t).as_millis() > 100).unwrap_or(true);
@@ -918,7 +922,11 @@ impl TerminalView {
         }
         let mode = *term.mode();
         format!(
-            "cols={} rows={} pty={:?} font={}@{} cell={:.3}x{:.3} alt_screen={} display_offset={} history={} cwd={}\n{}\n",
+            "area={:.1}x{:.1} desired={}x{} cols={} rows={} pty={:?} font={}@{} cell={:.3}x{:.3} alt_screen={} display_offset={} history={} cwd={}\n{}\n",
+            self.laid_out.0,
+            self.laid_out.1,
+            self.desired.cols,
+            self.desired.rows,
             self.size.cols,
             self.size.rows,
             self.ledger.known().map(|s| (s.cols, s.rows)),
@@ -940,7 +948,14 @@ impl TerminalView {
         if let Some(path) = std::env::var_os("MAKIT_NATIVE_DUMP") {
             if self.last_dump.map(|t| now.duration_since(t).as_millis() >= 300).unwrap_or(true) {
                 self.last_dump = Some(now);
-                let _ = std::fs::write(path, self.dump_text());
+                // 每个终端一份（`<文件>.<pty id>`），多 pane 时逐个核对；原文件名仍写最后画的那个
+                let text = self.dump_text();
+                if let Some(id) = &self.spec.pty_id {
+                    let mut per = path.clone();
+                    per.push(format!(".{id}"));
+                    let _ = std::fs::write(per, &text);
+                }
+                let _ = std::fs::write(path, text);
             }
         }
         if let Some(b) = &mut self.burst {

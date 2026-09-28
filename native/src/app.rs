@@ -277,6 +277,25 @@ pub fn run() {
             })
             .detach();
         }
+        // 调试用：`MAKIT_NATIVE_RESIZE=<毫秒>:<宽>x<高>`，启动后隔一会儿把窗口改成这个大小（复现「启动后拉大窗口」）
+        if let Some((ms, w, h)) = std::env::var("MAKIT_NATIVE_RESIZE").ok().and_then(|v| {
+            let (ms, wh) = v.split_once(':')?;
+            let (w, h) = wh.split_once('x')?;
+            Some((ms.parse::<u64>().ok()?, w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))
+        }) {
+            let any: gpui::AnyWindowHandle = handle.into();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(Duration::from_millis(ms)).await;
+                let _ = cx.update_window(any, |_, window, _| {
+                    let before = window.viewport_size();
+                    window.resize(size(px(w), px(h)));
+                    eprintln!("[debug] 窗口 resize：{before:?} → 请求 {w}x{h}，现在 {:?}", window.viewport_size());
+                });
+                cx.background_executor().timer(Duration::from_millis(1000)).await;
+                let _ = cx.update_window(any, |_, window, _| eprintln!("[debug] 1s 后视口 {:?}", window.viewport_size()));
+            })
+            .detach();
+        }
         if let Ok(mode) = std::env::var("MAKIT_NATIVE_SELFTEST") {
             crate::selftest::run(mode, handle, state, cx);
         }
