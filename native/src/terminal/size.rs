@@ -63,6 +63,17 @@ pub fn clamp_size(s: Size) -> Size {
     sz(s.cols.max(MIN_COLS), s.rows.max(MIN_ROWS))
 }
 
+/// 隐藏 pane（最大化了别的 pane）的兜底尺寸：拿不到真实布局，就按 Tauri 版
+/// `_spawnPty` 的 500ms 超时兜底同一套数字（800×600 逻辑像素）算一次，不能永远不 spawn ——
+/// 重启后台着的 resume 标签要能起进程、报状态、发通知（#226）。等它被切出来看见，
+/// 下一次真实 layout 会立即校正（`immediate` 在 TerminalView::new 里默认就是 true）
+pub const FALLBACK_W: f32 = 800.0;
+pub const FALLBACK_H: f32 = 600.0;
+
+pub fn fallback_size(cell_w: f32, cell_h: f32) -> Size {
+    clamp_size(propose_geometry(FALLBACK_W, FALLBACK_H, cell_w, cell_h))
+}
+
 /// 这块区域够不够大（不可见 / 祖先隐藏时量出来接近 0，跳过 fit）
 pub fn is_visible_area(width: f32, height: f32) -> bool {
     width >= VISIBLE_MIN_W && height >= VISIBLE_MIN_H
@@ -169,6 +180,14 @@ impl PtyLedger {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fallback_size_uses_800x600_and_still_respects_the_floor() {
+        // 8×16 格子：800/8=100 列，600/16=37 行 —— 和 Tauri 的 800×600 兜底换算一致
+        assert_eq!(fallback_size(8.0, 16.0), sz(100, 37));
+        // 格子异常大（字号拉到很大）时也不能塌到 0，两边下限一样夹
+        assert_eq!(fallback_size(500.0, 500.0), sz(MIN_COLS, MIN_ROWS));
+    }
 
     #[test]
     fn plan_vectors() {

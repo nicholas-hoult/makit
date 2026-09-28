@@ -64,7 +64,7 @@ use links::ExistCache;
 use palette::TermColors;
 use scrollbar::Activity;
 use search::SearchState;
-use size::{clamp_size, is_visible_area, plan_resize, propose_geometry, ColsFollower, Follow, PtyLedger, Size, COLS_FOLLOW_MS};
+use size::{clamp_size, fallback_size, is_visible_area, plan_resize, propose_geometry, ColsFollower, Follow, PtyLedger, Size, COLS_FOLLOW_MS};
 
 use crate::actions::terminal as act;
 use crate::perf;
@@ -705,6 +705,19 @@ impl TerminalView {
         if claim.send && p.notifier.0.send(Msg::Resize(self.window_size_for(s))).is_err() {
             self.ledger.revert(s, claim.prev);
         }
+    }
+
+    /// 这个标签不在这一帧被真实画出来（比如别的 pane 被最大化了）时兜底 spawn：不然它的 PTY
+    /// 永远等不到 layout()，重启后台着的 resume 标签就起不了进程、没有状态也没有通知（#226）。
+    /// 已经起过 / 被挡住 / 已关闭就什么都不做；等它被真的画出来，下一帧会立即校正到真实尺寸
+    /// （`immediate` 构造时就是 true）
+    pub fn spawn_hidden_fallback(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.pty.is_some() || self.spawn_blocked || self.shut_down {
+            return;
+        }
+        let (_, cell_w, line_h) = element::metrics(window, self.font_size);
+        let size = fallback_size(f32::from(cell_w), f32::from(line_h));
+        self.spawn(size, cx);
     }
 
     /// 切标签 / 最大化 / 还原之后：下一帧行列都立即到位

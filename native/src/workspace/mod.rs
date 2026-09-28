@@ -1095,6 +1095,19 @@ impl Render for WorkspaceView {
             self.dragging_tab = None;
         }
         let ws = self.state.read(cx).workspace.state.clone();
+        // 最大化时只画那一个 container（省掉隐藏 pane 的布局 / 绘制开销），但其余 pane 当前标签的终端照样要跑：
+        // 不然重启后只有最大化的那个 pane 会恢复，其它 pane 里的 resume 标签不起进程、没有状态也没有通知（#226 修）。
+        // 没被真实画出来的那些（本帧不会走 TerminalElement::prepaint → layout()）兜底按默认尺寸 spawn，
+        // 等真的被看见时第一次 layout 会立即校正
+        for c in collect_containers(&ws.root) {
+            self.ensure_terminal(c, window, cx);
+            let hidden = ws.maximized_container_id.as_deref().is_some_and(|max_id| max_id != c.id);
+            if hidden {
+                if let Some(t) = self.terminals.get(&c.active_tab_id) {
+                    t.view.update(cx, |v, cx| v.spawn_hidden_fallback(window, cx));
+                }
+            }
+        }
         let content = match ws.maximized_container_id.as_deref().and_then(|id| model::find_container(&ws.root, id)) {
             Some(c) => self.render_container(c, window, cx),
             None => self.render_node(&ws.root, false, window, cx),
