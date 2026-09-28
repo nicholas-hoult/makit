@@ -158,6 +158,9 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("cmd-left", S, Sidebar, "搜索框：到行首", sidebar::SearchHome),
         sc("end", S, Sidebar, "搜索框：到行尾", sidebar::SearchEnd),
         sc("cmd-right", S, Sidebar, "搜索框：到行尾", sidebar::SearchEnd),
+        // 单行框里 ⌘↑↓ = 到开头 / 结尾（原生输入框行为）；不绑的话会落到全局去切标签（Tauri 在文本框里让给光标）
+        sc("cmd-up", S, Sidebar, "搜索框：到行首", sidebar::SearchHome),
+        sc("cmd-down", S, Sidebar, "搜索框：到行尾", sidebar::SearchEnd),
         sc("cmd-v", S, Sidebar, "搜索框：粘贴", sidebar::SearchPaste),
         sc("cmd-c", S, Sidebar, "搜索框：复制", sidebar::SearchCopy),
         sc("cmd-x", S, Sidebar, "搜索框：剪切", sidebar::SearchCut),
@@ -172,8 +175,9 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("alt-cmd-enter", None, Workspace, "当前 pane 最大化 / 还原", w::ToggleMaximize),
         sc("cmd-]", None, Workspace, "下一个标签", w::NextTab),
         sc("cmd-[", None, Workspace, "上一个标签", w::PrevTab),
-        sc("cmd-shift-]", None, Workspace, "下一个标签", w::NextTab),
-        sc("cmd-shift-[", None, Workspace, "上一个标签", w::PrevTab),
+        // ⌘⇧] / ⌘⇧[（Safari 惯例）：macOS 上 GPUI 报成 cmd-} / cmd-{，写 shift-] 永远匹配不上
+        sc("cmd-}", None, Workspace, "下一个标签", w::NextTab),
+        sc("cmd-{", None, Workspace, "上一个标签", w::PrevTab),
         sc("cmd-right", None, Workspace, "下一个标签", w::NextTab),
         sc("cmd-down", None, Workspace, "下一个标签", w::NextTab),
         sc("cmd-left", None, Workspace, "上一个标签", w::PrevTab),
@@ -208,10 +212,11 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("enter", N, Notify, "通知中心：已读并跳转", notify::Confirm),
         sc("escape", N, Notify, "通知中心：关闭", notify::Dismiss),
         sc("cmd-,", None, Overlays, "设置", overlays::OpenSettings),
-        sc("cmd-=", T, Terminal, "字号 +1", terminal::FontIncrease),
-        sc("cmd-shift-=", T, Terminal, "字号 +1", terminal::FontIncrease),
-        sc("cmd--", T, Terminal, "字号 -1", terminal::FontDecrease),
-        sc("cmd-0", T, Terminal, "字号重置为 13", terminal::FontReset),
+        // 字号：全局（同 Tauri，作用在当前标签的终端；焦点在侧栏 / 面板里也生效）。⌘+ = ⌘⇧=，macOS 报成 cmd-+
+        sc("cmd-=", None, Terminal, "字号 +1", terminal::FontIncrease),
+        sc("cmd-+", None, Terminal, "字号 +1", terminal::FontIncrease),
+        sc("cmd--", None, Terminal, "字号 -1", terminal::FontDecrease),
+        sc("cmd-0", None, Terminal, "字号重置为 13", terminal::FontReset),
         sc("cmd-c", T, Terminal, "复制", terminal::Copy),
         sc("cmd-v", T, Terminal, "粘贴", terminal::Paste),
         sc("shift-pageup", T, Terminal, "回看上翻一页", terminal::ScrollPageUp),
@@ -237,6 +242,8 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("end", TI, Overlays, "行尾", overlays::InputEnd),
         sc("cmd-left", TI, Overlays, "行首", overlays::InputHome),
         sc("cmd-right", TI, Overlays, "行尾", overlays::InputEnd),
+        sc("cmd-up", TI, Overlays, "行首", overlays::InputHome),
+        sc("cmd-down", TI, Overlays, "行尾", overlays::InputEnd),
         sc("cmd-shift-left", TI, Overlays, "选到行首", overlays::InputSelectHome),
         sc("cmd-shift-right", TI, Overlays, "选到行尾", overlays::InputSelectEnd),
         sc("cmd-v", TI, Overlays, "粘贴", overlays::InputPaste),
@@ -264,13 +271,35 @@ mod tests {
     }
 
     #[test]
+    /// macOS 上按 ⇧ + 符号键，GPUI 报出来的是「移位后的字符、去掉 shift」：⌘⇧] → `cmd-}`、⌘⇧= → `cmd-+`
+    /// （gpui-0.2.2 platform/mac/events.rs:437-446；按着 ⌘ 时没有 key_char 兜底，只按 key + 修饰键精确比）。
+    /// 所以写成 `shift-]` / `shift-=` 的绑定永远按不出来。错了在界面上就是「⌘⇧] 切标签、⌘+ 放大字号没反应」
+    #[test]
+    fn no_shift_plus_symbol_bindings_that_macos_never_reports() {
+        const SHIFTABLE: &str = "`1234567890-=[]\\;',./";
+        for s in keymap() {
+            let parts: Vec<&str> = s.keys.split('-').collect();
+            // 「cmd--」这种键本身是 '-' 的：最后两段是 "" 和 ""
+            let key = if s.keys.ends_with("--") { "-" } else { parts.last().copied().unwrap_or("") };
+            let shift = parts.iter().rev().skip(1).any(|p| *p == "shift");
+            assert!(!(shift && key.chars().count() == 1 && SHIFTABLE.contains(key)), "{} 在 macOS 上按不出来，要写成移位后的字符（如 cmd-}}）", s.keys);
+        }
+        let km = keymap();
+        let action_of = |k: &str| km.iter().find(|s| s.keys == k).map(|s| s.action.name());
+        assert_eq!(action_of("cmd-}"), Some("workspace::NextTab"));
+        assert_eq!(action_of("cmd-{"), Some("workspace::PrevTab"));
+        assert_eq!(action_of("cmd-+"), Some("terminal::FontIncrease"));
+    }
+
+    #[test]
     fn covers_the_checklist_o_table() {
         let km = keymap();
         let has = |k: &str| km.iter().any(|s| s.keys == k);
         for k in [
             "cmd-k", "cmd-f", "cmd-shift-f", "cmd-w", "cmd-d", "cmd-shift-d", "cmd-t", "cmd-l", "cmd-1", "cmd-9", "alt-cmd-1",
-            "alt-cmd-9", "alt-cmd-left", "alt-cmd-down", "alt-cmd-enter", "cmd-left", "cmd-down", "cmd-[", "cmd-]", "cmd-shift-[",
-            "cmd-shift-]", "ctrl-tab", "ctrl-shift-tab", "cmd-i", "cmd-,", "cmd-r", "cmd-b", "cmd-=", "cmd--", "cmd-0",
+            "alt-cmd-9", "alt-cmd-left", "alt-cmd-down", "alt-cmd-enter", "cmd-left", "cmd-down", "cmd-[", "cmd-]",
+            // ⌘⇧[ / ⌘⇧]：macOS 上 GPUI 报成 cmd-{ / cmd-}（见下一个测试）
+            "cmd-{", "cmd-}", "ctrl-tab", "ctrl-shift-tab", "cmd-i", "cmd-,", "cmd-r", "cmd-b", "cmd-=", "cmd--", "cmd-0",
         ] {
             assert!(has(k), "清单 O 节的 {k} 没进快捷键表");
         }

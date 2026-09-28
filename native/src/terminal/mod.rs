@@ -731,7 +731,7 @@ impl TerminalView {
     }
 
     /// 字号缩放：只作用于当前 pane，不持久化；撞到边界跳过；改完走同一条 fit 路径（立即）同步 PTY 尺寸
-    fn zoom(&mut self, z: zoom::Zoom, cx: &mut Context<Self>) {
+    pub fn zoom(&mut self, z: zoom::Zoom, cx: &mut Context<Self>) {
         let next = zoom::next_font_size(self.font_size, z);
         if next == self.font_size {
             return;

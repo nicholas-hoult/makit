@@ -14,7 +14,7 @@ use gpui::{
     WindowOptions,
 };
 
-use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb};
+use crate::actions::{self, app as app_act, notify as notify_act, overlays as ov, sidebar as sb, terminal as term_act};
 use crate::overlays::OverlayHost;
 use crate::persist;
 use crate::perf;
@@ -121,6 +121,19 @@ impl Render for Root {
                 let state = state.clone();
                 move |_: &app_act::ToggleSidebar, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = !p.sidebar.collapsed))
             })
+            // ---- A 终端字号：全局键。焦点在终端里时终端自己先处理；焦点在侧栏 / 面板 / 空工作区时转给当前标签的终端（同 Tauri）----
+            .on_action({
+                let ws = self.workspace.clone();
+                move |_: &term_act::FontIncrease, _, cx| zoom_active(&ws, crate::terminal::zoom::Zoom::In, cx)
+            })
+            .on_action({
+                let ws = self.workspace.clone();
+                move |_: &term_act::FontDecrease, _, cx| zoom_active(&ws, crate::terminal::zoom::Zoom::Out, cx)
+            })
+            .on_action({
+                let ws = self.workspace.clone();
+                move |_: &term_act::FontReset, _, cx| zoom_active(&ws, crate::terminal::zoom::Zoom::Reset, cx)
+            })
             // ---- D 浮层 ----
             .on_action({
                 let host = self.overlays.clone();
@@ -167,6 +180,12 @@ impl Render for Root {
             // E 通知：⌘I 抽屉 + 窗口闪一下（deferred 浮层）
             .child(crate::notify::layer(window, cx))
             .child(self.overlays.clone())
+    }
+}
+
+fn zoom_active(ws: &Entity<WorkspaceView>, z: crate::terminal::zoom::Zoom, cx: &mut App) {
+    if let Some(t) = ws.read(cx).active_terminal(cx) {
+        t.update(cx, |t, cx| t.zoom(z, cx));
     }
 }
 

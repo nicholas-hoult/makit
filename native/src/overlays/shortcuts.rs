@@ -41,6 +41,19 @@ pub fn format_keys(keys: &str) -> String {
         "space" => "Space".into(),
         "home" => "Home".into(),
         "end" => "End".into(),
+        // macOS 报的是移位后的字符：展示照 Tauri 版写成 ⇧ + 原键
+        "{" => {
+            shift = true;
+            "[".into()
+        }
+        "}" => {
+            shift = true;
+            "]".into()
+        }
+        "+" => {
+            shift = true;
+            "=".into()
+        }
         k => k.to_uppercase(),
     };
     let mut out = String::new();
@@ -76,6 +89,10 @@ pub fn is_listed(s: &Shortcut) -> bool {
 
 /// 一条快捷键归哪一组（GROUP_TITLES 的下标）
 pub fn group_of(s: &Shortcut) -> usize {
+    // 字号是全局键（context None），但归「终端」组
+    if s.owner == Owner::Terminal {
+        return 4;
+    }
     match s.context {
         Some("Terminal") => return 4,
         Some(_) => return 5,
@@ -158,6 +175,10 @@ mod tests {
         assert_eq!(format_keys("alt-cmd-left"), "⌥⌘←");
         assert_eq!(format_keys("alt-cmd-enter"), "⌥⌘↩");
         assert_eq!(format_keys("ctrl-shift-tab"), "⌃⇧Tab");
+        // macOS 报的是移位后的字符（actions 里按 cmd-} 绑定），展示照 Tauri 版写成 ⇧ + 原键
+        assert_eq!(format_keys("cmd-}"), "⌘⇧]");
+        assert_eq!(format_keys("cmd-{"), "⌘⇧[");
+        assert_eq!(format_keys("cmd-+"), "⌘⇧=");
         assert_eq!(format_keys("cmd-,"), "⌘,");
         assert_eq!(format_keys("cmd-="), "⌘=");
         assert_eq!(format_keys("cmd--"), "⌘-", "减号本身就是分隔符");
