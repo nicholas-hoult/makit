@@ -399,7 +399,10 @@ impl Render for SettingsView {
                                             .gap(px(6.0))
                                             .child(toggle("n-system", prefs.notify.system, "启用 macOS 系统通知").on_click(set_notify(|n| n.system = !n.system)))
                                             .child(toggle("n-approval", prefs.notify.approval, "等待审批时提醒（工具调用需确认）").on_click(set_notify(|n| n.approval = !n.approval)))
-                                            .child(toggle("n-user", prefs.notify.user, "等待回答时提醒（Claude 等待你输入）").on_click(set_notify(|n| n.user = !n.user))),
+                                            .child(toggle("n-user", prefs.notify.user, "等待回答时提醒（Claude 等待你输入）").on_click(set_notify(|n| n.user = !n.user)))
+                                            // #215 新增的两项（Tauri 版没有）：不给开关的话「已完成」横幅和提示音就关不掉
+                                            .child(toggle("n-completed", prefs.notify.completed, "任务完成时提醒（静音横幅，不打断）").on_click(set_notify(|n| n.completed = !n.completed)))
+                                            .child(toggle("n-sound", prefs.notify.sound, "需要处理的提醒带提示音").on_click(set_notify(|n| n.sound = !n.sound))),
                                     )
                                     .child(hint("每次 session 进入 waiting 状态触发一次，再次 waiting 才重新提醒。"))
                                     .child(
