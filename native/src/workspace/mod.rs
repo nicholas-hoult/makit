@@ -1040,6 +1040,10 @@ impl WorkspaceView {
             Some(t) => t.view.read(cx).focus_handle(cx).focus(window),
             None => self.focus.focus(window),
         }
+        // 切标签：⌘F 搜索条还开着的话，计数不能停在上一个终端（同 Tauri，切 tab 清空搜索状态）
+        if active != self.focused_tab && self.focused_tab.is_some() {
+            crate::overlays::search_bar::report_progress(None, cx);
+        }
         self.focused_tab = active;
     }
 }
