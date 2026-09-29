@@ -75,12 +75,15 @@ actions!(terminal, [Copy, Paste, ScrollPageUp, ScrollPageDown]);
 /// 等宽字体栈，同 TS 版 `fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace, …"`：
 /// ui-monospace 在 macOS 上就是 SF Mono；按顺序取第一个能加载的
 pub use fonts::FONT_STACK;
-/// `.xterm-inner` 的 inset：top 6 / right 10 / bottom 16 / left 10（App.css；用 inset 不用 padding，
-/// padding 会被算进尺寸导致行数溢出、选区坐标错位）
-pub const INSET_TOP: f32 = 6.0;
-pub const INSET_RIGHT: f32 = 10.0;
-pub const INSET_BOTTOM: f32 = 16.0;
-pub const INSET_LEFT: f32 = 10.0;
+/// 终端内容离 pane 边的留白：四边各 2px，同 对标产品 / 对标终端 的 `window-padding-x/y` 默认值
+/// （对标产品 `对标产品的默认窗口留白 = 2`，对标终端 `Config.zig` 同）。
+/// 原来是 Tauri 版 `.xterm-inner` 的 top 6 / right 10 / bottom 16 / left 10（xterm.js 的 WebView 时代留的），
+/// 用户 2026-09-29 要 对标产品 那种美感，改成 对标产品 的。用 inset 不用 padding：
+/// padding 会被算进尺寸导致行数溢出、选区坐标错位
+pub const INSET_TOP: f32 = 2.0;
+pub const INSET_RIGHT: f32 = 2.0;
+pub const INSET_BOTTOM: f32 = 2.0;
+pub const INSET_LEFT: f32 = 2.0;
 /// 光标闪烁间隔（xterm CursorBlinkStateManager 的 600ms）
 pub const CURSOR_BLINK_MS: u64 = 600;
 /// 大段输出时搜索结果最多隔多久重算一次
