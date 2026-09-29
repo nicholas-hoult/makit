@@ -34,4 +34,5 @@ pub mod state;
 pub mod tooltip;
 pub mod terminal;
 pub mod theme;
+pub mod transcript_view;
 pub mod workspace;

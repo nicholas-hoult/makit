@@ -157,6 +157,12 @@ impl Scrollbar {
         (self.active, self.dragging)
     }
 
+    /// 内容没溢出，或已经滚到底（差 2px 以内）
+    pub fn at_bottom(&self) -> bool {
+        let m = self.source.metrics();
+        m.top + m.viewport >= m.total - 2.0
+    }
+
     pub fn debug_metrics(&self) -> Metrics {
         self.source.metrics()
     }

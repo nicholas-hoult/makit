@@ -15,6 +15,73 @@ fn opened(cx: &mut AsyncApp) -> String {
     cx.update(|cx| host(cx).map(|h| h.read(cx).debug_open()).unwrap_or_default()).unwrap_or_default()
 }
 
+/// 详情面板的阅读视图（#231 第 2 期）：读到 Item、折叠展开、会话文件追加一行后 ≤ 300ms（这里等 900ms）出现。
+/// 追加会改会话文件，只在 `MAKIT_SELFTEST_APPEND=1`（假 HOME 里的合成会话）时做
+async fn detail_check(
+    cx: &mut AsyncApp,
+    sid: &str,
+    pause: &impl Fn(u64) -> gpui::Task<()>,
+    fails: &std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+) {
+    let fail = |m: String| {
+        eprintln!("[selftest] ✗ 阅读视图：{m}");
+        fails.borrow_mut().push(format!("阅读视图：{m}"));
+    };
+    let view = cx.update(|cx| host(cx).and_then(|h| h.read(cx).detail.as_ref().map(|d| d.view.clone()))).ok().flatten();
+    let Some(view) = view else { return fail("详情面板没开".into()) };
+    let state = |cx: &mut AsyncApp| cx.update(|cx| view.read(cx).debug_state()).unwrap();
+    let (n0, _) = state(cx);
+    eprintln!("[selftest] 阅读视图：读到 {n0} 项");
+    if n0 == 0 {
+        return fail("一项都没读到".into());
+    }
+    // MAKIT_SELFTEST_SHOT=<前缀>：折叠 / 展开各截一张屏（要窗口可见、屏幕没锁）
+    let shot = |name: &str| {
+        if let Ok(prefix) = std::env::var("MAKIT_SELFTEST_SHOT") {
+            // 自检窗口不一定在前台：先按 pid 把自己提到最前，不然截到的是别的窗口
+            let script = format!("tell application \"System Events\" to set frontmost of (first process whose unix id is {}) to true", std::process::id());
+            let _ = std::process::Command::new("osascript").args(["-e", &script]).status();
+            std::thread::sleep(Duration::from_millis(600));
+            let _ = std::process::Command::new("screencapture").args(["-x", &format!("{prefix}-{name}.png")]).status();
+        }
+    };
+    pause(500).await;
+    shot("folded");
+    if cx.update(|cx| view.update(cx, |v, cx| v.debug_toggle_first_tool(cx))).unwrap() {
+        pause(500).await;
+        shot("expanded");
+        if state(cx).1 != 1 {
+            fail("点开工具调用后展开数不是 1".into());
+        }
+        cx.update(|cx| view.update(cx, |v, cx| v.debug_toggle_first_tool(cx))).unwrap();
+        pause(200).await;
+        if state(cx).1 != 0 {
+            fail("再点一次没有收起".into());
+        }
+    }
+    if std::env::var("MAKIT_SELFTEST_APPEND").is_ok() {
+        let Some((path, _)) = makit_core::sessions::locate_session_file(sid) else { return fail("找不到会话文件".into()) };
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let parent = text
+            .lines()
+            .rev()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .find(|v| matches!(v["type"].as_str(), Some("user" | "assistant")))
+            .and_then(|v| v["uuid"].as_str().map(String::from));
+        let line = serde_json::json!({"type":"user","uuid":"selftest-appended","parentUuid":parent,"timestamp":"2026-09-30T00:00:00Z","sessionId":sid,
+            "message":{"role":"user","content":"实时追加的一行"}});
+        use std::io::Write;
+        let _ = writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{line}");
+        pause(900).await;
+        let (n1, _) = state(cx);
+        if n1 != n0 + 1 {
+            fail(format!("追加一行后 Item 数应为 {}，实际 {n1}", n0 + 1));
+        } else {
+            eprintln!("[selftest] 阅读视图：追加后 {n0} → {n1}");
+        }
+    }
+}
+
 /// 命令面板里的滚动条（scrollbar.rs）：显形 / 淡出时序 + 真实鼠标拖动
 async fn scrollbar_check(
     cx: &mut AsyncApp,
@@ -193,6 +260,7 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
             let _ = cx.update_window(any, |_, window, cx| super::open_detail(&sid, window, cx));
             pause(1500).await;
             expect(cx, "详情面板打开", "detail");
+            detail_check(cx, &sid, &pause, &fails).await;
             press(cx, "escape");
             pause(300).await;
             expect(cx, "详情 Esc 关（#224）", "");

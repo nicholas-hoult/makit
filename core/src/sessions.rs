@@ -351,6 +351,25 @@ pub fn extract_tool_uses(content: &serde_json::Value) -> Vec<String> {
     out
 }
 
+/// 会话 id → 会话文件和它属于哪家（先找 claude 的 projects 目录，再找 codex 的 sessions 目录，#209）
+pub fn locate_session_file(session_id: &str) -> Option<(PathBuf, crate::transcript::Tool)> {
+    if let Some(dir) = projects_dir() {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    let candidate = p.join(format!("{}.jsonl", session_id));
+                    if candidate.exists() {
+                        return Some((candidate, crate::transcript::Tool::Claude));
+                    }
+                }
+            }
+        }
+    }
+    let codex_dir = ai_provider::AiTool::Codex.sessions_dir()?;
+    ai_provider::find_codex_session_file(&codex_dir, session_id).map(|p| (p, crate::transcript::Tool::Codex))
+}
+
 pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessage>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     let mut found_path: Option<PathBuf> = None;
