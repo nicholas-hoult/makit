@@ -17,6 +17,7 @@
 //! | `pty_batch` | PTY 输出合并节奏（Tauri 版 emit 用） |
 //! | `perf` | perf.log 埋点 |
 //! | `ai_provider` | Codex 会话解析 |
+//! | `transcript` | 对话模型：claude jsonl / codex rollout → 统一 `Item` 列表 + 增量读取器（#231） |
 //! | `worktree` | git worktree 列表 |
 
 pub mod ai_provider;
@@ -31,6 +32,7 @@ pub mod recovery;
 pub mod running;
 pub mod scan_cache;
 pub mod sessions;
+pub mod transcript;
 pub mod watcher;
 pub mod worktree;
 
