@@ -37,7 +37,7 @@
 //! | `show_toast(text, ms, cx)` | 底部居中的提示；时长常量见 `toast::` |
 //! | `open_detail(session_id, window, cx)` | 会话详情面板（侧栏右键「查看对话」） |
 //! | `session_ops::*` | 置顶 / 归档（运行中先弹系统确认框）/ 复制 / Finder 显示 / 打开会话 |
-//! | `recover::cwd_missing(tab_id, cwd, window, cx)` | 终端发现启动目录不在时调（A 包） |
+//! | `recover::cwd_missing(tab_id, cwd, window, cx)` | 终端发现启动目录不在时调（A 包）；出的是 pane 底部的下拉选择器（#239），不是浮层 |
 //! | `search_bar::report_progress(..)` / `search_bar::set_target(..)` | ⌘F 搜索条和终端之间的接口（A 包） |
 //!
 //! 面板内的键（Esc / Enter / ↑↓ / ⌘Enter……）在 `actions::overlays` 里，context `Overlay`；
@@ -148,7 +148,6 @@ pub struct OverlayHost {
     palette: Option<Open<palette::PaletteView>>,
     settings: Option<Open<settings::SettingsView>>,
     detail: Option<Open<detail::DetailView>>,
-    recover: Option<Open<recover::RecoverDialog>>,
     search: Option<Open<search_bar::SearchBar>>,
 }
 
@@ -176,7 +175,6 @@ impl OverlayHost {
                 palette: None,
                 settings: None,
                 detail: None,
-                recover: None,
                 search: None,
             }
         });
@@ -237,23 +235,6 @@ impl OverlayHost {
             detail::DetailEvent::Close => close_slot!(this.detail, window, cx),
         });
         self.detail = Some(Open { view, prev, _sub: sub });
-        cx.notify();
-    }
-
-    // ---- 恢复 cwd 对话框 ----
-
-    /// 同一时间只弹一个：已经有一个开着就什么都不做（那个 pane 的终端里留着提示）
-    pub fn open_recover(&mut self, tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.recover.is_some() {
-            return;
-        }
-        let prev = window.focused(cx);
-        let state = self.state.clone();
-        let view = cx.new(|cx| recover::RecoverDialog::new(state, tab_id, cwd, session_id, window, cx));
-        let sub = cx.subscribe_in(&view, window, |this, _, ev: &recover::RecoverEvent, window, cx| match ev {
-            recover::RecoverEvent::Close => close_slot!(this.recover, window, cx),
-        });
-        self.recover = Some(Open { view, prev, _sub: sub });
         cx.notify();
     }
 
@@ -318,7 +299,6 @@ impl OverlayHost {
             (self.settings.is_some(), "settings"),
             (self.search.is_some(), "search"),
             (self.detail.is_some(), "detail"),
-            (self.recover.is_some(), "recover"),
             (self.menu.is_some(), "menu"),
             (self.toast.is_some(), "toast"),
         ] {
@@ -487,7 +467,6 @@ impl Render for OverlayHost {
             .children(self.search.as_ref().map(|p| p.view.clone()))
             .children(self.palette.as_ref().map(|p| p.view.clone()))
             .children(self.settings.as_ref().map(|p| p.view.clone()))
-            .children(self.recover.as_ref().map(|p| p.view.clone()))
             .children(toast)
             .children(self.detail.as_ref().map(|p| p.view.clone()))
             .children(menu)

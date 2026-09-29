@@ -268,21 +268,41 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
             eprintln!("[selftest] 没有会话，跳过详情面板");
         }
 
-        // 恢复 cwd 对话框：新建一个标签，拿它报一个不存在的目录
+        // 恢复 cwd 选择器（#239）：新建一个标签，拿它报一个不存在的目录；选择器挂在 pane 底部，不占浮层槽位
         press(cx, "cmd-t");
         pause(800).await;
         let tab = cx.read_entity(&state, |s, _| s.workspace.active_tab().map(|t| t.id.clone())).ok().flatten();
         if let Some(tab) = tab {
             let _ = cx.update_window(any, |_, window, cx| super::recover::cwd_missing(&tab, "/nonexistent/makit-selftest", window, cx));
             pause(500).await;
-            expect(cx, "恢复对话框打开", "recover");
-            for k in ["/", "t", "m", "p"] {
-                press(cx, k);
-                pause(80).await;
+            let dbg = |cx: &mut AsyncApp| cx.update(|cx| host(cx).and_then(|h| h.read(cx).workspace.read(cx).debug_recover(&tab, cx))).ok().flatten();
+            match dbg(cx) {
+                Some((n, sel, _)) => {
+                    eprintln!("[selftest] 恢复选择器打开：{n} 项，选中第 {} 项", sel + 1);
+                    if n < 2 {
+                        fails.borrow_mut().push(format!("恢复选择器：选项数 {n} < 2（至少有重建 / 选择目录）"));
+                    }
+                    press(cx, "down");
+                    pause(150).await;
+                    let after = dbg(cx).map(|d| d.1);
+                    if after != Some(1 % n) {
+                        fails.borrow_mut().push(format!("恢复选择器：↓ 之后选中 {after:?}，期望 {}", 1 % n));
+                    }
+                    press(cx, "up");
+                    pause(150).await;
+                    if dbg(cx).map(|d| d.1) != Some(0) {
+                        fails.borrow_mut().push("恢复选择器：↑ 之后没回到第一项".into());
+                    }
+                    press(cx, "escape");
+                    pause(300).await;
+                    if dbg(cx).is_some() {
+                        fails.borrow_mut().push("恢复选择器：Esc 之后还在".into());
+                    } else {
+                        eprintln!("[selftest] 恢复选择器 Esc 关");
+                    }
+                }
+                None => fails.borrow_mut().push("恢复选择器没出来".into()),
             }
-            press(cx, "escape");
-            pause(300).await;
-            expect(cx, "恢复对话框 Esc 关", "");
         }
 
         let fails = fails.borrow();

@@ -65,6 +65,60 @@ pub fn keyed_by_cwd(storage_folder: Option<&str>) -> bool {
     storage_folder.map(|s| !s.is_empty()).unwrap_or(true)
 }
 
+/// 下拉里的一项
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Choice {
+    /// 指到一个已有目录（`why` 说明这个候选是怎么来的）
+    Relink { path: String, why: &'static str },
+    /// 在原路径重建空目录
+    Recreate,
+    /// 打开系统目录选择框
+    Pick,
+}
+
+/// 启动目录不在时下拉里给哪些选项（#239，照 Claude Code 的列表选择）：
+/// 会话最近待过的目录 → 原目录往上最近一个还在的祖先 → 主目录，然后是「重建原目录」「选择其他目录…」。
+/// 候选之间去重；`is_dir` 测试时注入
+pub fn choices(orig: &str, last_cwd: Option<&str>, home: Option<&str>, is_dir: &dyn Fn(&str) -> bool) -> Vec<Choice> {
+    let mut out: Vec<Choice> = Vec::new();
+    let add = |path: &str, why: &'static str, out: &mut Vec<Choice>| {
+        let dup = out.iter().any(|c| matches!(c, Choice::Relink { path: p, .. } if p == path));
+        if !path.is_empty() && path != orig && !dup && is_dir(path) {
+            out.push(Choice::Relink { path: path.to_string(), why });
+        }
+    };
+    if let Some(l) = last_cwd {
+        add(l, "会话最近待过的目录", &mut out);
+    }
+    // 原目录往上最近一个还在的祖先（不给文件系统根：不是有意义的工作目录）
+    let mut cur = Path::new(orig).parent();
+    while let Some(p) = cur {
+        let s = p.to_string_lossy();
+        if s == "/" || s.is_empty() {
+            break;
+        }
+        if is_dir(&s) {
+            add(&s, "上级目录", &mut out);
+            break;
+        }
+        cur = p.parent();
+    }
+    if let Some(h) = home {
+        add(h, "主目录", &mut out);
+    }
+    out.push(Choice::Recreate);
+    out.push(Choice::Pick);
+    out
+}
+
+/// 方向键移动选中项，首尾循环
+pub fn step(sel: usize, len: usize, delta: i32) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    (sel as i64 + delta as i64).rem_euclid(len as i64) as usize
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +176,54 @@ mod tests {
         assert!(keyed_by_cwd(None));
         assert!(keyed_by_cwd(Some("-Users-me-p")));
         assert!(!keyed_by_cwd(Some("")));
+    }
+
+    fn dirs(list: &[&'static str]) -> impl Fn(&str) -> bool {
+        let set: Vec<String> = list.iter().map(|s| s.to_string()).collect();
+        move |p: &str| set.iter().any(|s| s == p)
+    }
+
+    fn relink(path: &str, why: &'static str) -> Choice {
+        Choice::Relink { path: path.into(), why }
+    }
+
+    #[test]
+    fn choices_prefer_last_cwd_then_nearest_ancestor_then_home() {
+        let is_dir = dirs(&["/w/a", "/w", "/Users/me", "/w/a/b"]);
+        let got = choices("/w/a/b/c/d", Some("/w/a"), Some("/Users/me"), &is_dir);
+        assert_eq!(
+            got,
+            vec![
+                relink("/w/a", "会话最近待过的目录"),
+                relink("/w/a/b", "上级目录"),
+                relink("/Users/me", "主目录"),
+                Choice::Recreate,
+                Choice::Pick,
+            ]
+        );
+    }
+
+    #[test]
+    fn choices_skip_missing_and_duplicate_candidates() {
+        // last_cwd 也不在了、和原目录相同、祖先就是主目录：不重复列
+        let is_dir = dirs(&["/Users/me"]);
+        let got = choices("/Users/me/proj/x", Some("/Users/me/proj/x"), Some("/Users/me"), &is_dir);
+        assert_eq!(got, vec![relink("/Users/me", "上级目录"), Choice::Recreate, Choice::Pick]);
+        // 什么候选都没有：至少还有重建和选择
+        assert_eq!(choices("/gone", None, None, &dirs(&[])), vec![Choice::Recreate, Choice::Pick]);
+    }
+
+    #[test]
+    fn ancestor_search_never_offers_the_filesystem_root() {
+        let got = choices("/gone/x", None, None, &dirs(&["/"]));
+        assert_eq!(got, vec![Choice::Recreate, Choice::Pick]);
+    }
+
+    #[test]
+    fn arrow_keys_wrap_around() {
+        assert_eq!(step(0, 4, 1), 1);
+        assert_eq!(step(3, 4, 1), 0, "到底回顶");
+        assert_eq!(step(0, 4, -1), 3, "到顶回底");
+        assert_eq!(step(0, 0, 1), 0, "空列表不越界");
     }
 }

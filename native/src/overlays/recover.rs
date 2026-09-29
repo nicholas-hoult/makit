@@ -1,20 +1,18 @@
-//! 「启动目录已不存在」恢复对话框（照 App.tsx:1564-1660, 2353-2422 + App.css `.recover-*`），按 #217 改进：
-//! 输入框不预填原目录、「选择目录…」走系统选择框、边输边校验（不是已有目录时按钮置灰并说原因）、
-//! 报错说人话。校验逻辑在 `recover_logic`。
+//! 「启动目录已不存在」恢复选择器（#239）。原来是居中的模态对话框（照 App.tsx:1564-1660），太重：
+//! 现在是挂在**那块 pane 底部**的一个下拉列表，照 Claude Code 的列表选择——↑↓ 移动、Enter 确认、Esc 暂不处理，
+//! 也可以直接点。选项：会话最近待过的目录 / 上级目录 / 主目录 / 重建原目录 / 选择其他目录…（候选见 `recover_logic::choices`）。
+//! 每块 pane 各带各的，不再「一次只弹一个」。
 //!
 //! 入口 `cwd_missing(tab_id, cwd, window, cx)`：终端（A 包）发现启动目录不在、且这个标签不许回退
-//! （resume 标签）时调。先静默试 last_cwd；不行才弹框；同一时间只弹一个（其余 pane 只留终端里的提示）。
+//! （resume 标签）时调。先静默试 last_cwd；不行才出选择器。
 //!
 //! 恢复成功后：更新标签 cwd（持久化的布局里那个死路径也换掉）+ 把这个标签的终端关掉，
 //! 工作区下一帧按新 cwd 重新起（= Tauri 版的 retrySpawn）。
 
-use gpui::{
-    div, prelude::*, px, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, FontWeight, PathPromptOptions, SharedString, Window,
-};
+use gpui::{div, prelude::*, px, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, FontWeight, PathPromptOptions, Window};
 
-use super::recover_logic::{check_relink_target, friendly_error, keyed_by_cwd, RelinkCheck};
+use super::recover_logic::{check_relink_target, choices, friendly_error, step, Choice, RelinkCheck};
 use super::style::*;
-use super::text_input::{TextInput, TextInputEvent};
 use super::{host, show_toast, toast};
 use crate::actions::overlays as act;
 use crate::state::AppState;
@@ -24,19 +22,19 @@ pub enum RecoverEvent {
     Close,
 }
 
-pub struct RecoverDialog {
+pub struct RecoverPicker {
     state: Entity<AppState>,
     tab_id: String,
     cwd: String,
     session_id: Option<String>,
-    input: Entity<TextInput>,
-    check: RelinkCheck,
+    choices: Vec<Choice>,
+    sel: usize,
     busy: bool,
     error: Option<String>,
     focus: FocusHandle,
 }
 
-impl EventEmitter<RecoverEvent> for RecoverDialog {}
+impl EventEmitter<RecoverEvent> for RecoverPicker {}
 
 /// 恢复完成：换掉标签 cwd，关掉旧终端让工作区按新 cwd 重起
 fn apply_recovered(tab_id: &str, new_cwd: &str, cx: &mut App) {
@@ -93,54 +91,63 @@ pub fn cwd_missing(tab_id: &str, cwd: &str, window: &mut Window, cx: &mut App) {
 
 fn open_dialog(tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut App) {
     let Some(h) = host(cx) else { return };
-    // 面板自己先留一行说明（同 Tauri）：对话框「一次只弹一个」，排不上号的、或者对话框被关掉的
-    // 那些面板，都不能是一块没有线索的死屏
-    if let Some(t) = h.read(cx).workspace.read(cx).terminal_for_tab(&tab_id) {
+    // 面板自己先留一行说明（同 Tauri）：选择器被 Esc 掉之后，这块面板不能是一块没有线索的死屏
+    let ws = h.read(cx).workspace.clone();
+    if let Some(t) = ws.read(cx).terminal_for_tab(&tab_id) {
         t.update(cx, |t, cx| t.notice(&crate::terminal::pty::cwd_missing_notice(&cwd), cx));
     }
-    h.update(cx, |h, cx| h.open_recover(tab_id, cwd, session_id, window, cx));
+    ws.update(cx, |w, cx| w.show_recover(tab_id, cwd, session_id, window, cx));
 }
 
-impl RecoverDialog {
-    pub fn new(state: Entity<AppState>, tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        // #217：不预填原目录（它已经不存在了，预填了点下去必报错）
-        let input = cx.new(|cx| TextInput::new("/path/to/new/dir", cx));
-        cx.subscribe(&input, |this, input, _: &TextInputEvent, cx| {
-            this.check = check_relink_target(input.read(cx).text(), None);
-            this.error = None;
-            cx.notify();
-        })
-        .detach();
+impl RecoverPicker {
+    pub fn new(state: Entity<AppState>, tab_id: String, cwd: String, session_id: Option<String>, focus_now: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let meta = session_id.as_deref().and_then(|id| state.read(cx).session(id).cloned());
+        let last = meta.as_ref().map(|m| m.last_cwd.clone());
+        let home = dirs::home_dir().map(|h| h.display().to_string());
+        let choices = choices(&cwd, last.as_deref(), home.as_deref(), &|p| std::path::Path::new(p).is_dir());
         let focus = cx.focus_handle();
-        window.focus(&focus);
-        cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        Self { state, tab_id, cwd, session_id, input, check: RelinkCheck::Empty, busy: false, error: None, focus }
+        if focus_now {
+            window.focus(&focus);
+        }
+        Self { state, tab_id, cwd, session_id, choices, sel: 0, busy: false, error: None, focus }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
         self.focus.clone()
     }
 
-    pub fn busy(&self) -> bool {
-        self.busy
+    /// 自检用：(选项数, 选中项, 忙)
+    pub fn debug_state(&self) -> (usize, usize, bool) {
+        (self.choices.len(), self.sel, self.busy)
     }
 
-    fn run(&mut self, relink: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn move_sel(&mut self, delta: i32, cx: &mut Context<Self>) {
+        if !self.busy {
+            self.sel = step(self.sel, self.choices.len(), delta);
+            cx.notify();
+        }
+    }
+
+    fn confirm(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
         }
-        // 会话信息到点击这一刻再查：弹框时列表可能还没扫完
+        match self.choices.get(ix).cloned() {
+            Some(Choice::Relink { path, .. }) => self.apply(true, path, window, cx),
+            Some(Choice::Recreate) => self.apply(false, String::new(), window, cx),
+            Some(Choice::Pick) => self.pick_dir(window, cx),
+            None => {}
+        }
+    }
+
+    fn apply(&mut self, relink: bool, target: String, window: &mut Window, cx: &mut Context<Self>) {
+        // 会话信息到点击这一刻再查：出选择器时列表可能还没扫完
         let meta = self.session_id.as_deref().and_then(|id| self.state.read(cx).session(id).cloned());
         if relink && meta.is_none() {
-            self.error = Some("会话信息还没加载完，稍等一下再点".into());
+            self.error = Some("会话信息还没加载完，稍等一下再选".into());
             cx.notify();
             return;
         }
-        let target = match (&self.check, relink) {
-            (RelinkCheck::Ok(p), true) => p.clone(),
-            (_, true) => return,
-            (_, false) => String::new(),
-        };
         self.busy = true;
         self.error = None;
         cx.notify();
@@ -170,14 +177,22 @@ impl RecoverDialog {
         .detach();
     }
 
-    fn pick_dir(&mut self, cx: &mut Context<Self>) {
+    fn pick_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let rx = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("选这个目录".into()) });
-        let input = self.input.clone();
-        cx.spawn(async move |_, cx: &mut AsyncApp| {
+        let handle = window.window_handle();
+        cx.spawn(async move |this, cx: &mut AsyncApp| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
-            if let Some(p) = paths.into_iter().next() {
-                let _ = input.update(cx, |i, cx| i.set_text(p.display().to_string(), cx));
-            }
+            let Some(p) = paths.into_iter().next() else { return };
+            let _ = cx.update_window(handle, |_, window, cx| {
+                let _ = this.update(cx, |d, cx| match check_relink_target(&p.display().to_string(), None) {
+                    RelinkCheck::Ok(path) => d.apply(true, path, window, cx),
+                    RelinkCheck::Invalid(m) => {
+                        d.error = Some(m);
+                        cx.notify();
+                    }
+                    RelinkCheck::Empty => {}
+                });
+            });
         })
         .detach();
     }
@@ -189,160 +204,83 @@ impl RecoverDialog {
     }
 }
 
-impl Render for RecoverDialog {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+impl Render for RecoverPicker {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let meta = self.session_id.as_deref().and_then(|id| self.state.read(cx).session(id).cloned());
-        // codex 的会话按日期存，不按 cwd 索引：它没有钥匙可丢，措辞得跟着分岔
-        let keyed = keyed_by_cwd(meta.as_ref().map(|m| m.storage_folder.as_str()));
-        let tool_cmd = if meta.as_ref().map(|m| m.tool == "codex").unwrap_or(false) { "codex resume" } else { "resume" };
-        let vp = window.viewport_size();
+        let accent = theme.var("--accent-text");
         let busy = self.busy;
-        let can_relink = matches!(self.check, RelinkCheck::Ok(_)) && !busy;
-        let code = |t: &'static str| div().font_family(MONO).text_size(px(11.0)).text_color(theme.fg).child(t);
-        let note = |d: gpui::Div| d.flex().flex_wrap().items_baseline().text_size(px(12.0)).line_height(px(19.0)).text_color(theme.fg_muted);
-        let desc = |t: String| div().text_size(px(11.0)).line_height(px(17.6)).text_color(theme.fg_muted).child(t);
-        let option = || div().flex().flex_col().items_start().gap(px(6.0)).px(px(12.0)).py(px(10.0)).border_1().border_color(theme.border).rounded(px(RADIUS));
-        let title = |t: &'static str| div().text_size(px(12.0)).font_weight(FontWeight::MEDIUM).child(t);
-
-        let hint: Option<SharedString> = match (&self.error, &self.check) {
-            (Some(e), _) => Some(e.clone().into()),
-            (None, RelinkCheck::Invalid(m)) => Some(m.clone().into()),
-            _ => None,
-        };
+        let rows: Vec<gpui::AnyElement> = self
+            .choices
+            .iter()
+            .enumerate()
+            .map(|(ix, c)| {
+                let selected = ix == self.sel;
+                let (main, note): (String, String) = match c {
+                    Choice::Relink { path, why } => (path.clone(), (*why).to_string()),
+                    Choice::Recreate => ("重建原目录".into(), "在原路径建空目录；代码没了，但会话能接着聊".into()),
+                    Choice::Pick => ("选择其他目录…".into(), "打开系统目录选择框".into()),
+                };
+                div()
+                    .id(gpui::SharedString::from(format!("recover-choice-{ix}")))
+                    .flex()
+                    .items_baseline()
+                    .gap(px(8.0))
+                    .px(px(10.0))
+                    .py(px(4.0))
+                    .rounded(px(RADIUS))
+                    .when(selected, |d| d.bg(theme.bg_active))
+                    .when(!busy, |d| d.cursor_pointer().on_mouse_move(cx.listener(move |this, _, _, cx| {
+                        if this.sel != ix {
+                            this.sel = ix;
+                            cx.notify();
+                        }
+                    })))
+                    .on_click(cx.listener(move |this, _, window, cx| this.confirm(ix, window, cx)))
+                    .child(div().flex_none().w(px(12.0)).text_color(accent).child(if selected { "❯" } else { "" }))
+                    .child(div().min_w_0().font_family(MONO).text_size(px(12.0)).text_color(theme.fg).child(main))
+                    .child(div().flex_none().text_size(px(11.0)).text_color(theme.fg_muted).child(note))
+                    .into_any_element()
+            })
+            .collect();
 
         div()
-            .id("recover-backdrop")
+            .id("recover-picker")
             .key_context("Overlay Recover")
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &act::Dismiss, _, cx| this.close(cx)))
-            .on_action(cx.listener(|this, _: &act::Confirm, window, cx| this.run(true, window, cx)))
-            .absolute()
-            .size_full()
-            .bg(theme.scrim)
-            .flex()
-            .items_center()
-            .justify_center()
+            .on_action(cx.listener(|this, _: &act::Confirm, window, cx| {
+                let ix = this.sel;
+                this.confirm(ix, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &act::SelectNext, _, cx| this.move_sel(1, cx)))
+            .on_action(cx.listener(|this, _: &act::SelectPrev, _, cx| this.move_sel(-1, cx)))
             .occlude()
-            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|this, _, _, cx| this.close(cx)))
+            .absolute()
+            .left(px(12.0))
+            .right(px(12.0))
+            .bottom(px(12.0))
+            .max_w(px(640.0))
+            .bg(theme.bg_soft)
+            .border_1()
+            .border_color(theme.border_strong)
+            .rounded(px(RADIUS_LG))
+            .shadow(vec![shadow(8.0, 24.0, theme.var("--shadow-strong"))])
+            .px(px(6.0))
+            .py(px(8.0))
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
             .child(
                 div()
-                    .id("recover-modal")
-                    .occlude()
-                    .w((vp.width * 0.34).max(px(400.0)).min(px(520.0)))
-                    .max_h(vp.height * 0.8)
-                    .bg(theme.bg_soft)
-                    .border_1()
-                    .border_color(theme.border_strong)
-                    .rounded(px(RADIUS_LG))
-                    .shadow(vec![shadow(12.0, 40.0, theme.var("--shadow-strong"))])
-                    .flex()
-                    .flex_col()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .px(px(16.0))
-                            .py(px(12.0))
-                            .border_b_1()
-                            .border_color(theme.border)
-                            .text_size(px(14.0))
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("启动目录已不存在")
-                            .child(
-                                div()
-                                    .id("recover-close")
-                                    .px(px(6.0))
-                                    .text_size(px(18.0))
-                                    .text_color(theme.fg_muted)
-                                    .when(busy, |d| d.opacity(0.5))
-                                    .when(!busy, |d| d.cursor_pointer())
-                                    .child("×")
-                                    .on_click(cx.listener(|this, _, _, cx| this.close(cx))),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("recover-body")
-                            .overflow_y_scroll()
-                            .px(px(16.0))
-                            .pt(px(14.0))
-                            .pb(px(16.0))
-                            .flex()
-                            .flex_col()
-                            .gap(px(12.0))
-                            .child(if keyed {
-                                note(div())
-                                    .child("会话记录一个字节都没丢，丢的只是「在哪个目录启动」这把钥匙 —— ")
-                                    .child(code("claude -r"))
-                                    .child(" 只认原目录算出来的存储键。选一条路把钥匙对上：")
-                            } else {
-                                note(div()).child("这条会话不按目录索引，").child(code(tool_cmd)).child(" 在哪儿都能找到它 —— 缺的只是一个能干活的目录。给它一个即可：")
-                            })
-                            .child(
-                                div()
-                                    .font_family(MONO)
-                                    .text_size(px(11.0))
-                                    .line_height(px(16.5))
-                                    .text_color(theme.warning)
-                                    .bg(theme.bg)
-                                    .border_1()
-                                    .border_color(theme.border)
-                                    .rounded(px(RADIUS))
-                                    .px(px(8.0))
-                                    .py(px(6.0))
-                                    .child(self.cwd.clone()),
-                            )
-                            .child(
-                                option()
-                                    .child(title("重建原目录"))
-                                    .child(desc(if keyed {
-                                        "在原路径建一个空目录，钥匙自然对上，不动 ~/.claude。代码没了，但这条会话能接着聊 —— 会话里提到的文件路径都是空的。".into()
-                                    } else {
-                                        "在原路径建一个空目录，会话在那儿接着跑。代码没了，会话里提到的文件路径都是空的。".into()
-                                    }))
-                                    .child(btn(&theme, "recover-recreate", "重建并打开", busy).when(!busy, |d| d.on_click(cx.listener(|this, _, window, cx| this.run(false, window, cx))))),
-                            )
-                            .child(
-                                option()
-                                    .child(title("指到新位置"))
-                                    .child(desc(if keyed {
-                                        "代码搬家了就填新目录。会在新目录的存储键下建一个指向原会话记录的软链，不拷贝（拷贝会变成同一个会话的两份分叉）。".into()
-                                    } else {
-                                        "代码搬家了就填新目录。这个工具不按目录索引，所以只是换个工作目录，不动任何存储。".into()
-                                    }))
-                                    .child(
-                                        div()
-                                            .w_full()
-                                            .flex()
-                                            .gap(px(6.0))
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .flex()
-                                                    .bg(theme.bg)
-                                                    .text_color(theme.fg)
-                                                    .border_1()
-                                                    .border_color(if self.input.read(cx).focus_handle(cx).is_focused(window) { theme.accent } else { theme.border })
-                                                    .rounded(px(RADIUS))
-                                                    .px(px(8.0))
-                                                    .py(px(6.0))
-                                                    .font_family(MONO)
-                                                    .text_size(px(11.0))
-                                                    .line_height(px(15.0))
-                                                    .child(self.input.clone()),
-                                            )
-                                            .child(btn(&theme, "recover-pick", "选择目录…", busy).when(!busy, |d| d.on_click(cx.listener(|this, _, _, cx| this.pick_dir(cx))))),
-                                    )
-                                    .child(btn(&theme, "recover-relink", "指过去并打开", !can_relink).when(can_relink, |d| d.on_click(cx.listener(|this, _, window, cx| this.run(true, window, cx))))),
-                            )
-                            .children(hint.map(|h| div().text_size(px(11.0)).line_height(px(16.5)).text_color(theme.danger).child(h))),
-                    ),
+                    .px(px(10.0))
+                    .pb(px(4.0))
+                    .text_size(px(12.0))
+                    .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.warning).child("启动目录已不存在"))
+                    .child(div().font_family(MONO).text_size(px(11.0)).text_color(theme.fg_muted).child(self.cwd.clone()))
+                    .child(div().text_size(px(11.0)).text_color(theme.fg_subtle).child("会话记录没丢。选一个目录继续  ·  ↑↓ 选择  Enter 确认  Esc 暂不处理")),
             )
+            .children(rows)
+            .children(if busy { Some(div().px(px(10.0)).pt(px(4.0)).text_size(px(11.0)).text_color(theme.fg_muted).child("处理中…")) } else { None })
+            .children(self.error.clone().map(|e| div().px(px(10.0)).pt(px(4.0)).text_size(px(11.0)).text_color(theme.danger).child(e)))
     }
 }
-
-use gpui::Focusable as _;

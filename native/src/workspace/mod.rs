@@ -117,6 +117,8 @@ pub struct WorkspaceView {
     self_weak: WeakEntity<Self>,
     /// 每个 pane 上一帧的窗口坐标矩形（⌘F 搜索条贴当前 pane 的右上角）
     pane_bounds: Rc<RefCell<HashMap<String, gpui::Bounds<Pixels>>>>,
+    /// 启动目录不在的标签各自带一个恢复选择器（#239），挂在那块 pane 的底部
+    recover_pickers: HashMap<String, (Entity<crate::overlays::recover::RecoverPicker>, Subscription)>,
 }
 
 impl WorkspaceView {
@@ -136,6 +138,7 @@ impl WorkspaceView {
             _observe: observe,
             activation_sub: None,
             pane_bounds: Rc::default(),
+            recover_pickers: HashMap::new(),
             size: Rc::new(Cell::new(Size { width: px(1000.0), height: px(600.0) })),
             split_drag: None,
             hover_split: None,
@@ -161,10 +164,39 @@ impl WorkspaceView {
     /// 杀掉这些标签的终端（关标签 / 关 pane 之后调）
     pub fn shutdown_tabs(&mut self, ids: &[String], cx: &mut Context<Self>) {
         for id in ids {
+            self.recover_pickers.remove(id);
             if let Some(t) = self.terminals.remove(id) {
                 t.view.update(cx, |v, _| v.shutdown());
             }
         }
+    }
+
+    /// 启动目录不在：给这个标签出恢复选择器（#239）。同一个标签已经有就把焦点给它
+    pub fn show_recover(&mut self, tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((p, _)) = self.recover_pickers.get(&tab_id) {
+            window.focus(&p.read(cx).focus_handle());
+            return;
+        }
+        let is_active = self.state.read(cx).workspace.active_tab().is_some_and(|t| t.id == tab_id);
+        let state = self.state.clone();
+        let tid = tab_id.clone();
+        let picker = cx.new(|cx| crate::overlays::recover::RecoverPicker::new(state, tid, cwd, session_id, is_active, window, cx));
+        let tid = tab_id.clone();
+        let sub = cx.subscribe_in(&picker, window, move |this: &mut Self, _, ev: &crate::overlays::recover::RecoverEvent, _, cx| match ev {
+            crate::overlays::recover::RecoverEvent::Close => {
+                this.recover_pickers.remove(&tid);
+                // 焦点还给终端：清掉「上次给过谁」，下一帧 sync_focus 重新给
+                this.focused_tab = None;
+                cx.notify();
+            }
+        });
+        self.recover_pickers.insert(tab_id, (picker, sub));
+        cx.notify();
+    }
+
+    /// 自检用：这个标签的恢复选择器 (选项数, 选中项, 忙)
+    pub fn debug_recover(&self, tab_id: &str, cx: &App) -> Option<(usize, usize, bool)> {
+        self.recover_pickers.get(tab_id).map(|(p, _)| p.read(cx).debug_state())
     }
 
     fn shutdown_all(&mut self, cx: &mut Context<Self>) {
@@ -947,6 +979,7 @@ impl WorkspaceView {
             .overflow_hidden()
             .bg(theme.bg)
             .child(content)
+            .children(if c.tabs.is_empty() { None } else { self.recover_pickers.get(&c.active_tab_id).map(|(p, _)| p.clone()) })
             .on_drag_move(cx.listener(move |this, ev: &DragMoveEvent<TabDrag>, _, cx| {
                 this.on_pane_drag_move(&c1, DragKind::Tab, ev.bounds, ev.event.position, cx)
             }))
