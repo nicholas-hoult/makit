@@ -91,6 +91,15 @@ pub fn scrolled(prev_top: f32, top: f32) -> bool {
     (top - prev_top).abs() > SCROLLED_EPS
 }
 
+/// 该不该因为这次位置变化让滚动条显形。内容刚变（实时追加、折叠展开）时位置会跟着变，那不是用户在滚，
+/// 显形了就是每来一批新内容滚动条闪一下（#231「查看对话还是会刷一下」）
+pub fn wakes(scrolled: bool, content_just_changed: bool) -> bool {
+    scrolled && !content_just_changed
+}
+
+/// 内容变化之后多久内不因位置变化显形（够布局跟上；用户在这段时间里的滚动仍会在下一次位置变化时显形）
+const QUIET_MS: u64 = 250;
+
 /// 拖动滑块的标记，带上滚动条自己的实体 id（同屏多个滚动条时只响应自己那个）
 #[derive(Clone, Copy)]
 struct ScrollbarDrag(EntityId);
@@ -115,11 +124,18 @@ pub struct Scrollbar {
     /// 轨道离容器顶的距离：滚动区上面还垫着 padding 时（详情面板 pt 14）轨道要跟滚动区的视口对齐，
     /// 不然滑块位置会整体偏一个 padding
     inset_top: f32,
+    /// 内容刚变过（调用方 `content_changed()`）：到这个时刻之前，位置变化不算「在滚」
+    quiet_until: Option<std::time::Instant>,
 }
 
 impl Scrollbar {
     pub fn new(source: ScrollSource) -> Self {
-        Self { source, last_top: 0.0, active: false, fade: None, grab: 0.0, dragging: false, inset_top: 0.0 }
+        Self { source, last_top: 0.0, active: false, fade: None, grab: 0.0, dragging: false, inset_top: 0.0, quiet_until: None }
+    }
+
+    /// 内容刚变了（实时追加 / 折叠展开）：接下来一小会儿位置变化不让滚动条显形
+    pub fn content_changed(&mut self) {
+        self.quiet_until = Some(std::time::Instant::now() + Duration::from_millis(QUIET_MS));
     }
 
     pub fn with_inset_top(mut self, px: f32) -> Self {
@@ -190,7 +206,10 @@ impl Render for Scrollbar {
         let m = self.source.metrics();
         if scrolled(self.last_top, m.top) {
             self.last_top = m.top;
-            self.ping(cx);
+            let quiet = self.quiet_until.is_some_and(|t| std::time::Instant::now() < t);
+            if wakes(true, quiet) {
+                self.ping(cx);
+            }
         }
         let Some((top, h)) = thumb_geometry(m.total, m.viewport, m.top) else {
             // 没溢出：不画，也不占位
@@ -270,6 +289,13 @@ mod tests {
         let (total, viewport) = (3000.0, 500.0);
         assert_eq!(scroll_for_thumb(total, viewport, thumb_top_for_pointer(-500.0, 100.0, 5.0)), 0.0, "拖过顶端不越界");
         assert_eq!(scroll_for_thumb(total, viewport, thumb_top_for_pointer(9999.0, 100.0, 5.0)), 2500.0, "拖过底端停在底");
+    }
+
+    #[test]
+    fn content_changes_do_not_wake_the_scrollbar() {
+        assert!(wakes(true, false), "用户在滚：显形");
+        assert!(!wakes(true, true), "刚追加了内容、位置跟着变：不显形");
+        assert!(!wakes(false, false), "没动：不显形");
     }
 
     #[test]

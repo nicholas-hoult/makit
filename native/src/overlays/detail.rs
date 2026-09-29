@@ -60,6 +60,9 @@ pub struct DetailView {
     list: ListState,
     scrollbar: Entity<crate::scrollbar::Scrollbar>,
     focus: FocusHandle,
+    opened: std::time::Instant,
+    /// 后台线程读第一遍文件花的毫秒数
+    load_ms: f64,
 }
 
 impl EventEmitter<DetailEvent> for DetailView {}
@@ -73,16 +76,18 @@ impl DetailView {
             let first = cx
                 .background_executor()
                 .spawn(async move {
+                    let t0 = std::time::Instant::now();
                     let (path, tool) = makit_core::sessions::locate_session_file(&id).ok_or_else(|| format!("找不到 session: {id}"))?;
                     let mut reader = TranscriptReader::new(path, tool);
                     let p = poll(&mut reader).map_err(|e| e.to_string())?;
-                    Ok::<_, String>((Arc::new(Mutex::new(reader)), p))
+                    Ok::<_, String>((Arc::new(Mutex::new(reader)), p, t0.elapsed().as_secs_f64() * 1000.0))
                 })
                 .await;
             let reader = match first {
-                Ok((reader, p)) => {
+                Ok((reader, p, load_ms)) => {
                     let _ = this.update(cx, |d, cx| {
                         d.load = Load::Ready;
+                        d.load_ms = load_ms;
                         d.apply(p, true, cx);
                     });
                     reader
@@ -113,7 +118,7 @@ impl DetailView {
         let list = ListState::new(0, ListAlignment::Top, px(600.0));
         // 列表上面垫着 14px 的 padding（见渲染），轨道要和列表视口对齐
         let scrollbar = cx.new(|_| crate::scrollbar::Scrollbar::new(crate::scrollbar::ScrollSource::List(list.clone())).with_inset_top(14.0));
-        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: true, list, scrollbar, focus }
+        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: true, list, scrollbar, focus, opened: std::time::Instant::now(), load_ms: 0.0 }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -142,6 +147,10 @@ impl DetailView {
         // 旧→新且已在底部：新内容出现后跟到底；往上翻过就不动
         let follow = !initial && !self.reversed && self.scrollbar.read(cx).at_bottom();
         let prev_len = self.items.borrow().len();
+        if !initial {
+            self.scrollbar.update(cx, |s, _| s.content_changed());
+        }
+        let t_apply = std::time::Instant::now();
         {
             let mut items = self.items.borrow_mut();
             if p.changes.reset {
@@ -167,11 +176,22 @@ impl DetailView {
                 self.list.scroll_to_reveal_item(p.total - 1);
             }
         }
+        // 埋点（perf.log）：打开耗时；之后每次并入超过 8ms 的记一笔
+        let apply_ms = t_apply.elapsed().as_secs_f64() * 1000.0;
+        if initial {
+            crate::perf::record(serde_json::json!({
+                "kind": "detail-open", "app": "gpui", "ms": (self.opened.elapsed().as_secs_f64() * 1000.0).round(),
+                "load_ms": self.load_ms.round(), "apply_ms": (apply_ms * 10.0).round() / 10.0, "items": p.total,
+            }));
+        } else if apply_ms > 8.0 {
+            crate::perf::record(serde_json::json!({"kind": "detail-apply", "app": "gpui", "ms": (apply_ms * 10.0).round() / 10.0, "items": p.total}));
+        }
         cx.notify();
     }
 
     /// 点折叠行：翻转展开状态，只让这一项重新量高度
     fn toggle(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.scrollbar.update(cx, |s, _| s.content_changed());
         {
             let mut e = self.expanded.borrow_mut();
             if !e.remove(id) {

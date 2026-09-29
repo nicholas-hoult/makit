@@ -810,3 +810,36 @@ fn live_replay_counts_resets() {
     eprintln!("polls {polls} resets {resets} appended {appends} updated {updates} final {}", r.len());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// 取证（#231）：冷读一个真实文件要多久，之后每次「有新内容」的 poll 要多久
+#[test]
+#[ignore]
+fn cold_and_steady_poll_timing() {
+    use std::io::Write;
+    let Ok(src) = std::env::var("REPLAY_FILE") else { return };
+    let dir = std::env::temp_dir().join(format!("mk-time-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("s.jsonl");
+    std::fs::copy(&src, &path).unwrap();
+    let size = std::fs::metadata(&path).unwrap().len();
+    let t = std::time::Instant::now();
+    let mut r = TranscriptReader::new(path.clone(), Tool::Claude);
+    let ch = r.poll().unwrap();
+    eprintln!("冷读 {} MB：{:?}，{} 项", size / 1_000_000, t.elapsed(), ch.appended.len());
+    let last = std::fs::read_to_string(&path).unwrap().lines().rev().find(|l| l.contains("\"type\":\"user\"") || l.contains("\"type\":\"assistant\"")).map(String::from).unwrap();
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    let mut worst = std::time::Duration::ZERO;
+    let mut total = std::time::Duration::ZERO;
+    for i in 0..20 {
+        let mut v: serde_json::Value = serde_json::from_str(&last).unwrap();
+        v["uuid"] = json!(format!("timing-{i}"));
+        writeln!(f, "{v}").unwrap();
+        let t = std::time::Instant::now();
+        r.poll().unwrap();
+        let d = t.elapsed();
+        worst = worst.max(d);
+        total += d;
+    }
+    eprintln!("稳态 poll（有新内容）：平均 {:?}，最慢 {:?}", total / 20, worst);
+    std::fs::remove_dir_all(&dir).ok();
+}
