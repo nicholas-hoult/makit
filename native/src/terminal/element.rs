@@ -144,11 +144,22 @@ fn font_family(window: &Window) -> SharedString {
 
 static CJK: OnceLock<Vec<String>> = OnceLock::new();
 
+fn cjk_names() -> &'static Vec<String> {
+    CJK.get_or_init(|| fonts::cjk_fallbacks(&fonts::system_preferred_languages()).into_iter().map(String::from).collect())
+}
+
+/// 界面里别处要用等宽字体（阅读视图）：主字体 + 和终端一样的 CJK 回退。
+/// 只写 `font_family("Menlo")` 时中文走系统自己挑的回退，会挑到别的字体、字形对不上（#231）
+pub(crate) fn text_font(window: &Window) -> Font {
+    let mut f = gpui::font(font_family(window));
+    f.fallbacks = Some(FontFallbacks::from_fonts(cjk_names().clone()));
+    f
+}
+
 /// 当前字号下的终端字体和格子尺寸（对标终端 的设备像素四舍五入，见 `fonts::cell_size`）
 pub(super) fn metrics(window: &Window, font_size: f32) -> (Font, Pixels, Pixels) {
     let mut f = gpui::font(font_family(window));
-    let cjk = CJK.get_or_init(|| fonts::cjk_fallbacks(&fonts::system_preferred_languages()).into_iter().map(String::from).collect());
-    f.fallbacks = Some(FontFallbacks::from_fonts(cjk.clone()));
+    f.fallbacks = Some(FontFallbacks::from_fonts(cjk_names().clone()));
     let ts = window.text_system();
     let id = ts.resolve_font(&f);
     let fs = px(font_size);

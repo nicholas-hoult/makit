@@ -38,6 +38,7 @@ use gpui::{
 };
 
 mod element;
+pub(crate) use element::text_font;
 mod input;
 mod search;
 

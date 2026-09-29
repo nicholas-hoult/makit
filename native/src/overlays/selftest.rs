@@ -68,7 +68,7 @@ async fn detail_check(
             .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
             .find(|v| matches!(v["type"].as_str(), Some("user" | "assistant")))
             .and_then(|v| v["uuid"].as_str().map(String::from));
-        let line = serde_json::json!({"type":"user","uuid":"selftest-appended","parentUuid":parent,"timestamp":"2026-09-30T00:00:00Z","sessionId":sid,
+        let line = serde_json::json!({"type":"user","uuid":format!("selftest-appended-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)),"parentUuid":parent,"timestamp":"2026-09-30T00:00:00Z","sessionId":sid,
             "message":{"role":"user","content":"实时追加的一行"}});
         use std::io::Write;
         let _ = writeln!(std::fs::OpenOptions::new().append(true).open(&path).unwrap(), "{line}");

@@ -163,6 +163,73 @@ fn parallel_tool_calls_keep_results_even_though_they_are_off_the_active_chain() 
 }
 
 #[test]
+fn parallel_tool_results_arriving_one_by_one_never_reset_the_view() {
+    // 实时读：a2 / a3 是并行的两个工具调用，r1（a2 的结果）先到、r2（a3 的结果）后到。
+    // r1 到的时候叶子不能退回 a2 —— 否则 a3 暂时从可见链里消失，读取器报 reset，界面整体重建（「刷一下」）
+    use std::io::Write;
+    let path = std::env::temp_dir().join(format!("mk-live-{}.jsonl", std::process::id()));
+    std::fs::write(&path, "").unwrap();
+    let mut r = TranscriptReader::new(path.clone(), Tool::Claude);
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    let lines = [
+        user_str("u1", None, "问题"),
+        asst("a2", Some("u1"), "m1", tool_use("toolu_1", "Read", json!({}))),
+        asst("a3", Some("a2"), "m1", tool_use("toolu_2", "Grep", json!({}))),
+        tool_result("r1", Some("a2"), "toolu_1", json!("文件内容"), false),
+        tool_result("r2", Some("a3"), "toolu_2", json!("匹配结果"), false),
+        asst("t1", Some("r2"), "m2", text_block("答案")),
+    ];
+    let mut seen = 0;
+    for l in &lines {
+        writeln!(f, "{l}").unwrap();
+        let ch = r.poll().unwrap();
+        assert!(!ch.reset, "写入 {l:.60} 之后不该 reset");
+        seen += ch.appended.len();
+    }
+    assert_eq!(seen, 4, "问题 + 两个调用 + 答案");
+    assert_eq!(r.len(), 4);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn tool_result_arriving_last_does_not_hide_the_parallel_sibling() {
+    let items = claude(&[
+        user_str("u1", None, "问题"),
+        asst("a2", Some("u1"), "m1", tool_use("toolu_1", "Read", json!({}))),
+        asst("a3", Some("a2"), "m1", tool_use("toolu_2", "Grep", json!({}))),
+        tool_result("r1", Some("a2"), "toolu_1", json!("文件内容"), false),
+    ]);
+    assert_eq!(items.len(), 3, "{:?}", kinds(&items));
+}
+
+#[test]
+fn later_block_of_the_same_response_skipping_a_sibling_keeps_the_sibling_visible() {
+    // 真实文件里的形状：同一条回复（m1）拆成 a2 / a3 / a4 三个块；a4 的父是 r1（a2 的结果），跳过了 a3。
+    // a3 属于同一条回复，不是被放弃的分支，必须一直可见，读取器也不该 reset
+    use std::io::Write;
+    let path = std::env::temp_dir().join(format!("mk-live2-{}.jsonl", std::process::id()));
+    std::fs::write(&path, "").unwrap();
+    let mut r = TranscriptReader::new(path.clone(), Tool::Claude);
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    let lines = [
+        user_str("u1", None, "问题"),
+        asst("a2", Some("u1"), "m1", tool_use("toolu_1", "Read", json!({}))),
+        asst("a3", Some("a2"), "m1", tool_use("toolu_2", "Grep", json!({}))),
+        tool_result("r1", Some("a2"), "toolu_1", json!("文件内容"), false),
+        asst("a4", Some("r1"), "m1", tool_use("toolu_3", "Bash", json!({}))),
+        tool_result("r2", Some("a3"), "toolu_2", json!("匹配结果"), false),
+    ];
+    for l in &lines {
+        writeln!(f, "{l}").unwrap();
+        let ch = r.poll().unwrap();
+        assert!(!ch.reset, "写入 {l:.60} 之后不该 reset");
+    }
+    assert_eq!(r.len(), 4, "问题 + Read + Grep + Bash");
+    assert!(call("Grep", Some("匹配结果"))(&r.item(2).kind), "{:?}", r.item(2).kind);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
 fn tool_result_content_shapes() {
     let items = claude(&[
         user_str("u1", None, "q"),
@@ -710,4 +777,36 @@ fn glob_files(dir: &std::path::Path, depth: usize) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// 取证（#231）：把真实会话文件一行一行「写」进临时文件，每写一行 poll 一次，数 reset / 追加 / 更新的次数。
+/// 实时打开的详情面板一 reset 列表就整体重建 → 界面上「刷一下」
+#[test]
+#[ignore]
+fn live_replay_counts_resets() {
+    use std::io::Write;
+    let Ok(src) = std::env::var("REPLAY_FILE") else { return };
+    let text = std::fs::read_to_string(&src).unwrap();
+    let dir = std::env::temp_dir().join(format!("mk-replay-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("s.jsonl");
+    std::fs::write(&path, "").unwrap();
+    let mut r = TranscriptReader::new(path.clone(), Tool::Claude);
+    let (mut resets, mut appends, mut updates, mut polls) = (0, 0, 0, 0);
+    let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+    for (n, line) in text.lines().enumerate() {
+        writeln!(f, "{line}").unwrap();
+        let ch = r.poll().unwrap();
+        polls += 1;
+        if ch.reset {
+            resets += 1;
+            if resets <= 8 {
+                eprintln!("reset @行{n}: {}", &line[..line.len().min(160)]);
+            }
+        }
+        appends += ch.appended.len();
+        updates += ch.updated.len();
+    }
+    eprintln!("polls {polls} resets {resets} appended {appends} updated {updates} final {}", r.len());
+    std::fs::remove_dir_all(&dir).ok();
 }

@@ -3,11 +3,11 @@
 
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, AnyElement, App, Hsla, SharedString, Window};
+use gpui::{div, prelude::*, px, AnyElement, App, Font, Hsla, SharedString, Window};
 use makit_core::transcript::{DividerKind, Item, ItemKind, Level, ToolResult};
 
 use super::logic::{format_duration, split_blocks, tool_input_text, tool_summary, TextBlock};
-use crate::overlays::style::{mix_alpha, MONO, RADIUS};
+use crate::overlays::style::{mix_alpha, RADIUS};
 use crate::theme::Theme;
 
 /// 点折叠行时调用：参数是 Item 的 id
@@ -83,7 +83,7 @@ fn result_block(th: &Theme, r: &ToolResult) -> gpui::Div {
     row("⎿", th.fg_subtle, body)
 }
 
-pub fn render_item(item: &Item, expanded: bool, th: &Theme, toggle: &Toggle) -> AnyElement {
+pub fn render_item(item: &Item, expanded: bool, th: &Theme, font: &Font, toggle: &Toggle) -> AnyElement {
     let accent = th.var("--accent-text");
     let body: gpui::Div = match &item.kind {
         ItemKind::User(t) => row(">", accent, plain(th, t)).bg(th.bg_soft).rounded(px(RADIUS)).px(px(8.0)).py(px(6.0)),
@@ -135,7 +135,7 @@ pub fn render_item(item: &Item, expanded: bool, th: &Theme, toggle: &Toggle) -> 
     };
     div()
         .pb(px(10.0))
-        .font_family(MONO)
+        .font(font.clone())
         .text_size(px(TEXT_PX))
         .line_height(px(LINE_PX))
         .child(body)

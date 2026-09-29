@@ -202,6 +202,7 @@ impl Render for DetailView {
             Load::Ready if n == 0 => div().p(px(24.0)).flex().justify_center().text_color(theme.fg_muted).child("无对话内容").into_any_element(),
             Load::Ready => {
                 let (items, expanded, th, reversed) = (self.items.clone(), self.expanded.clone(), theme.clone(), self.reversed);
+                let font = crate::terminal::text_font(window);
                 let this = cx.entity().downgrade();
                 let toggle: Toggle = Rc::new(move |id, _, cx| {
                     let _ = this.update(cx, |d, cx| d.toggle(id, cx));
@@ -213,7 +214,7 @@ impl Render for DetailView {
                         return div().into_any_element();
                     };
                     let open = expanded.borrow().contains(&item.id);
-                    render_item(item, open, &th, &toggle)
+                    render_item(item, open, &th, &font, &toggle)
                 })
                 .size_full()
                 .into_any_element()

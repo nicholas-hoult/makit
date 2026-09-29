@@ -47,8 +47,11 @@ pub(super) fn feed(st: &mut State, v: &Value) -> Vec<usize> {
     if is_boundary && s("parentUuid").is_none() && !logical_parent.as_ref().is_some_and(|l| st.recs.contains_key(l)) {
         logical_parent = st.leaf.clone();
     }
-    st.recs.insert(uuid.to_string(), Rec { parent: s("parentUuid"), logical_parent, conv: matches!(ty, "user" | "assistant") });
-    if matches!(ty, "user" | "assistant") {
+    let msg = if ty == "assistant" { v.pointer("/message/id").and_then(Value::as_str).map(String::from) } else { None };
+    st.recs.insert(uuid.to_string(), Rec { parent: s("parentUuid"), logical_parent, conv: matches!(ty, "user" | "assistant"), msg });
+    // 纯工具结果的 user 记录不移动叶子：并行调用时先到的结果挂在较早的分支上，让叶子退回去会把后面的调用
+    // 暂时踢出可见链（实时读时读取器就报 reset，界面整体重建 →「刷一下」）。结果靠 tool_use_id 挂回调用，不依赖链
+    if matches!(ty, "user" | "assistant") && !only_tool_results(v) {
         st.leaf = Some(uuid.to_string());
     }
     let time = s("timestamp");
@@ -248,4 +251,10 @@ fn tag(s: &str, name: &str) -> Option<String> {
 fn base64_decoded_len(data: &str) -> usize {
     let n = data.trim_end_matches('=').len();
     n * 3 / 4
+}
+
+/// 消息内容全是 tool_result 块（没有任何用户文字 / 图片）
+fn only_tool_results(v: &Value) -> bool {
+    let blocks = v.pointer("/message/content").and_then(Value::as_array);
+    blocks.is_some_and(|b| !b.is_empty() && b.iter().all(|x| x.get("type").and_then(Value::as_str) == Some("tool_result")))
 }

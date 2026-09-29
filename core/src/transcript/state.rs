@@ -18,6 +18,9 @@ pub(super) struct Rec {
     pub logical_parent: Option<String>,
     /// user / assistant 的对话记录（可以当叶子；其余的 system 等只在父在链上时才可见）
     pub conv: bool,
+    /// assistant 记录所属的 API 回复（`message.id`）。一条回复会拆成多个块（并行工具调用……），后来的块的父指针
+    /// 可以跳过其中一个兄弟；这些块是同一条回复，不是被放弃的分支
+    pub msg: Option<String>,
 }
 
 pub(super) struct Entry {
@@ -89,6 +92,8 @@ impl State {
     /// 按当前分支重算可见集合
     pub fn recompute_visible(&mut self) {
         let active = self.active_chain();
+        // 活动链上出现过的回复：同一条回复的其余块也可见
+        let active_msgs: HashSet<&str> = active.iter().filter_map(|u| self.recs.get(*u)?.msg.as_deref()).collect();
         self.visible = self
             .all
             .iter()
@@ -97,7 +102,7 @@ impl State {
                 (Tool::Codex, _) | (_, None) => true,
                 (_, Some(uuid)) => match self.recs.get(uuid) {
                     None => true,
-                    Some(r) if r.conv => active.contains(uuid.as_str()),
+                    Some(r) if r.conv => active.contains(uuid.as_str()) || r.msg.as_deref().is_some_and(|m| active_msgs.contains(m)),
                     // system 等：顺着父往上找到最近的一条对话记录，它在链上才可见
                     Some(_) => self.anchor_active(uuid, &active),
                 },
