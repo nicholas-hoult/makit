@@ -510,6 +510,8 @@ impl Render for SidebarView {
             self.resizing = false;
             self.thumb_dragging = false;
         }
+        // 拖 / 悬停宽度条时标题栏那道竖线跟着亮（同 workspace::titlebar 文件头写的挂点）
+        cx.set_global(crate::workspace::titlebar::TitlebarResizerHot(self.resizing || self.resizer_hovered));
         let theme = cx.theme().clone();
         let width = self.state.read(cx).prefs.sidebar.width;
         let total = *self.tops.last().unwrap_or(&0.0);
@@ -592,6 +594,10 @@ impl Render for SidebarView {
             .when(self.resizing, |d| d.bg(theme.accent))
             .hover(|s| s.bg(theme.accent))
             .tooltip(tip("拖拽调整宽度"))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.resizer_hovered = *hovered;
+                cx.notify();
+            }))
             .on_drag(ResizeDrag, |_, _, _, cx| cx.new(|_| Nothing));
 
         div()

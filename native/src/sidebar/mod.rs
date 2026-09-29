@@ -142,6 +142,8 @@ pub struct SidebarView {
     /// 工具 logo 的本地缓存文件（`~/.claude/makit/logos/<tool>.ico`）
     logos: HashMap<String, PathBuf>,
     resizing: bool,
+    /// 鼠标在拖宽条上悬停（标题栏的竖线跟着亮，见 workspace::titlebar::TitlebarResizerHot）
+    resizer_hovered: bool,
     /// 滚动条显形（滚动后 900ms 淡出，同 scrollActivity.ts）
     scroll_active: bool,
     scroll_task: Option<Task<()>>,
@@ -224,6 +226,7 @@ impl SidebarView {
             refreshing: false,
             logos: load_logos(),
             resizing: false,
+            resizer_hovered: false,
             scroll_active: false,
             scroll_task: None,
             thumb_dragging: false,
