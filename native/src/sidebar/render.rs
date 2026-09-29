@@ -3,12 +3,13 @@
 use std::time::Duration;
 
 use gpui::{
-    div, img, list, prelude::*, px, radians, rgb, svg, Animation, AnimationExt, AnyElement, AnyView, App, ClickEvent, Context,
+    div, img, list, prelude::*, px, radians, rgb, svg, Animation, AnimationExt, AnyElement, ClickEvent, Context,
     CursorStyle, DragMoveEvent, FontWeight, Hsla, MouseButton, MouseDownEvent, SharedString, Transformation, Window,
 };
 
 use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label, RunState};
 use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H};
+use crate::tooltip::tip;
 use super::{now_secs, DraggedSession, Popup, ResizeDrag, SidebarView, ThumbDrag};
 use crate::actions::sidebar as act;
 use crate::theme::{ActiveTheme, Theme};
@@ -26,27 +27,6 @@ fn brand_codex() -> Hsla {
     rgb(0x10a37f).into()
 }
 
-/// 简单的 tooltip（TS 版是原生 title 属性）
-pub(super) struct Tip(pub SharedString);
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = cx.theme();
-        div()
-            .px(px(8.))
-            .py(px(4.))
-            .bg(t.bg_soft)
-            .border_1()
-            .border_color(t.border_strong)
-            .rounded(px(4.))
-            .text_size(px(11.))
-            .line_height(px(15.))
-            .text_color(t.fg)
-            .font_family(".SystemUIFont")
-            .child(self.0.clone())
-    }
-}
-
 /// 拖动条 / 滑块拖动时的占位（不画东西）
 struct Nothing;
 
@@ -54,11 +34,6 @@ impl Render for Nothing {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
     }
-}
-
-pub(super) fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
-    let text: SharedString = text.into();
-    move |_, cx| cx.new(|_| Tip(text.clone())).into()
 }
 
 /// 折叠箭头（`.tree-group-arrow` / `.tree-project-arrow`：› 展开时转 90°）

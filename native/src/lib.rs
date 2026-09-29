@@ -31,6 +31,7 @@ pub mod scrollbar;
 pub mod selftest;
 pub mod sidebar;
 pub mod state;
+pub mod tooltip;
 pub mod terminal;
 pub mod theme;
 pub mod workspace;

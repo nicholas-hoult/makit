@@ -733,7 +733,7 @@ impl WorkspaceView {
                             .text_size(px(9.0))
                             .opacity(0.7)
                             .child(kind_icon(t.kind))
-                            .tooltip(|window, cx| titlebar::gpui_tooltip("在侧栏定位 session", window, cx))
+                            .tooltip(crate::tooltip::tip("在侧栏定位 session"))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 cx.stop_propagation();
                                 // 先切到这个标签，再让侧栏定位「当前会话」（B 包的 RevealActive）
@@ -823,7 +823,7 @@ impl WorkspaceView {
                 .cursor_pointer()
                 .opacity(if on { 1.0 } else { 0.6 })
                 .hover(|s| s.bg(theme.bg_hover).opacity(1.0))
-                .tooltip(move |window, cx| titlebar::gpui_tooltip(tip, window, cx))
+                .tooltip(crate::tooltip::tip(tip))
                 .child(
                     svg()
                         .path(icon)

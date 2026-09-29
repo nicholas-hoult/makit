@@ -12,7 +12,8 @@ use gpui::{
 
 use super::groups::SortKey;
 use super::hover;
-use super::render::{mix, tip};
+use super::render::mix;
+use crate::tooltip::tip;
 use super::{Popup, SidebarView};
 use crate::actions::{overlays as ov, sidebar as act};
 use crate::theme::Theme;

@@ -309,7 +309,7 @@ fn row(n: Entity<Notifier>, i: usize, r: &super::book::Record, name: String, pro
                 .group_hover(group, |s| s.opacity(0.3))
                 .hover(|s| s.opacity(1.0).bg(t.bg_hover))
                 .child("×")
-                .tooltip(|_, cx| cx.new(|_| Tip("移除".into())).into())
+                .tooltip(crate::tooltip::tip("移除"))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_: &ClickEvent, _, cx| {
                     cx.stop_propagation();
@@ -366,29 +366,9 @@ pub fn bell(cx: &App) -> AnyElement {
             .absolute()
             .size_full(),
         )
-        .tooltip(move |_, cx| cx.new(|_| Tip(tip.clone())).into())
+        .tooltip(crate::tooltip::tip(tip.clone()))
         .on_click(move |_: &ClickEvent, window, cx| n_click.update(cx, |x, cx| x.toggle(window, cx)))
         .into_any_element()
-}
-
-/// 简单的文字 tooltip（原生 title 的替代）
-struct Tip(SharedString);
-
-impl Render for Tip {
-    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let t = cx.theme();
-        div()
-            .px(px(8.0))
-            .py(px(4.0))
-            .rounded(px(4.0))
-            .bg(t.bg_soft)
-            .border_1()
-            .border_color(t.border)
-            .text_size(px(12.0))
-            .text_color(t.fg)
-            .font_family(".SystemUIFont")
-            .child(self.0.clone())
-    }
 }
 
 #[cfg(test)]

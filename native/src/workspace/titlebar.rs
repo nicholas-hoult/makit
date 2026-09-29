@@ -17,7 +17,7 @@
 //!   它的左边界 = `BELL_LEFT`（通知抽屉按这个定位，同 TS 的 `bellBtnRef.getBoundingClientRect().left`）
 //! - 侧栏分隔线高亮（B 侧栏包）：拖 / 悬停侧栏 resizer 时 `cx.set_global(TitlebarResizerHot(true))`
 
-use gpui::{div, prelude::*, px, svg, AnyElement, AnyView, App, ClickEvent, Entity, Global, Window};
+use gpui::{div, prelude::*, px, svg, AnyElement, App, ClickEvent, Entity, Global, Window};
 
 use super::labels::titlebar_text;
 use crate::actions::app as app_act;
@@ -109,7 +109,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                 .items_center()
                 .child(
                     icon_button("titlebar-sidebar-toggle", "icons/titlebar-sidebar-toggle.svg", 13.0, cx)
-                        .tooltip(|window, cx| gpui_tooltip("折叠侧栏 (⌘B)", window, cx))
+                        .tooltip(crate::tooltip::tip("折叠侧栏 (⌘B)"))
                         .on_click(|_, window, cx| {
                             cx.stop_propagation();
                             window.dispatch_action(Box::new(app_act::ToggleSidebar), cx);
@@ -118,27 +118,4 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                 .child(bell),
         )
         .into_any_element()
-}
-
-/// 最简 tooltip（TS 用的是原生 title 属性）。D 包有统一 tooltip 组件后换掉
-pub fn gpui_tooltip(text: &'static str, _: &mut Window, cx: &mut App) -> AnyView {
-    cx.new(|_| Tooltip(text)).into()
-}
-
-struct Tooltip(&'static str);
-
-impl Render for Tooltip {
-    fn render(&mut self, _: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let t = cx.theme();
-        div()
-            .px(px(8.0))
-            .py(px(4.0))
-            .bg(t.bg_soft)
-            .border_1()
-            .border_color(t.border_strong)
-            .rounded(px(4.0))
-            .text_size(px(11.0))
-            .text_color(t.fg)
-            .child(self.0)
-    }
 }
