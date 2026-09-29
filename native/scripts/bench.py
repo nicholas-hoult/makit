@@ -151,11 +151,18 @@ def bench_terminal(name, binary, fakehome):
     wait_for(log, "startup", 1, 60)
     print(f"[{name}] 请在窗口里点侧栏任意一个会话（120 秒内）……", flush=True)
     rec = wait_for(log, "terminal-open", 1, 120)
-    # 等假 claude 开始
+    # 假 claude 是 `python3 -c … > .bench-start`：shell 的重定向先把空文件建出来，
+    # 时间戳要等 python 起来才落盘。只等 exists 会读到空串，float('') 直接抛。
+    # 所以等到**能解析出时间戳**为止。
     end = time.time() + 30
-    while not os.path.exists(start_file) and time.time() < end:
-        time.sleep(0.02)
-    t0 = float(open(start_file).read().strip()) if os.path.exists(start_file) else time.time()
+    t0 = None
+    while t0 is None and time.time() < end:
+        try:
+            t0 = float(open(start_file).read().strip())
+        except (OSError, ValueError):
+            time.sleep(0.02)
+    if t0 is None:
+        t0 = time.time()
     procs = [p.pid] + helpers(before)
     # CPU 时间 200ms 内增长不到 20ms、连续 1.5 秒 → 算处理完
     last_busy = time.time()
