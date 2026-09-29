@@ -74,9 +74,9 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
     // App.css:1512-1529 .notif-drawer：top 40、left = 铃铛的 left（兜底 104）、height 66.67vh、width min(62vw, 680)
     let width = (vp.width * 0.62).min(px(680.0));
     let height = vp.height * 0.6667;
-    let (left, records, selected, unread, focus, scroll) = {
+    let (left, records, selected, unread, focus, scroll, scrollbar) = {
         let x = n.read(cx);
-        (x.bell_bounds.map(|b| b.origin.x).unwrap_or(px(104.0)), x.book.records.clone(), x.selected, x.unread_count(), x.focus.clone(), x.scroll.clone())
+        (x.bell_bounds.map(|b| b.origin.x).unwrap_or(px(104.0)), x.book.records.clone(), x.selected, x.unread_count(), x.focus.clone(), x.scroll.clone(), x.scrollbar.clone())
     };
     let now = crate::sidebar::now_secs();
     let count = records.len();
@@ -145,7 +145,16 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
                 row(n.clone(), i, r, name, project, selected == Some(i), i + 1 == count, now, &theme)
             })
             .collect();
-        div().id("notif-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).children(rows).into_any_element()
+        // 滚动条是滚动容器的同级、绝对定位（见 scrollbar.rs 文件头）
+        div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .child(div().id("notif-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&scroll).children(rows))
+            .child(scrollbar)
+            .into_any_element()
     };
 
     let on = |f: fn(&mut Notifier, &mut Window, &mut gpui::Context<Notifier>)| {

@@ -13,6 +13,7 @@
 //! | `terminal/` | alacritty 终端视图 + 键位 / 网格 / 调色板纯逻辑 | A 终端 |
 //! | `overlays/` | ⌘K、搜索条、详情、设置、toast、右键菜单 | D 浮层 |
 //! | `notify/` | hook、通知中心、系统通知 | E 通知 |
+//! | `scrollbar.rs` | 浮层用的通用细滚动条（滚动时显形，900ms 淡出） | 公共 |
 //! | `assets.rs` | 打进二进制的图标（AssetSource），各包在自己那段加行 | 公共 |
 //! | `app.rs` | 启动流程 + 根视图（全局 action 的落脚点） | F0 |
 //! | `selftest.rs` | 无人值守自检（`MAKIT_NATIVE_SELFTEST`） | F0 |
@@ -26,6 +27,7 @@ pub mod notify;
 pub mod overlays;
 pub mod perf;
 pub mod persist;
+pub mod scrollbar;
 pub mod selftest;
 pub mod sidebar;
 pub mod state;

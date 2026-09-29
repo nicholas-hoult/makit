@@ -73,6 +73,8 @@ pub enum SettingsEvent {
 pub struct SettingsView {
     state: Entity<AppState>,
     focus: FocusHandle,
+    scroll: gpui::ScrollHandle,
+    scrollbar: Entity<crate::scrollbar::Scrollbar>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -87,7 +89,9 @@ impl SettingsView {
         let focus = cx.focus_handle();
         window.focus(&focus);
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        Self { state, focus }
+        let scroll = gpui::ScrollHandle::new();
+        let scrollbar = crate::scrollbar::Scrollbar::handle(&scroll, cx);
+        Self { state, focus, scroll, scrollbar }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -318,11 +322,20 @@ impl Render for SettingsView {
                             ),
                     )
                     .child(
+                        // 滚动条是滚动容器的同级、绝对定位（见 scrollbar.rs 文件头）
+                        div()
+                            .relative()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_h_0()
+                            .child(
                         div()
                             .id("settings-body")
                             .flex_1()
                             .min_h_0()
                             .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
                             .py(px(8.0))
                             // 外观主题
                             .child(
@@ -453,7 +466,9 @@ impl Render for SettingsView {
                                     .child(hint("Hover 时在 session 旁弹出详细信息卡片（ID、路径、分支、话题等），点击可复制。")),
                             )
                             // 快捷键（读唯一的快捷键表）
-                            .child(div().px(px(16.0)).py(px(12.0)).child(label("快捷键")).children(shortcut_groups_el)),
+                            .child(div().px(px(16.0)).py(px(12.0)).child(label("快捷键")).children(shortcut_groups_el))
+                            )
+                            .child(self.scrollbar.clone()),
                     ),
             )
     }

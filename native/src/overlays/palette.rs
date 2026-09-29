@@ -43,6 +43,7 @@ pub struct PaletteView {
     /// 鼠标真正移动过之后 hover 才改高亮（面板弹出时鼠标正好停在某一行上，不能抢走键盘光标）
     mouse_moved: bool,
     scroll: ScrollHandle,
+    scrollbar: Entity<crate::scrollbar::Scrollbar>,
     scroll_to_active: bool,
 }
 
@@ -60,6 +61,8 @@ impl PaletteView {
         .detach();
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         window.focus(&input.focus_handle(cx));
+        let scroll = ScrollHandle::new();
+        let scrollbar = crate::scrollbar::Scrollbar::handle(&scroll, cx);
         let p = &state.read(cx).prefs.palette;
         Self {
             filter: PaletteFilter::from_json(p.filter.as_ref()),
@@ -72,9 +75,15 @@ impl PaletteView {
             active: 0,
             filter_open: false,
             mouse_moved: false,
-            scroll: ScrollHandle::new(),
+            scroll,
+            scrollbar,
             scroll_to_active: true,
         }
+    }
+
+    /// 自检用：列表的滚动句柄和它的滚动条
+    pub fn debug_scroll(&self) -> (ScrollHandle, Entity<crate::scrollbar::Scrollbar>) {
+        (self.scroll.clone(), self.scrollbar.clone())
     }
 
     pub fn query(&self) -> &str {
@@ -749,15 +758,25 @@ impl Render for PaletteView {
                                     .child(icon_btn(&theme, "palette-close", "×", 22.0).on_click(cx.listener(|_, _, _, cx| cx.emit(PaletteEvent::Close)))),
                             )
                             .child(
+                                // 滚动条是滚动容器的同级、绝对定位（见 scrollbar.rs 文件头）
                                 div()
-                                    .id("palette-body")
+                                    .relative()
+                                    .flex()
+                                    .flex_col()
                                     .flex_1()
                                     .min_h_0()
-                                    .overflow_y_scroll()
-                                    .track_scroll(&self.scroll)
-                                    .pt(px(2.0))
-                                    .pb(px(6.0))
-                                    .children(body),
+                                    .child(
+                                        div()
+                                            .id("palette-body")
+                                            .flex_1()
+                                            .min_h_0()
+                                            .overflow_y_scroll()
+                                            .track_scroll(&self.scroll)
+                                            .pt(px(2.0))
+                                            .pb(px(6.0))
+                                            .children(body),
+                                    )
+                                    .child(self.scrollbar.clone()),
                             )
                             .child(
                                 div()

@@ -4,7 +4,7 @@
 
 use std::rc::Rc;
 
-use gpui::{div, list, prelude::*, px, Context, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
+use gpui::{div, list, prelude::*, px, Context, Entity, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
 use makit_core::sessions::ConversationMessage;
 use makit_core::SessionMeta;
 
@@ -29,6 +29,7 @@ pub struct DetailView {
     /// 默认倒序（新 → 旧），不持久化
     reversed: bool,
     list: ListState,
+    scrollbar: Entity<crate::scrollbar::Scrollbar>,
     focus: FocusHandle,
 }
 
@@ -53,7 +54,10 @@ impl DetailView {
             });
         })
         .detach();
-        Self { session, load: Load::Loading, reversed: true, list: ListState::new(0, ListAlignment::Top, px(600.0)), focus }
+        let list = ListState::new(0, ListAlignment::Top, px(600.0));
+        // 列表上面垫着 14px 的 padding（见渲染），轨道要和列表视口对齐
+        let scrollbar = cx.new(|_| crate::scrollbar::Scrollbar::new(crate::scrollbar::ScrollSource::List(list.clone())).with_inset_top(14.0));
+        Self { session, load: Load::Loading, reversed: true, list, scrollbar, focus }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -181,7 +185,7 @@ impl Render for DetailView {
                                     .child(btn(&theme, "detail-close", "关闭", false).on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Close)))),
                             ),
                     )
-                    .child(div().flex_1().min_h_0().px(px(18.0)).pt(px(14.0)).child(body)),
+                    .child(div().relative().flex_1().min_h_0().px(px(18.0)).pt(px(14.0)).child(body).child(self.scrollbar.clone())),
             )
     }
 }

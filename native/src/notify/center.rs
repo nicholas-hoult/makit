@@ -69,6 +69,7 @@ pub struct Notifier {
     restore_focus: Option<FocusHandle>,
     /// 列表滚动（键盘移动时把高亮行滚进视野）
     pub scroll: ScrollHandle,
+    pub scrollbar: Entity<crate::scrollbar::Scrollbar>,
 
     // ---- 窗口闪一下 ----
     pub flash_seq: u64,
@@ -114,6 +115,8 @@ impl Notifier {
                 }
             })
             .detach();
+            let scroll = ScrollHandle::new();
+            let scrollbar = crate::scrollbar::Scrollbar::handle(&scroll, cx);
             Self {
                 state: state.clone(),
                 book,
@@ -130,7 +133,8 @@ impl Notifier {
                 bell_bounds: None,
                 focus: cx.focus_handle(),
                 restore_focus: None,
-                scroll: ScrollHandle::new(),
+                scroll,
+                scrollbar,
                 flash_seq: 0,
                 flash_until: None,
             }
