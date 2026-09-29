@@ -2804,6 +2804,7 @@ dependencies = [
  "dirs 5.0.1",
  "futures",
  "gpui",
+ "image",
  "libc",
  "makit-core",
  "objc2",

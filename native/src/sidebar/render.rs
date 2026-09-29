@@ -259,7 +259,7 @@ impl SidebarView {
         let project = super::groups::basename(if m.git_root.is_empty() { &m.cwd } else { &m.git_root });
         let sid = m.session_id.clone();
         let (sid_click, sid_menu, sid_hover) = (sid.clone(), sid.clone(), sid.clone());
-        let logo = self.logos.get(&m.tool).cloned();
+        let logo = crate::assets::tool_logo(&m.tool);
 
         let status = show_status.then(|| {
             let (color, opacity) = match rs {
@@ -344,7 +344,7 @@ impl SidebarView {
             .line_height(px(14.))
             .text_color(t.fg_muted)
             .map(|d| match (&logo, m.tool.as_str()) {
-                (Some(path), _) => d.child(img(path.clone()).size(px(10.)).flex_none().rounded(px(2.)).opacity(0.75)),
+                (Some(src), _) => d.child(img(src.clone()).size(px(10.)).flex_none().rounded(px(2.)).opacity(0.75)),
                 (None, "codex") => d.child(
                     div()
                         .flex_none()

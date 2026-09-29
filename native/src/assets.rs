@@ -34,10 +34,26 @@ const FILES: &[(&str, &[u8])] = &[
     asset!("icons/filter.svg"),
     // ⌘K 组头折叠箭头：▸ 画成同形三角
     asset!("icons/chevron-right.svg"),
+    // ---- 工具 logo（tool_logo）：官方 favicon，claude 来自 anthropic.com，codex 来自 openai.com ----
+    asset!("logos/claude.ico"),
+    asset!("logos/codex.ico"),
     // ---- E 通知 ----
     asset!("icons/notif-bell.svg"),
     asset!("icons/notif-empty-bell-off.svg"),
 ];
+
+/// 侧栏 / 工具选择器里的工具 logo：随程序打包的官方 favicon（和 Tauri 版第一次联网下载后缓存的是同一份文件）。
+/// 不联网下载：那要把 tokio / reqwest / TLS 整套拖进来，和 GPUI 版「体积小、启动快」的目的相反；
+/// 而且 openai.com 的 favicon 在脚本请求下会被 Cloudflare 挑战拦成 403。没有对应 logo 的工具返回 None，
+/// 调用方退回文字徽章（codex 的「CX」、工具选择器的 ◆ / ⬡）
+pub fn tool_logo(tool: &str) -> Option<gpui::ImageSource> {
+    let path = match tool {
+        "claude" => "logos/claude.ico",
+        "codex" => "logos/codex.ico",
+        _ => return None,
+    };
+    Some(gpui::ImageSource::Resource(gpui::Resource::Embedded(path.into())))
+}
 
 pub struct Assets;
 
@@ -54,6 +70,19 @@ impl AssetSource for Assets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 打进去的 logo 必须真能被 GPUI 的图片加载器解出来（它用 image::guess_format 认格式），
+    /// 而且不能太小：侧栏最大用到 16px，2x 屏要 32px。错了在界面上就是工具图标一块空白或糊成一团
+    #[test]
+    fn embedded_tool_logos_decode_and_are_big_enough() {
+        for tool in ["claude", "codex"] {
+            let Some(gpui::ImageSource::Resource(gpui::Resource::Embedded(path))) = tool_logo(tool) else { panic!("{tool} 没有内置 logo") };
+            let bytes = Assets.load(&path).unwrap().unwrap_or_else(|| panic!("{path} 不在资源表里"));
+            let img = image::load_from_memory(&bytes).unwrap_or_else(|e| panic!("{path} 解不出来：{e}"));
+            assert!(img.width() >= 32 && img.height() >= 32, "{path} 只有 {}×{}", img.width(), img.height());
+        }
+        assert!(tool_logo("bash").is_none(), "没有 logo 的工具要让调用方走文字徽章");
+    }
 
     #[test]
     fn every_asset_loads_and_is_svg() {

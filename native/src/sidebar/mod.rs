@@ -30,7 +30,6 @@ pub mod selftest;
 pub mod tree;
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::{
@@ -139,8 +138,6 @@ pub struct SidebarView {
     hover: Option<HoverCard>,
     hover_task: Option<Task<()>>,
     refreshing: bool,
-    /// 工具 logo 的本地缓存文件（`~/.claude/makit/logos/<tool>.ico`）
-    logos: HashMap<String, PathBuf>,
     resizing: bool,
     /// 鼠标在拖宽条上悬停（标题栏的竖线跟着亮，见 workspace::titlebar::TitlebarResizerHot）
     resizer_hovered: bool,
@@ -224,7 +221,6 @@ impl SidebarView {
             hover: None,
             hover_task: None,
             refreshing: false,
-            logos: load_logos(),
             resizing: false,
             resizer_hovered: false,
             scroll_active: false,
@@ -789,17 +785,4 @@ impl SidebarView {
 
 pub fn now_secs() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
-}
-
-/// 已经缓存在本地的工具 logo。没有缓存时不下载（core 的 get_tool_logo 要 tokio / reqwest），
-/// 退回 TS 版的兜底：codex 显示「CX」徽章，工具选择器显示 ◆ / ⬡
-fn load_logos() -> HashMap<String, PathBuf> {
-    let Some(dir) = dirs::home_dir().map(|h| h.join(".claude").join("makit").join("logos")) else { return HashMap::new() };
-    ["claude", "codex"]
-        .iter()
-        .filter_map(|t| {
-            let p = dir.join(format!("{t}.ico"));
-            p.exists().then(|| (t.to_string(), p))
-        })
-        .collect()
 }

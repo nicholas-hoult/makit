@@ -237,8 +237,8 @@ impl SidebarView {
             .line_height(px(16.));
         for (tool, label, fallback) in [("claude", "Claude", "◆"), ("codex", "Codex", "⬡")] {
             let cwd = cwd.to_string();
-            let icon = match self.logos.get(tool) {
-                Some(p) => img(p.clone()).size(px(16.)).flex_none().rounded(px(3.)).into_any_element(),
+            let icon = match crate::assets::tool_logo(tool) {
+                Some(src) => img(src).size(px(16.)).flex_none().rounded(px(3.)).into_any_element(),
                 None => div().w(px(16.)).flex_none().flex().justify_center().text_size(px(13.)).child(fallback).into_any_element(),
             };
             menu = menu.child(
