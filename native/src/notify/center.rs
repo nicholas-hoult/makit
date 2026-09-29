@@ -22,7 +22,7 @@ use crate::workspace::model::collect_containers;
 
 use super::book::{Banner, Book, Effects};
 use super::classify::{classify_hook_event, classify_status_change, Arbiter, RunStatus};
-use super::deliver::{deliver, is_on_screen, on_screen_session};
+use super::deliver::{self, deliver, is_on_screen, on_screen_session};
 use super::model::{Kind, Signal};
 use super::system::{set_dock_badge, Permission, SysEvent, System};
 
@@ -55,6 +55,8 @@ pub struct Notifier {
     pub window_active: bool,
     pub permission: Permission,
     system: System,
+    /// 授权框还开着时来的横幅：授权后补发（只留最新一条，同会话本来就是替换）
+    pending_banner: Option<Banner>,
     last_badge: Option<usize>,
 
     // ---- 抽屉 ----
@@ -120,6 +122,7 @@ impl Notifier {
                 status_baseline: false,
                 window_active: true,
                 permission: if system.available() { Permission::Unknown } else { Permission::Unavailable },
+                pending_banner: None,
                 system,
                 last_badge: None,
                 open: false,
@@ -198,6 +201,12 @@ impl Notifier {
             }
             SysEvent::Permission(p) => {
                 self.permission = p;
+                // 授权框刚被点掉：授权了就补发等着的那条；拒绝了就丢掉
+                if let Some(b) = self.pending_banner.take() {
+                    if p == Permission::Granted {
+                        self.post_banner(&b, cx);
+                    }
+                }
                 cx.notify();
             }
         }
@@ -281,12 +290,17 @@ impl Notifier {
         }
     }
 
-    fn post_banner(&self, b: &Banner, cx: &App) {
+    fn post_banner(&mut self, b: &Banner, cx: &App) {
         let (title, subtitle, body) = self.banner_text(b, cx);
-        if self.system.available() {
-            self.system.post(&b.session_id, &title, &subtitle, &body, b.sound, b.kind == Kind::TurnComplete);
-        } else {
-            eprintln!("[notify] （无 app 身份，未发横幅）{title}｜{subtitle}｜{body}");
+        match deliver::plan_post(self.permission) {
+            deliver::PostPlan::Now => self.system.post(&b.session_id, &title, &subtitle, &body, b.sound, b.kind == Kind::TurnComplete),
+            deliver::PostPlan::AskThenPost => {
+                // 已经有一条在等授权框：只换成最新的，不重复弹框
+                if self.pending_banner.replace(b.clone()).is_none() {
+                    self.system.request_permission();
+                }
+            }
+            deliver::PostPlan::Skip => eprintln!("[notify] （无 app 身份或已被拒绝，未发横幅）{title}｜{subtitle}｜{body}"),
         }
     }
 

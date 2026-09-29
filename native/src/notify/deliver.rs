@@ -73,6 +73,27 @@ pub fn on_screen_session(ws: &WorkspaceState, window_active: bool) -> Option<&st
     c.tabs.iter().find(|t| t.id == c.active_tab_id)?.session_id.as_deref()
 }
 
+/// 要发系统横幅时，按当前授权状态怎么办（同 Tauri useNotifications.ts 的 postSystem）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PostPlan {
+    /// 已授权：直接发
+    Now,
+    /// 没问过 / 还没查到：先弹系统授权框，授权了再补发这一条。系统对未授权的 app 直接丢横幅、不报错，
+    /// 所以不问的话第一条通知就悄悄没了，用户还不知道要去设置里点「请求授权」
+    AskThenPost,
+    /// 被拒绝 / 没有 app 身份：发也没用（系统不会再弹框）；通知中心和角标照常
+    Skip,
+}
+
+pub fn plan_post(p: super::system::Permission) -> PostPlan {
+    use super::system::Permission::*;
+    match p {
+        Granted => PostPlan::Now,
+        NotDetermined | Unknown => PostPlan::AskThenPost,
+        Denied | Unavailable => PostPlan::Skip,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +198,15 @@ mod tests {
             }
         }
         assert_eq!(on_screen_session(&w2, true), None, "shell 标签没绑会话");
+    }
+
+    #[test]
+    fn first_banner_asks_for_permission_instead_of_being_silently_dropped() {
+        use super::super::system::Permission::*;
+        assert_eq!(plan_post(Granted), PostPlan::Now);
+        assert_eq!(plan_post(NotDetermined), PostPlan::AskThenPost, "没问过：先问再发");
+        assert_eq!(plan_post(Unknown), PostPlan::AskThenPost, "状态还没查到：当作没问过");
+        assert_eq!(plan_post(Denied), PostPlan::Skip, "拒绝过系统不会再弹框");
+        assert_eq!(plan_post(Unavailable), PostPlan::Skip, "没有 app 身份发不了");
     }
 }
