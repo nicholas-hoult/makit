@@ -1,9 +1,8 @@
 //! 侧栏的画法。数值全部照 `SessionTree.css`（注释里写着对应的选择器），颜色走主题派生色。
 
-use std::time::Duration;
 
 use gpui::{
-    div, img, list, prelude::*, px, radians, rgb, svg, Animation, AnimationExt, AnyElement, ClickEvent, Context,
+    div, img, list, prelude::*, px, radians, rgb, svg, AnyElement, ClickEvent, Context,
     CursorStyle, DragMoveEvent, FontWeight, Hsla, MouseButton, MouseDownEvent, SharedString, Transformation, Window,
 };
 
@@ -261,17 +260,10 @@ impl SidebarView {
                 .tooltip(tip(rs.title()))
                 .child(rs.icon());
             if rs == RunState::Busy {
-                // 正在跑的脉动（attention-pulse：2s ease-in-out，50% 时透明度 0.4）
-                dot.with_animation(
-                    SharedString::from(format!("pulse-{sid}")),
-                    Animation::new(Duration::from_secs(2)).repeat(),
-                    |el, delta| {
-                        let tri = if delta < 0.5 { delta * 2.0 } else { (1.0 - delta) * 2.0 };
-                        let eased = tri * tri * (3.0 - 2.0 * tri);
-                        el.opacity(1.0 - 0.6 * eased)
-                    },
-                )
-                .into_any_element()
+                // 正在跑的脉动（原 attention-pulse：2s，最淡 0.4）。不用 with_animation(.repeat())：那会让窗口 60Hz 一直重绘，
+                // 一个 busy 会话就占 26% CPU；改用 `pulse` 的低频时钟（每秒 5 次），没有 busy 会话可见时 CPU 归零
+                crate::pulse::want_ticks();
+                dot.opacity(crate::pulse::opacity(crate::pulse::now_ms(), 2000, 0.4)).into_any_element()
             } else {
                 dot.into_any_element()
             }

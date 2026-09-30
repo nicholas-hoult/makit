@@ -1082,17 +1082,14 @@ impl WorkspaceView {
 }
 
 /// 标签状态点：waiting ● 红色 1.2s 脉动 / busy ⚡ 黄 / idle ○ 灰（App.css `.tab-dot`）
-fn render_status_dot(st: TabStatus, tab_id: &str, theme: &Theme) -> AnyElement {
+fn render_status_dot(st: TabStatus, _tab_id: &str, theme: &Theme) -> AnyElement {
     let base = div().text_size(px(10.0)).line_height(px(10.0)).ml(px(2.0));
     match st {
-        TabStatus::Waiting => base
-            .text_color(theme.danger)
-            .child("●")
-            .with_animation(SharedString::from(format!("dot-{tab_id}")), Animation::new(Duration::from_millis(1200)).repeat(), |d, t| {
-                // 0% / 100% 不透明，50% 0.3（ease-in-out 近似成三角波）
-                d.opacity(1.0 - 0.7 * (1.0 - (2.0 * t - 1.0).abs()))
-            })
-            .into_any_element(),
+        TabStatus::Waiting => {
+            // 1.2s 脉动，最淡 0.3。用 `pulse` 的低频时钟，不用 with_animation(.repeat())（那会 60Hz 一直重绘）
+            crate::pulse::want_ticks();
+            base.text_color(theme.danger).child("●").opacity(crate::pulse::opacity(crate::pulse::now_ms(), 1200, 0.3)).into_any_element()
+        }
         TabStatus::Busy => base.text_color(theme.warning).child("⚡").into_any_element(),
         TabStatus::Idle => base.text_color(theme.fg_muted).child("○").into_any_element(),
     }

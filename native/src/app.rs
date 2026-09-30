@@ -277,6 +277,7 @@ pub fn run() {
             eprintln!("[font] 加载内置字体失败：{e}");
         }
         cx.set_global(Theme::by_id(&prefs.theme.id, &prefs.theme.imported));
+        crate::pulse::start(cx);
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
         crate::notify::Notifier::init(state.clone(), cx);

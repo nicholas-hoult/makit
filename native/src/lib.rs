@@ -27,6 +27,7 @@ pub mod notify;
 pub mod overlays;
 pub mod perf;
 pub mod persist;
+pub mod pulse;
 pub mod scrollbar;
 pub mod selftest;
 pub mod sidebar;

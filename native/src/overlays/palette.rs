@@ -3,10 +3,9 @@
 //! 每次打开新建一个实体：query 清空、光标回到第一条、筛选栏收起、历史重新读 —— 正是 TS 版
 //! `useEffect([open])` 里重置的那几样。筛选 / 排序 / 折叠组 / 历史存在 `prefs.palette`。
 
-use std::time::Duration;
 
 use gpui::{
-    div, prelude::*, px, relative, svg, Animation, AnimationExt, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle,
+    div, prelude::*, px, relative, svg, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle,
     Focusable, FontWeight, HighlightStyle, Hsla, ScrollHandle, SharedString, StyledText, Transformation, Window,
 };
 
@@ -220,11 +219,10 @@ impl PaletteView {
                 .rounded(px(6.0))
                 .ml(px(-2.0))
                 .mr(px(-2.0))
-                .with_animation(
-                    SharedString::from(format!("pulse-{}", it.id)),
-                    Animation::new(Duration::from_secs(2)).repeat(),
-                    |d, t| d.opacity(0.55 + 0.45 * (1.0 - (t * std::f32::consts::TAU).cos()) / 2.0),
-                )
+                .opacity({
+                    crate::pulse::want_ticks();
+                    crate::pulse::opacity(crate::pulse::now_ms(), 2000, 0.55)
+                })
                 .into_any_element()
         } else {
             dot.into_any_element()
