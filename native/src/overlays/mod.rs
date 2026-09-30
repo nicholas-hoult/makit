@@ -151,6 +151,37 @@ pub struct OverlayHost {
     search: Option<Open<search_bar::SearchBar>>,
 }
 
+
+/// 快捷键再按一次怎么办（⌘, / ⌘F 双向）：没开 → 打开；开着且焦点在里面 → 关；开着但焦点跑到别处 → 拉回焦点
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShortcutToggle {
+    Open,
+    Close,
+    Focus,
+}
+
+pub fn shortcut_toggle(is_open: bool, has_focus: bool) -> ShortcutToggle {
+    match (is_open, has_focus) {
+        (false, _) => ShortcutToggle::Open,
+        (true, true) => ShortcutToggle::Close,
+        (true, false) => ShortcutToggle::Focus,
+    }
+}
+
+#[cfg(test)]
+mod toggle_tests {
+    use super::*;
+
+    /// 为什么要测：错了在界面上就是「⌘, 只能开不能关」「⌘F 焦点在别处时按了没反应」
+    #[test]
+    fn second_press_closes_only_when_focus_is_inside() {
+        assert_eq!(shortcut_toggle(false, false), ShortcutToggle::Open);
+        assert_eq!(shortcut_toggle(false, true), ShortcutToggle::Open, "没开就别看焦点");
+        assert_eq!(shortcut_toggle(true, true), ShortcutToggle::Close);
+        assert_eq!(shortcut_toggle(true, false), ShortcutToggle::Focus, "焦点在终端里再按 ⌘F：回到搜索条，不是关掉");
+    }
+}
+
 /// 关掉某个槽位里的浮层（焦点还回去）
 macro_rules! close_slot {
     ($this:ident . $slot:ident, $window:ident, $cx:ident) => {
@@ -222,6 +253,15 @@ impl OverlayHost {
         cx.notify();
     }
 
+    /// ⌘, 的双向：再按一次关（焦点在设置里时）
+    pub fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let focused = self.settings.as_ref().is_some_and(|s| s.view.read(cx).focus_handle().contains_focused(window, cx));
+        match shortcut_toggle(self.settings.is_some(), focused) {
+            ShortcutToggle::Close => close_slot!(self.settings, window, cx),
+            _ => self.open_settings(window, cx),
+        }
+    }
+
     // ---- 会话详情 ----
 
     pub fn open_detail(&mut self, session_id: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -242,6 +282,15 @@ impl OverlayHost {
 
     pub fn search_bar(&self) -> Option<Entity<search_bar::SearchBar>> {
         self.search.as_ref().map(|o| o.view.clone())
+    }
+
+    /// ⌘F 的双向：再按一次关（焦点在搜索条里时）；焦点在终端里就拉回搜索条
+    pub fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let focused = self.search.as_ref().is_some_and(|o| o.view.read(cx).focus_handle(cx).contains_focused(window, cx));
+        match shortcut_toggle(self.search.is_some(), focused) {
+            ShortcutToggle::Close => close_slot!(self.search, window, cx),
+            _ => self.open_search(None, window, cx),
+        }
     }
 
     pub fn open_search(&mut self, initial: Option<String>, window: &mut Window, cx: &mut Context<Self>) {

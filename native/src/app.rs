@@ -142,11 +142,11 @@ impl Render for Root {
             })
             .on_action({
                 let host = self.overlays.clone();
-                move |_: &ov::FindInTerminal, window, cx| host.update(cx, |o, cx| o.open_search(None, window, cx))
+                move |_: &ov::FindInTerminal, window, cx| host.update(cx, |o, cx| o.toggle_search(window, cx))
             })
             .on_action({
                 let host = self.overlays.clone();
-                move |_: &ov::OpenSettings, window, cx| host.update(cx, |o, cx| o.open_settings(window, cx))
+                move |_: &ov::OpenSettings, window, cx| host.update(cx, |o, cx| o.toggle_settings(window, cx))
             })
             // ---- B 侧栏：先展开侧栏（折叠时侧栏不渲染，收不到 action），再转给侧栏 ----
             .on_action({

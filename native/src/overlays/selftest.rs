@@ -218,6 +218,13 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
         press(cx, "cmd-,");
         pause(300).await;
         expect(cx, "⌘, 打开设置", "settings");
+        // 双向：焦点在设置里，再按一次 ⌘, 关掉
+        press(cx, "cmd-,");
+        pause(300).await;
+        expect(cx, "⌘, 再按一次关设置", "");
+        press(cx, "cmd-,");
+        pause(300).await;
+        expect(cx, "⌘, 又能打开", "settings");
         press(cx, "escape");
         pause(300).await;
         expect(cx, "设置里 Esc 关（#224）", "");
@@ -230,6 +237,13 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
             pause(80).await;
         }
         expect(cx, "⌘F 打开搜索条", "search");
+        // 双向：焦点在搜索条里，再按一次 ⌘F 关掉
+        press(cx, "cmd-f");
+        pause(300).await;
+        expect(cx, "⌘F 再按一次关搜索条", "");
+        press(cx, "cmd-f");
+        pause(300).await;
+        expect(cx, "⌘F 又能打开", "search");
         press(cx, "escape");
         pause(300).await;
         expect(cx, "搜索条 Esc 关", "");
