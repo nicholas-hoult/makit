@@ -4,7 +4,14 @@
 
 use std::sync::Mutex;
 
-pub use makit_core::perf::record;
+/// 写一条 perf.log。统一补上 `build`（debug / release）：debug 版的帧耗时比 release 高一个量级，
+/// 混在一个日志里分不出来就没法判断「卡」到底是代码问题还是没开优化
+pub fn record(mut v: serde_json::Value) {
+    if let Some(o) = v.as_object_mut() {
+        o.entry("build").or_insert(serde_json::json!(if cfg!(debug_assertions) { "debug" } else { "release" }));
+    }
+    makit_core::perf::record(v);
+}
 use makit_core::perf::{now_epoch_ms, process_start_epoch_ms};
 
 static MARKS: Mutex<Vec<(String, f64)>> = Mutex::new(Vec::new());
