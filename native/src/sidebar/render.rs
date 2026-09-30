@@ -10,7 +10,7 @@ use gpui::{
 use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label, RunState};
 use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H, SESSION_H_COMPACT};
 use crate::tooltip::tip;
-use super::{now_secs, DraggedSession, Popup, ResizeDrag, SidebarView, ThumbDrag};
+use super::{collapse, now_secs, DraggedSession, Popup, ResizeDrag, SidebarView, ThumbDrag};
 use crate::actions::sidebar as act;
 use crate::theme::{ActiveTheme, Theme};
 use crate::workspace::model::Dir;
@@ -401,6 +401,12 @@ impl SidebarView {
         let p = &self.state.read(cx).prefs.sidebar;
         let changed = p.show_archived || p.sort != "recent";
         let open = matches!(self.popup, Some(Popup::Options));
+        // 有折叠的分组 → 按钮是「展开」，图标向外；全展开着 → 「折叠」，图标向内
+        let any_collapsed = if p.view == "project" {
+            collapse::any_project_collapsed(&p.proj_collapsed, &self.project_active)
+        } else {
+            collapse::any_group_collapsed(&p.group_collapsed, &self.group_ids)
+        };
         div()
             .flex_none()
             .flex()
@@ -419,10 +425,8 @@ impl SidebarView {
                     .rounded(px(4.))
                     .cursor_pointer()
                     .hover(|s| s.bg(t.bg_hover))
-                    .tooltip(tip("展开 / 折叠全部分组（⌘⇧E）"))
-                    .text_size(px(12.))
-                    .text_color(t.fg_muted)
-                    .child("⇅")
+                    .tooltip(tip(if any_collapsed { "展开全部分组（⌘⇧E）" } else { "折叠全部分组（⌘⇧E）" }))
+                    .child(svg().path(if any_collapsed { "icons/sidebar-expand-all.svg" } else { "icons/sidebar-collapse-all.svg" }).size(px(14.)).text_color(t.fg_muted))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_all_groups(cx))),
             )
             .child(
@@ -439,7 +443,7 @@ impl SidebarView {
                     .hover(|s| s.bg(t.bg_hover))
                     .when(open, |d| d.bg(t.bg_hover))
                     .tooltip(tip("显示选项"))
-                    .child(svg().path("icons/session-tree-options.svg").size(px(12.)).text_color(if changed { t.var("--accent-text") } else { t.fg_muted }))
+                    .child(svg().path("icons/sidebar-options.svg").size(px(14.)).text_color(if changed { t.var("--accent-text") } else { t.fg_muted }))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, ev: &MouseDownEvent, window, cx| {

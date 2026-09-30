@@ -79,10 +79,19 @@ pub fn expand_project_for_reveal(set: &[String], key: &str, has_active: bool) ->
     Some(next)
 }
 
+/// 头部按钮画哪个图标要看这个：有折叠的 → 按下去是「展开」，否则是「折叠」
+pub fn any_project_collapsed(set: &[String], projects: &[(String, bool)]) -> bool {
+    projects.iter().any(|(k, active)| is_project_collapsed(set, k, *active))
+}
+
+pub fn any_group_collapsed(set: &[String], ids: &[String]) -> bool {
+    ids.iter().any(|i| has(set, i))
+}
+
 /// 一键展开 / 折叠全部（#238）：只要有一个组是折叠的 → 全部展开；全都展开着 → 全部折叠。
 /// `projects` 是 (折叠键, 组里有没有活跃会话)。写的都是**显式态**，不受「有活跃默认展开」影响
 pub fn toggle_all_projects(set: &[String], projects: &[(String, bool)]) -> Vec<String> {
-    let any_collapsed = projects.iter().any(|(k, active)| is_project_collapsed(set, k, *active));
+    let any_collapsed = any_project_collapsed(set, projects);
     let mut next = set.to_vec();
     for (k, _) in projects {
         remove(&mut next, k);
@@ -94,7 +103,7 @@ pub fn toggle_all_projects(set: &[String], projects: &[(String, bool)]) -> Vec<S
 
 /// 状态视图 / 日期段：折叠集合里放的是组 id。同样是「有折叠的 → 全展开，否则全折叠」
 pub fn toggle_all_groups(set: &[String], ids: &[String]) -> Vec<String> {
-    let any_collapsed = ids.iter().any(|i| has(set, i));
+    let any_collapsed = any_group_collapsed(set, ids);
     let mut next = set.to_vec();
     for i in ids {
         remove(&mut next, i);
@@ -209,6 +218,17 @@ mod tests {
             cur = toggle_all_projects(&cur, &projects);
         }
         assert!(cur.len() <= 2, "反复切不该越堆越多：{cur:?}");
+    }
+
+    #[test]
+    fn any_collapsed_tells_which_way_the_button_goes() {
+        let projects = vec![("/a".to_string(), true), ("/b".to_string(), false)];
+        assert!(any_project_collapsed(&[], &projects), "/b 默认折叠 → 按钮是「展开」");
+        assert!(!any_project_collapsed(&[expanded("/b")], &projects), "都展开了 → 按钮是「折叠」");
+        assert!(!any_project_collapsed(&[], &[]), "没有项目：没有可展开的");
+        let ids = s(&["busy", "idle"]);
+        assert!(any_group_collapsed(&s(&["idle"]), &ids));
+        assert!(!any_group_collapsed(&s(&["other"]), &ids));
     }
 
     #[test]

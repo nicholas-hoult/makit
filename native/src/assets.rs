@@ -25,8 +25,10 @@ const FILES: &[(&str, &[u8])] = &[
     asset!("icons/titlebar-sidebar-toggle.svg"),
     asset!("icons/titlebar-bell.svg"),
     // ---- B 侧栏（SessionTree.tsx）----
-    // 「显示选项」按钮的三横线：SessionTree.tsx:811 原样
-    asset!("icons/session-tree-options.svg"),
+    // 头部两个按钮（#238 重新设计，不再照搬 TS 版的三横线和文字符号）：显示选项 = 滑块；展开 / 折叠全部 = 两个 chevron
+    asset!("icons/sidebar-options.svg"),
+    asset!("icons/sidebar-expand-all.svg"),
+    asset!("icons/sidebar-collapse-all.svg"),
     // 组 / 项目头的折叠箭头：TS 版是字符 › 转 90°，GPUI 转不了文字，照 › 的字形画成可旋转的 SVG
     asset!("icons/session-tree-chevron.svg"),
     // ---- D 浮层（CommandPalette.tsx；路径常量在 overlays::icons）----
