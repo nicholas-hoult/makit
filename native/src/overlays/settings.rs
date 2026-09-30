@@ -456,7 +456,7 @@ impl Render for SettingsView {
                                     })))
                                     .child(hint("立刻发一条横幅验证链路，不必等真有 session 进入等待状态。"))
                                     .child(action_btn(&theme, "install-hook", "安装 Claude Code Hook（推送模式）").mt(px(8.0)).on_click(cx.listener(|this, _, window, cx| this.install_hook(window, cx))))
-                                    .child(hint("将 makit-hook.sh 注册到 ~/.claude/settings.json，Claude Code 发出通知时实时推送（无需轮询）。")),
+                                    .child(hint("将 makit-hook.sh 注册到 ~/.claude/settings.json 的 Notification / Stop / UserPromptSubmit / SessionEnd 四个事件：等审批实时推送，任务完成的横幅才有 Claude 的原话做正文，发消息后自动清除未读。已经装过旧版（只有 Notification）的，再点一次会补齐。")),
                             )
                             // Hover 详情卡片
                             .child(

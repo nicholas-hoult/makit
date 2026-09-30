@@ -62,14 +62,22 @@ fn handle_conn(stream: UnixStream, on_line: &(dyn Fn(String) + Send + Sync)) {
     let _ = w.write_all(b"{}\n");
 }
 
-/// 创建 hook 脚本并注入 ~/.claude/settings.json 的 Notification hook
+/// makit 用得上的 Claude Code hook 事件：`Notification`（等审批 / 等回答）、`Stop`（任务完成，带 Claude 的原话做横幅正文）、
+/// `UserPromptSubmit` / `SessionEnd`（清掉未读）。只装 Notification 时「任务完成」拿不到正文，横幅出不来
+pub const HOOK_EVENTS: [&str; 4] = ["Notification", "Stop", "UserPromptSubmit", "SessionEnd"];
+
+/// 创建 hook 脚本并把 `HOOK_EVENTS` 注册进 ~/.claude/settings.json
 pub fn install_claude_hook() -> Result<String, String> {
     let home = dirs::home_dir().ok_or("无法定位 home 目录")?;
+    install_claude_hook_in(&home)
+}
 
-    // 1. write hook script
+/// 返回 `"installed"`（第一次装）/ `"updated"`（补上缺的事件）/ `"already_installed"`。
+/// settings.json 存在但解析不了时**不动它**直接报错（以前会拿空配置顶替再写回，等于清空用户的整个 Claude 配置）
+pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
+    // 1. hook 脚本
     let hooks_dir = home.join(".claude").join("hooks");
     fs::create_dir_all(&hooks_dir).map_err(|e| e.to_string())?;
-
     let hook_script = hooks_dir.join("makit-hook.sh");
     let sock_path = home.join(".claude").join("makit").join("hook.sock");
     let script = format!(
@@ -77,8 +85,6 @@ pub fn install_claude_hook() -> Result<String, String> {
         sock_path.display()
     );
     fs::write(&hook_script, &script).map_err(|e| e.to_string())?;
-
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&hook_script).map_err(|e| e.to_string())?.permissions();
@@ -86,66 +92,53 @@ pub fn install_claude_hook() -> Result<String, String> {
         fs::set_permissions(&hook_script, perms).map_err(|e| e.to_string())?;
     }
 
-    // 2. update ~/.claude/settings.json
+    // 2. settings.json：不存在当空配置；存在但解析不了 → 不动它，报错
     let settings_path = home.join(".claude").join("settings.json");
     let mut settings: serde_json::Value = if settings_path.exists() {
         let raw = fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&raw).unwrap_or(serde_json::json!({}))
+        serde_json::from_str(&raw).map_err(|e| {
+            format!("~/.claude/settings.json 不是合法的 JSON（{e}），为避免覆盖你的配置没有改动；请先修好它再装")
+        })?
     } else {
         serde_json::json!({})
     };
 
-    // check if already installed
-    let already = settings
-        .pointer("/hooks/Notification")
-        .and_then(|n| n.as_array())
-        .map(|groups| {
-            groups.iter().any(|g| {
-                g.get("hooks")
-                    .and_then(|h| h.as_array())
-                    .map(|cmds| {
-                        cmds.iter().any(|c| {
-                            c.get("command")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.contains("makit-hook.sh"))
-                                .unwrap_or(false)
-                        })
-                    })
-                    .unwrap_or(false)
+    let has_makit = |groups: &serde_json::Value| {
+        groups.as_array().is_some_and(|gs| {
+            gs.iter().any(|g| {
+                g.get("hooks").and_then(|h| h.as_array()).is_some_and(|cmds| {
+                    cmds.iter().any(|c| c.get("command").and_then(|v| v.as_str()).is_some_and(|s| s.contains("makit-hook.sh")))
+                })
             })
         })
-        .unwrap_or(false);
-
-    if already {
-        return Ok("already_installed".into());
-    }
-
+    };
     let hook_cmd = format!("{} 2>/dev/null || echo '{{}}'", hook_script.display());
-    let new_group = serde_json::json!({
-        "hooks": [{"type": "command", "command": hook_cmd}]
-    });
-
     let hooks = settings
         .as_object_mut()
         .ok_or("settings.json 格式错误")?
         .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}));
-
-    let notif = hooks
+        .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
-        .ok_or("hooks 格式错误")?
-        .entry("Notification")
-        .or_insert_with(|| serde_json::json!([]));
-
-    notif
-        .as_array_mut()
-        .ok_or("Notification 不是数组")?
-        .push(new_group);
-
+        .ok_or("hooks 格式错误")?;
+    let had_any = HOOK_EVENTS.iter().any(|e| hooks.get(*e).is_some_and(&has_makit));
+    let mut added = 0;
+    for ev in HOOK_EVENTS {
+        let groups = hooks.entry(ev).or_insert_with(|| serde_json::json!([]));
+        if has_makit(groups) {
+            continue;
+        }
+        groups
+            .as_array_mut()
+            .ok_or_else(|| format!("hooks.{ev} 不是数组"))?
+            .push(serde_json::json!({"hooks": [{"type": "command", "command": hook_cmd}]}));
+        added += 1;
+    }
+    if added == 0 {
+        return Ok("already_installed".into());
+    }
     let out = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
     fs::write(&settings_path, out).map_err(|e| e.to_string())?;
-
-    Ok("installed".into())
+    Ok(if had_any { "updated" } else { "installed" }.into())
 }
 
 /// 回调式改造（#226）：hook 服务不再依赖 tauri 的 async runtime，自己起线程。
@@ -192,5 +185,93 @@ mod tests {
         assert_eq!(reply, "{}\n");
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "空行不该回调");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ---- install_claude_hook_in ----
+
+    fn temp_home(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("makit-hook-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+    fn settings(home: &Path) -> serde_json::Value {
+        serde_json::from_str(&fs::read_to_string(home.join(".claude/settings.json")).unwrap()).unwrap()
+    }
+    fn events_with_makit(v: &serde_json::Value) -> Vec<String> {
+        let mut out: Vec<String> = v["hooks"]
+            .as_object()
+            .map(|h| h.iter().filter(|(_, g)| g.to_string().contains("makit-hook.sh")).map(|(k, _)| k.clone()).collect())
+            .unwrap_or_default();
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn fresh_install_registers_every_event_and_writes_an_executable_script() {
+        let home = temp_home("fresh");
+        assert_eq!(install_claude_hook_in(&home).unwrap(), "installed");
+        let mut want: Vec<String> = HOOK_EVENTS.iter().map(|s| s.to_string()).collect();
+        want.sort();
+        assert_eq!(events_with_makit(&settings(&home)), want, "四个事件都要注册，缺 Stop 则「任务完成」拿不到正文");
+        let script = home.join(".claude/hooks/makit-hook.sh");
+        let body = fs::read_to_string(&script).unwrap();
+        assert!(body.contains(&home.join(".claude/makit/hook.sock").display().to_string()), "脚本指向本机的 socket");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(fs::metadata(&script).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+
+    #[test]
+    fn install_keeps_the_users_other_settings_and_hooks() {
+        let home = temp_home("keep");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::write(
+            home.join(".claude/settings.json"),
+            r#"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"echo mine"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"lint"}]}]}}"#,
+        )
+        .unwrap();
+        install_claude_hook_in(&home).unwrap();
+        let v = settings(&home);
+        assert_eq!(v["model"], "opus");
+        assert_eq!(v["hooks"]["PreToolUse"][0]["hooks"][0]["command"], "lint");
+        let stop = v["hooks"]["Stop"].as_array().unwrap();
+        assert_eq!(stop.len(), 2, "用户自己的 Stop hook 还在，我们的追加在后面");
+        assert_eq!(stop[0]["hooks"][0]["command"], "echo mine");
+    }
+
+    #[test]
+    fn second_install_changes_nothing() {
+        let home = temp_home("twice");
+        install_claude_hook_in(&home).unwrap();
+        let before = fs::read_to_string(home.join(".claude/settings.json")).unwrap();
+        assert_eq!(install_claude_hook_in(&home).unwrap(), "already_installed");
+        assert_eq!(fs::read_to_string(home.join(".claude/settings.json")).unwrap(), before, "重复装不重复写");
+    }
+
+    #[test]
+    fn an_old_install_with_only_notification_gets_the_missing_events() {
+        let home = temp_home("upgrade");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::write(
+            home.join(".claude/settings.json"),
+            r#"{"hooks":{"Notification":[{"hooks":[{"type":"command","command":"/x/.claude/hooks/makit-hook.sh 2>/dev/null || echo '{}'"}]}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(install_claude_hook_in(&home).unwrap(), "updated");
+        let v = settings(&home);
+        assert_eq!(v["hooks"]["Notification"].as_array().unwrap().len(), 1, "已有的 Notification 不重复加");
+        assert_eq!(events_with_makit(&v).len(), 4);
+    }
+
+    #[test]
+    fn unparseable_settings_json_is_left_alone() {
+        let home = temp_home("corrupt");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        let path = home.join(".claude/settings.json");
+        let original = "{ \"model\": \"opus\", // 手写的注释\n \"hooks\": {} ";
+        fs::write(&path, original).unwrap();
+        let err = install_claude_hook_in(&home).unwrap_err();
+        assert!(err.contains("settings.json"), "报错要说清是哪个文件：{err}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original, "解析不了就原样留着，不能拿空配置覆盖");
     }
 }
