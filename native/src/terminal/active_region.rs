@@ -288,6 +288,21 @@ mod tests {
         assert!(!body.contains("我将运行"), "codex 的说明属于历史");
     }
 
+
+    #[test]
+    fn a_custom_statusline_below_the_prompt_stays_in_the_active_region() {
+        // 用户的真实设置：statusLine = ccstatusline-zh，两行彩色状态画在输入框下面、模式行上面
+        let (r, lines) = region("statusline");
+        let r = r.expect("带自定义状态栏的空闲画面");
+        let body = lines[r.start..=r.end].join("\n");
+        // ccstatusline 在冒号后面用的也不是普通空格，这里只按关键字匹配
+        for want in ["模型", "Opus", "上下文", "会话", "周用量", "manual mode on", "session limit"] {
+            assert!(body.contains(want), "少了「{want}」——状态栏由真终端画，必须整块在活动区里：\n{body}");
+        }
+        assert!(lines[r.start].starts_with("✻ Baked"), "从状态行开始");
+        assert!(!body.contains("⏺ ok"), "回答属于历史");
+    }
+
     #[test]
     fn nothing_recognisable_means_unknown() {
         assert_eq!(find(&["$ ls", "a.txt  b.txt", "$"]), None, "普通 shell：不认识，退回纯终端");
