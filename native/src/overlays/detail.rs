@@ -39,6 +39,12 @@ fn poll(reader: &mut TranscriptReader) -> std::io::Result<Poll> {
     Ok(Poll { total: reader.len(), changes, appended, updated })
 }
 
+/// 旧 → 新用 `Bottom` 对齐：贴在底部时新内容追加，视图自己跟着走；往上翻过就锚在原位不动，不会被推来推去。
+/// 新 → 旧用 `Top`：新内容出现在最上面
+fn make_list(reversed: bool) -> ListState {
+    ListState::new(0, if reversed { ListAlignment::Top } else { ListAlignment::Bottom }, px(600.0))
+}
+
 /// 实时跟随的轮询间隔（TRD §13.2：≤ 300ms 出现）
 const POLL_MS: u64 = 300;
 
@@ -55,7 +61,7 @@ pub struct DetailView {
     items: Rc<RefCell<Vec<Item>>>,
     /// 展开的折叠项（Item id）；重排 / 实时追加不丢
     expanded: Rc<RefCell<HashSet<String>>>,
-    /// 默认倒序（新 → 旧），不持久化
+    /// 默认旧 → 新、贴底跟随（像终端）；按钮可切成新 → 旧，不持久化
     reversed: bool,
     list: ListState,
     scrollbar: Entity<crate::scrollbar::Scrollbar>,
@@ -115,10 +121,10 @@ impl DetailView {
             }
         })
         .detach();
-        let list = ListState::new(0, ListAlignment::Top, px(600.0));
+        let list = make_list(false);
         // 列表上面垫着 14px 的 padding（见渲染），轨道要和列表视口对齐
         let scrollbar = cx.new(|_| crate::scrollbar::Scrollbar::new(crate::scrollbar::ScrollSource::List(list.clone())).with_inset_top(14.0));
-        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: true, list, scrollbar, focus, opened: std::time::Instant::now(), load_ms: 0.0 }
+        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: false, list, scrollbar, focus, opened: std::time::Instant::now(), load_ms: 0.0 }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -144,8 +150,6 @@ impl DetailView {
 
     /// 把一次 poll 的结果并进 Item 列表和 `ListState`
     fn apply(&mut self, p: Poll, initial: bool, cx: &mut Context<Self>) {
-        // 旧→新且已在底部：新内容出现后跟到底；往上翻过就不动
-        let follow = !initial && !self.reversed && self.scrollbar.read(cx).at_bottom();
         let prev_len = self.items.borrow().len();
         if !initial {
             self.scrollbar.update(cx, |s, _| s.content_changed());
@@ -171,9 +175,6 @@ impl DetailView {
                     ListOp::Reset(n) => self.list.reset(n),
                     ListOp::Splice { old, count } => self.list.splice(old, count),
                 }
-            }
-            if follow && !p.changes.appended.is_empty() {
-                self.list.scroll_to_reveal_item(p.total - 1);
             }
         }
         // 埋点（perf.log）：打开耗时；之后每次并入超过 8ms 的记一笔
@@ -298,7 +299,11 @@ impl Render for DetailView {
                                     .flex_none()
                                     .child(btn(&theme, "detail-order", if self.reversed { "↓ 新→旧" } else { "↑ 旧→新" }, false).on_click(cx.listener(|this, _, _, cx| {
                                         this.reversed = !this.reversed;
+                                        // 对齐方式在建列表时定死，换排序要重建，并把滚动条指过去
+                                        this.list = make_list(this.reversed);
                                         this.list.reset(this.items.borrow().len());
+                                        let src = crate::scrollbar::ScrollSource::List(this.list.clone());
+                                        this.scrollbar.update(cx, |s, _| s.set_source(src));
                                         cx.notify();
                                     })))
                                     .child(btn(&theme, "detail-close", "关闭", false).on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Close)))),

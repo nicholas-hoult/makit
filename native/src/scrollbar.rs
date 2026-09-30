@@ -173,10 +173,10 @@ impl Scrollbar {
         (self.active, self.dragging)
     }
 
-    /// 内容没溢出，或已经滚到底（差 2px 以内）
-    pub fn at_bottom(&self) -> bool {
-        let m = self.source.metrics();
-        m.top + m.viewport >= m.total - 2.0
+    /// 换一个滚动来源（详情面板切排序时列表会重建）
+    pub fn set_source(&mut self, source: ScrollSource) {
+        self.source = source;
+        self.last_top = self.source.metrics().top;
     }
 
     pub fn debug_metrics(&self) -> Metrics {
