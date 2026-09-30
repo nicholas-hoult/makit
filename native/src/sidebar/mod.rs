@@ -311,6 +311,7 @@ impl SidebarView {
         self.group_ids = top.iter().chain(labeled.iter()).chain(history.iter()).map(|g| g.id.clone()).collect();
         let alive = |i: usize| meta_state(&list[i]) != RunState::Stopped;
         let tree = flatten(&TreeInput {
+            compact_rows: tree::compact_rows(p.row_logo, p.row_project, p.row_short_id, p.row_branch),
             top,
             project_view,
             labeled,

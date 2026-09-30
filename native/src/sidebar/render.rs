@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label, RunState};
-use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H};
+use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H, SESSION_H_COMPACT};
 use crate::tooltip::tip;
 use super::{now_secs, DraggedSession, Popup, ResizeDrag, SidebarView, ThumbDrag};
 use crate::actions::sidebar as act;
@@ -67,7 +67,7 @@ impl SidebarView {
             Item::ProjectHeader { key, name, cwd, count, collapsed, has_active } => {
                 self.render_project_header(ix, key, name, cwd, count, collapsed, has_active, &theme, cx)
             }
-            Item::Session { row, show_status } => self.render_session(ix, row, show_status, &theme, window, cx),
+            Item::Session { row, show_status, .. } => self.render_session(ix, row, show_status, &theme, window, cx),
         }
     }
 
@@ -228,6 +228,9 @@ impl SidebarView {
         let p = &s.prefs.sidebar;
         let (show_id, show_branch) = (p.row_short_id, p.row_branch);
         let (show_logo, show_project, show_time) = (p.row_logo, p.row_project, p.row_time);
+        // 第二行一项都不显示：不画第二行，行高收紧（和 tree 里的 Item 高度同一个来源）
+        let compact = tree::compact_rows(show_logo, show_project, show_id, show_branch);
+        let row_h = if compact { SESSION_H_COMPACT } else { SESSION_H };
         let focused = s.workspace.active_tab().and_then(|t| t.session_id.as_deref()) == Some(m.session_id.as_str());
         let selected = self.selected.as_deref() == Some(m.session_id.as_str()) && self.list_focus.is_focused(window);
         let rs = meta_state(&m);
@@ -367,7 +370,7 @@ impl SidebarView {
             .when(!focused, |d| d.hover(|s| s.bg(t.bg_hover)))
             .children(status)
             .when(pinned, |d| d.child(div().flex_none().text_size(px(10.)).line_height(px(17.)).text_color(t.warning).child("★")))
-            .child(div().flex_1().min_w_0().flex().flex_col().child(row1).child(row2))
+            .child(div().flex_1().min_w_0().flex().flex_col().child(row1).when(!compact, |d| d.child(row2)))
             // 点了就是选了：鼠标和键盘落在同一个选中态上
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.selected = Some(sid_click.clone());
@@ -390,7 +393,7 @@ impl SidebarView {
                 },
                 |d, _, _, cx| crate::workspace::dnd::ghost(&d.title, cx),
             );
-        div().h(px(SESSION_H)).px(px(4.)).child(li).into_any_element()
+        div().h(px(row_h)).px(px(4.)).child(li).into_any_element()
     }
 
     /// `.tree-header`：padding 8；搜索框 + 「显示选项」按钮（22×22，margin-left 6，偏离默认时 --accent-text）

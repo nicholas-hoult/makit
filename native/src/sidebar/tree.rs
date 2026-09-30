@@ -21,6 +21,13 @@ pub const GROUP_GAP: f32 = 10.0;
 pub const SECTION_GAP: f32 = 2.0;
 /// 会话行：padding 5 + 标题行 17（12px 字，WebKit 实测行盒 17px）+ 2 + 元信息行 14（10px 字）+ 5
 pub const SESSION_H: f32 = 43.0;
+/// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 2 + 14 = 16px（#238）
+pub const SESSION_H_COMPACT: f32 = 27.0;
+/// 第二行的四项（图标 / 项目名 / 短 ID / 分支）全关了 → 行高收紧
+pub fn compact_rows(logo: bool, project: bool, short_id: bool, branch: bool) -> bool {
+    !(logo || project || short_id || branch)
+}
+
 /// 组标签 `.tree-group-label`：padding 2 / 3 + 10px 字行盒 14
 pub const GROUP_LABEL_H: f32 = 19.0;
 /// 项目头 `.tree-project-header`：padding 5 + 「+」按钮 16（比 11px 字的行盒高）+ 5
@@ -46,7 +53,8 @@ pub enum Item {
     GroupHeader { id: String, label: String, count: usize, collapsed: bool, warn: bool },
     ProjectHeader { key: String, name: String, cwd: String, count: usize, collapsed: bool, has_active: bool },
     /// `row` 是会话列表里的下标；`show_status` 按组给（整组都停止时不画状态点）
-    Session { row: usize, show_status: bool },
+    /// `compact` = 第二行一项都不显示（见 `SESSION_H_COMPACT`）
+    Session { row: usize, show_status: bool, compact: bool },
     Empty(String),
 }
 
@@ -56,7 +64,7 @@ impl Item {
             Item::Space(h) => *h,
             Item::GroupHeader { .. } => GROUP_LABEL_H,
             Item::ProjectHeader { .. } => PROJECT_HEADER_H,
-            Item::Session { .. } => SESSION_H,
+            Item::Session { compact, .. } => if *compact { SESSION_H_COMPACT } else { SESSION_H },
             Item::Empty(_) => EMPTY_H,
         }
     }
@@ -83,6 +91,8 @@ pub struct TreeProject {
 }
 
 pub struct TreeInput<'a> {
+    /// 会话行第二行一项都不显示 → 行高收紧（#238）
+    pub compact_rows: bool,
     /// 两个视图都常驻最上面的组：置顶、已打开
     pub top: Vec<TreeGroup>,
     pub project_view: bool,
@@ -151,7 +161,7 @@ pub fn flatten(input: &TreeInput) -> Tree {
         if !collapsed {
             let show_status = g.rows.iter().any(|&r| (input.alive)(r));
             for &row in &g.rows {
-                t.items.push(Item::Session { row, show_status });
+                t.items.push(Item::Session { row, show_status, compact: input.compact_rows });
                 t.order.push(row);
             }
         }
@@ -189,7 +199,7 @@ pub fn flatten(input: &TreeInput) -> Tree {
             if !p.collapsed {
                 for &row in &p.rows {
                     // hasActive 就是 anyAlive(组)，整组一起画状态列
-                    t.items.push(Item::Session { row, show_status: p.has_active });
+                    t.items.push(Item::Session { row, show_status: p.has_active, compact: input.compact_rows });
                     t.order.push(row);
                 }
             }
@@ -334,6 +344,7 @@ mod tests {
         history: Vec<TreeGroup>,
         projects: Vec<TreeProject>,
         collapsed: Vec<String>,
+        compact: bool,
     }
 
     impl Default for Case {
@@ -345,6 +356,7 @@ mod tests {
                 history: vec![history_plain(&["h1", "h2"])],
                 projects: vec![proj("x", false, &["x1", "x2"]), proj("y", true, &["y1"])],
                 collapsed: vec![],
+                compact: false,
             }
         }
     }
@@ -352,6 +364,7 @@ mod tests {
     fn build(c: Case) -> Tree {
         let alive = |_: usize| false;
         flatten(&TreeInput {
+            compact_rows: c.compact,
             top: c.top,
             project_view: c.project_view,
             labeled: c.labeled,
@@ -419,6 +432,28 @@ mod tests {
         assert_eq!(set.len(), all.len(), "顺序里无重复");
     }
 
+
+    #[test]
+    fn rows_compact_only_when_every_second_line_item_is_off() {
+        assert!(compact_rows(false, false, false, false));
+        for i in 0..4 {
+            let mut f = [false; 4];
+            f[i] = true;
+            assert!(!compact_rows(f[0], f[1], f[2], f[3]), "开着第 {i} 项就不能收紧");
+        }
+    }
+
+    #[test]
+    fn compact_rows_are_shorter_and_only_the_session_rows_change() {
+        let normal = build(Case::default());
+        let compact = build(Case { compact: true, ..Case::default() });
+        assert_eq!(normal.items.len(), compact.items.len(), "行数不变");
+        let sessions = normal.order.len();
+        let (hn, hc): (f32, f32) = (normal.items.iter().map(|i| i.height()).sum(), compact.items.iter().map(|i| i.height()).sum());
+        assert_eq!(hn - hc, sessions as f32 * (SESSION_H - SESSION_H_COMPACT), "每条会话行少 16px，组头 / 间距不动");
+        assert_eq!(SESSION_H - SESSION_H_COMPACT, 16.0, "去掉的正好是第二行的 2 + 14");
+    }
+
     // ---- 拍平的结构：组头、间距、状态列、组归属 ----
 
     #[test]
@@ -456,6 +491,7 @@ mod tests {
     fn status_column_is_per_group() {
         let alive = |i: usize| i == r("r2");
         let t = flatten(&TreeInput {
+            compact_rows: false,
             top: vec![],
             project_view: false,
             labeled: vec![g("running", &["r1", "r2"]), g("pinned", &["p1"])],
@@ -466,7 +502,7 @@ mod tests {
             empty_text: String::new(),
             alive: &alive,
         });
-        let st: Vec<(usize, bool)> = t.items.iter().filter_map(|i| if let Item::Session { row, show_status } = i { Some((*row, *show_status)) } else { None }).collect();
+        let st: Vec<(usize, bool)> = t.items.iter().filter_map(|i| if let Item::Session { row, show_status, .. } = i { Some((*row, *show_status)) } else { None }).collect();
         assert_eq!(st, [(r("r1"), true), (r("r2"), true), (r("p1"), false)], "组里有一条活的就整组画；全死的组不画");
     }
 
@@ -475,6 +511,7 @@ mod tests {
         let alive = |_: usize| false;
         let mk = |project_view: bool, top: Vec<TreeGroup>, filtered: usize| {
             flatten(&TreeInput {
+            compact_rows: false,
                 top,
                 project_view,
                 labeled: vec![],
