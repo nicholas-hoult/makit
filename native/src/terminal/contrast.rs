@@ -8,6 +8,9 @@
 //! 为什么单独测：算法有「撞墙反向、取更好的那个」这种分支，错了在界面上是浅色主题里某些字「有点淡」，
 //! 说不出哪里不对。期望值由 xterm 原算法（逐字抄成 JS 跑出来）给出。
 
+use std::cell::RefCell;
+use std::sync::OnceLock;
+
 /// 正文 WCAG AA。要整体调只改这一个数，不要去改 25 套配色
 pub const MIN_CONTRAST: f64 = 4.5;
 /// dim（SGR 2）文字：xterm 的 DIM_OPACITY
@@ -17,12 +20,25 @@ pub fn relative_luminance(rgb: u32) -> f64 {
     luminance3((rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff)
 }
 
+/// sRGB 通道值(0..=255) → 线性亮度
+///
+/// 查表而不是每次 `powf(2.4)`：每个格子每帧要算 6 次，实测（release，终端持续输出）这一项加上紧挨着的数学库调用
+/// 占了非等待 CPU 的 ~25%。表是同一条公式一次算出来的，逐位一致（测试逐值比对）
+fn srgb_to_linear(c: u32) -> f64 {
+    static LUT: OnceLock<[f64; 256]> = OnceLock::new();
+    let lut = LUT.get_or_init(|| {
+        let mut t = [0.0; 256];
+        for (i, v) in t.iter_mut().enumerate() {
+            let s = i as f64 / 255.0;
+            *v = if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) };
+        }
+        t
+    });
+    lut[(c & 0xff) as usize]
+}
+
 fn luminance3(r: u32, g: u32, b: u32) -> f64 {
-    let f = |c: u32| {
-        let s = c as f64 / 255.0;
-        if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
-    };
-    f(r) * 0.2126 + f(g) * 0.7152 + f(b) * 0.0722
+    srgb_to_linear(r) * 0.2126 + srgb_to_linear(g) * 0.7152 + srgb_to_linear(b) * 0.0722
 }
 
 fn split(c: u32) -> (u32, u32, u32) {
@@ -85,8 +101,34 @@ pub fn glyph_is_background(c: char) -> bool {
     (0xe0a0..=0xe0d6).contains(&u) || (0x2500..=0x259f).contains(&u)
 }
 
+#[cfg(test)]
+fn cell_fg_reference(bg: u32, fg: u32, dim: bool, c: char) -> u32 {
+    cell_fg_uncached(bg, fg, dim, c)
+}
+
 /// 一个格子最终画出来的前景色：先按背景保证对比度（dim 只要求一半），dim 再按 50% 透明混进背景
+///
+/// 带缓存：终端里 (背景, 前景) 的组合就那么几十种，几乎每个格子都命中。直接映射的小缓存，键 = 背景 | 前景 | 两个标志位
 pub fn cell_fg(bg: u32, fg: u32, dim: bool, c: char) -> u32 {
+    const SLOTS: usize = 1024;
+    thread_local! {
+        // (键, 结果)；键 0 留给「空槽」，真键都带一个恒为 1 的最高位
+        static CACHE: RefCell<[(u64, u32); SLOTS]> = const { RefCell::new([(0, 0); SLOTS]) };
+    }
+    let key = (1u64 << 63) | ((bg as u64 & 0xff_ffff) << 26) | ((fg as u64 & 0xff_ffff) << 2) | ((dim as u64) << 1) | glyph_is_background(c) as u64;
+    let slot = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 54) as usize % SLOTS;
+    CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache[slot].0 == key {
+            return cache[slot].1;
+        }
+        let v = cell_fg_uncached(bg, fg, dim, c);
+        cache[slot] = (key, v);
+        v
+    })
+}
+
+fn cell_fg_uncached(bg: u32, fg: u32, dim: bool, c: char) -> u32 {
     let adjusted = if glyph_is_background(c) {
         fg
     } else {
@@ -133,5 +175,33 @@ mod tests {
         // 方框字形不调（它们是当背景块画的）
         assert_eq!(cell_fg(0xfbf1c7, 0xfbf1c7, false, '█'), 0xfbf1c7);
         assert!(glyph_is_background('─') && glyph_is_background('\u{e0b0}') && !glyph_is_background('a'));
+    }
+
+    /// 为什么要测：为了不再每个格子每帧算 6 次 powf，加了查表和缓存；错了在界面上是颜色悄悄变了（浅色主题里某些字变淡），
+    /// 所以新旧实现必须逐位一致。参考实现 `cell_fg_reference` 是优化前的原样（只在测试里用）
+    #[test]
+    fn srgb_lookup_table_matches_the_formula_for_every_byte() {
+        for c in 0..=255u32 {
+            let s = c as f64 / 255.0;
+            let want = if s <= 0.03928 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) };
+            assert_eq!(srgb_to_linear(c), want, "c={c}");
+        }
+    }
+
+    #[test]
+    fn cached_cell_colors_equal_the_reference_over_a_sweep() {
+        // 背景 / 前景各取一批有代表性的颜色（纯色、灰阶、主题色、真彩色），四种 dim × 字形组合，各查两遍（第二遍走缓存）
+        let colors: Vec<u32> = (0..=255u32).step_by(15).flat_map(|v| [v * 0x010101, (v << 16) | 0x2040, 0x1e1e1e ^ (v << 8)]).collect();
+        for &bg in colors.iter().step_by(3) {
+            for &fg in &colors {
+                for dim in [false, true] {
+                    for ch in ['a', '█'] {
+                        let want = cell_fg_reference(bg, fg, dim, ch);
+                        assert_eq!(cell_fg(bg, fg, dim, ch), want, "第一次 bg={bg:06x} fg={fg:06x} dim={dim} ch={ch}");
+                        assert_eq!(cell_fg(bg, fg, dim, ch), want, "第二次(缓存) bg={bg:06x} fg={fg:06x} dim={dim} ch={ch}");
+                    }
+                }
+            }
+        }
     }
 }

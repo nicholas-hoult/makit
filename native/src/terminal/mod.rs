@@ -979,7 +979,10 @@ impl TerminalView {
         if let Some(b) = &mut self.burst {
             if let Some(last) = b.last_frame {
                 let dt = now.duration_since(last).as_secs_f64() * 1000.0;
-                if dt > b.max_frame_ms {
+                // 只统计输出期间的帧间隔：最后一次输出 200ms 之后的帧是光标闪烁 / 收尾重绘，间隔天然是几百毫秒（光标闪烁周期），
+                // 算进去 max_frame_ms 就永远是 ~600ms，看着像卡顿，其实什么问题都没有（实测：读线程→主线程 0.1ms，收到→画出 ~32ms）
+                let streaming = now.duration_since(b.last_wakeup).as_millis() < 200;
+                if streaming && dt > b.max_frame_ms {
                     b.max_frame_ms = dt;
                 }
             }
