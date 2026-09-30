@@ -1,0 +1,5 @@
+<!-- 标题栏「折叠侧栏 (⌘B)」：通用的侧栏图标（窗口框 + 左侧栏分隔线），#238 起不再照搬 TS 版的三横线 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="2" y="3" width="12" height="10" rx="1.75" />
+  <line x1="6.25" y1="3.5" x2="6.25" y2="12.5" />
+</svg>
