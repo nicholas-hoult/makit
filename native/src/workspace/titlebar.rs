@@ -108,7 +108,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                 .flex()
                 .items_center()
                 .child(
-                    icon_button("titlebar-sidebar-toggle", "icons/titlebar-sidebar-toggle.svg", 13.0, cx)
+                    icon_button("titlebar-sidebar-toggle", "icons/titlebar-sidebar-toggle.svg", 14.0, cx)
                         .tooltip(crate::tooltip::tip("折叠侧栏 (⌘B)"))
                         .on_click(|_, window, cx| {
                             cx.stop_propagation();
