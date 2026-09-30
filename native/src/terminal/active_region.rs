@@ -29,6 +29,9 @@ const RULE_MIN: usize = 20;
 
 /// 在画面（每行一段文字，行尾空白已去掉）里找活动区。认不出 → None，调用方退回纯终端
 pub fn find(lines: &[&str]) -> Option<Region> {
+    if let Some(r) = find_codex(lines) {
+        return Some(r);
+    }
     let end = lines.iter().rposition(|l| !l.trim().is_empty())?;
     let is_rule = |i: usize| is_rule_line(lines[i]);
     // 1. 输入框：「横线 / ❯ 行 / 横线」，取最后一组（斜杠菜单画在它下面，也算活动区）
@@ -68,6 +71,27 @@ pub fn find(lines: &[&str]) -> Option<Region> {
         }
         break;
     }
+    Some(Region { start, end })
+}
+
+/// codex 0.40：输入框是 `▌` 开头的行，下面隔一行空行是提示 `⏎ send   ⌃J newline …`；工作中时上面还有
+/// `  Working (1s • Esc to interrupt)`。历史里用户发的消息**也是** `▌` 开头，所以必须以提示行为锚点往上找
+fn find_codex(lines: &[&str]) -> Option<Region> {
+    let hint = lines.iter().rposition(|l| l.trim_start().starts_with("⏎ send"))?;
+    let prompt = (hint.saturating_sub(3)..hint).rev().find(|&i| lines[i].starts_with('▌'))?;
+    let mut start = prompt;
+    // 往上带上 Working 状态行（中间最多隔一行空行）
+    for i in (prompt.saturating_sub(2)..prompt).rev() {
+        let l = lines[i].trim();
+        if l.starts_with("Working (") {
+            start = i;
+            break;
+        }
+        if !l.is_empty() {
+            break;
+        }
+    }
+    let end = lines.iter().rposition(|l| !l.trim().is_empty()).filter(|&e| e >= hint).unwrap_or(hint);
     Some(Region { start, end })
 }
 
@@ -153,6 +177,29 @@ mod tests {
         let text = fixture("slash-menu");
         assert!(text.contains("❯\u{a0}/"), "claude 2.1.285 的输入框是 ❯ + U+00A0");
         assert!(!text.contains("❯ /"));
+    }
+
+
+    // ---- codex 0.40（画面结构和 claude 不同：输入框 `▌` 开头，下面隔一行是 `⏎ send …` 提示）----
+
+    #[test]
+    fn codex_idle_prompt_and_its_hint_line() {
+        let (r, lines) = region("codex-idle");
+        let r = r.expect("codex 空闲时有输入框");
+        assert!(lines[r.start].starts_with('▌'), "从输入框开始：{:?}", lines[r.start]);
+        assert!(lines[r.end].contains("⏎ send"), "到提示行结束：{:?}", lines[r.end]);
+        assert!(!lines[r.start..=r.end].iter().any(|l| l.contains("OpenAI Codex")), "欢迎框不在活动区");
+    }
+
+    #[test]
+    fn codex_working_includes_the_status_but_not_the_users_message_above() {
+        let (r, lines) = region("codex-working");
+        let r = r.expect("codex 工作中");
+        let body = lines[r.start..=r.end].join("\n");
+        assert!(lines[r.start].contains("Working ("), "带上 Working 状态行：{:?}", lines[r.start]);
+        assert!(body.contains("⏎ send"));
+        // 历史里用户发的消息也是 ▌ 开头，不能被当成输入框
+        assert!(!body.contains("只回复两个字母"), "用户消息属于历史：\n{body}");
     }
 
     #[test]
