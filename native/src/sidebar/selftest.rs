@@ -239,6 +239,36 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
             failures.push("Esc 之后焦点还在侧栏".into());
         }
 
+        // ---- #238 一键展开 / 折叠全部（⌘⇧E）：两种视图各按两次，第二次要和第一次相反 ----
+        for view in ["status", "project"] {
+            let _ = state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.view = view.into()));
+            pause(300).await;
+            let snapshot = |cx: &mut AsyncApp| {
+                cx.read_entity(&state, |s, _| {
+                    let p = &s.prefs.sidebar;
+                    (p.group_collapsed.len(), p.proj_collapsed.iter().filter(|k| !k.starts_with("__expanded__")).count())
+                })
+                .unwrap_or((0, 0))
+            };
+            press(cx, "cmd-shift-e");
+            pause(400).await;
+            let first = snapshot(cx);
+            press(cx, "cmd-shift-e");
+            pause(400).await;
+            let second = snapshot(cx);
+            print(cx, &format!("⌘⇧E {view} 两次之后的侧栏"));
+            eprintln!("[selftest] ⌘⇧E {view}：第一次后 (状态组折叠数, 项目折叠数)={first:?}，第二次后 {second:?}");
+            let (a, b) = if view == "status" { (first.0, second.0) } else { (first.1, second.1) };
+            if a == b {
+                failures.push(format!("⌘⇧E 在 {view} 视图连按两次没有翻转（{a} → {b}）"));
+            }
+            // 有折叠的先被全展开（折叠数 0），再全折叠（> 0）；或者反过来
+            if a != 0 && b != 0 {
+                failures.push(format!("⌘⇧E 在 {view} 视图两次结果都不是「全展开」（{a}, {b}）"));
+            }
+        }
+        let _ = state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.view = "status".into()));
+
         // ---- 后台刷新时的开销：运行状态合并（没变化）不该重建 ----
         let t = Instant::now();
         let _ = state.update(cx, |s, cx| s.sessions_changed(cx));

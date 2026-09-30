@@ -79,6 +79,32 @@ pub fn expand_project_for_reveal(set: &[String], key: &str, has_active: bool) ->
     Some(next)
 }
 
+/// 一键展开 / 折叠全部（#238）：只要有一个组是折叠的 → 全部展开；全都展开着 → 全部折叠。
+/// `projects` 是 (折叠键, 组里有没有活跃会话)。写的都是**显式态**，不受「有活跃默认展开」影响
+pub fn toggle_all_projects(set: &[String], projects: &[(String, bool)]) -> Vec<String> {
+    let any_collapsed = projects.iter().any(|(k, active)| is_project_collapsed(set, k, *active));
+    let mut next = set.to_vec();
+    for (k, _) in projects {
+        remove(&mut next, k);
+        remove(&mut next, &expanded(k));
+        add(&mut next, if any_collapsed { expanded(k) } else { k.clone() });
+    }
+    next
+}
+
+/// 状态视图 / 日期段：折叠集合里放的是组 id。同样是「有折叠的 → 全展开，否则全折叠」
+pub fn toggle_all_groups(set: &[String], ids: &[String]) -> Vec<String> {
+    let any_collapsed = ids.iter().any(|i| has(set, i));
+    let mut next = set.to_vec();
+    for i in ids {
+        remove(&mut next, i);
+        if !any_collapsed {
+            add(&mut next, i.clone());
+        }
+    }
+    next
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,5 +173,52 @@ mod tests {
         let keep_was_collapsed = collapse_other_projects(&s(&[b]), &s(&[a, b]), b);
         assert!(!is_project_collapsed(&keep_was_collapsed, b, false), "保留的组原来是折叠的，也要展开");
         assert!(is_project_collapsed(&only, a, true), "被折叠的组即使有活跃进程也压得住");
+    }
+
+    #[test]
+    fn toggle_all_projects_expands_when_any_is_collapsed() {
+        let projects = vec![("/a".to_string(), true), ("/b".to_string(), false), ("/c".to_string(), false)];
+        // /a 有活跃默认展开；/b /c 默认折叠 → 有折叠的 → 全展开
+        let next = toggle_all_projects(&[], &projects);
+        for (k, active) in &projects {
+            assert!(!is_project_collapsed(&next, k, *active), "{k} 该展开");
+            assert!(!is_project_collapsed(&next, k, false), "{k} 是显式展开，没有活跃会话也不会被默认值压回去");
+        }
+    }
+
+    #[test]
+    fn toggle_all_projects_collapses_when_all_are_open() {
+        let projects = vec![("/a".to_string(), true), ("/b".to_string(), true)];
+        let next = toggle_all_projects(&[], &projects);
+        for (k, _) in &projects {
+            assert!(is_project_collapsed(&next, k, true), "{k} 该折叠，有活跃会话也一样");
+        }
+        // 再来一次又回到全展开
+        let back = toggle_all_projects(&next, &projects);
+        assert!(projects.iter().all(|(k, a)| !is_project_collapsed(&back, k, *a)));
+    }
+
+    #[test]
+    fn toggle_all_projects_leaves_unlisted_keys_and_does_not_grow_forever() {
+        let projects = vec![("/a".to_string(), false)];
+        let start = s(&["/gone"]);
+        let next = toggle_all_projects(&start, &projects);
+        assert!(has(&next, "/gone"), "不在当前列表里的键原样保留");
+        let mut cur = next;
+        for _ in 0..6 {
+            cur = toggle_all_projects(&cur, &projects);
+        }
+        assert!(cur.len() <= 2, "反复切不该越堆越多：{cur:?}");
+    }
+
+    #[test]
+    fn toggle_all_groups_flips_between_none_and_all_collapsed() {
+        let ids = s(&["attention", "busy", "idle", "2026-09-29"]);
+        let collapsed_all = toggle_all_groups(&[], &ids);
+        assert!(ids.iter().all(|i| has(&collapsed_all, i)), "全展开着 → 全折叠");
+        let one = s(&["busy"]);
+        let expanded_all = toggle_all_groups(&one, &ids);
+        assert!(!ids.iter().any(|i| has(&expanded_all, i)), "有折叠的 → 全展开");
+        assert!(has(&toggle_all_groups(&s(&["other"]), &ids), "other"), "别的键保留");
     }
 }

@@ -71,6 +71,12 @@ pub struct SidebarPrefs {
     pub row_short_id: bool,
     /// `makit-row-branch`
     pub row_branch: bool,
+    /// 行内显示 claude / codex 图标（#238，GPUI 版新增，默认开）
+    pub row_logo: bool,
+    /// 行内显示项目名（#238，默认开）
+    pub row_project: bool,
+    /// 行右上角显示活跃时间（#238，默认开）
+    pub row_time: bool,
     /// `makit-hover-mode`：always / cmd / off
     pub hover_mode: String,
     /// `makit-proj-collapsed`：项目组折叠集合（colKey 与 `__expanded__`+colKey 两种）
@@ -95,6 +101,9 @@ impl Default for SidebarPrefs {
             show_archived: false,
             row_short_id: false,
             row_branch: false,
+            row_logo: true,
+            row_project: true,
+            row_time: true,
             hover_mode: "always".into(),
             proj_collapsed: Vec::new(),
             group_collapsed: Vec::new(),

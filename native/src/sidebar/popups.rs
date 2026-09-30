@@ -201,6 +201,9 @@ impl SidebarView {
         }
         menu.child(sep())
             .child(row("show-archived", p.show_archived, "显示已归档".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.show_archived = !p.show_archived))))
+            .child(row("show-logo", p.row_logo, "显示模型图标".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_logo = !p.row_logo))))
+            .child(row("show-project", p.row_project, "显示项目名".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_project = !p.row_project))))
+            .child(row("show-time", p.row_time, "显示活跃时间".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_time = !p.row_time))))
             .child(row("show-short-id", p.row_short_id, "显示短 ID".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_short_id = !p.row_short_id))))
             .child(row("show-branch", p.row_branch, "显示分支".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_branch = !p.row_branch))))
             .child(sep())

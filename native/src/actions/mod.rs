@@ -65,7 +65,7 @@ pub mod sidebar {
     gpui::actions!(
         sidebar,
         [
-            FocusSearch, RevealActive,
+            FocusSearch, RevealActive, ToggleAllGroups,
             // 会话列表（context "SessionList"，只在侧栏列表有焦点时生效，D7）
             SelectNext, SelectPrev, OpenSelected, OpenSelectedSplitRight, OpenSelectedSplitDown, ToggleHoverCard,
             CollapseGroup, ExpandGroup, ClearSelection,
@@ -136,6 +136,7 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("cmd-f", None, Overlays, "当前终端内搜索", overlays::FindInTerminal),
         sc("cmd-shift-f", None, Sidebar, "聚焦侧栏搜索", sidebar::FocusSearch),
         sc("cmd-l", None, Sidebar, "侧栏定位当前会话", sidebar::RevealActive),
+        sc("cmd-shift-e", None, Sidebar, "侧栏：展开 / 折叠全部分组", sidebar::ToggleAllGroups),
         // ---- B 侧栏：组件内部的键（D7）----
         sc("down", L, Sidebar, "侧栏：下一条", sidebar::SelectNext),
         sc("up", L, Sidebar, "侧栏：上一条", sidebar::SelectPrev),

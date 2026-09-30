@@ -162,6 +162,13 @@ impl Render for Root {
                     state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
                     sidebar.update(cx, |s, cx| s.reveal_active(cx));
                 }
+            })
+            .on_action({
+                let (state, sidebar) = (state.clone(), self.sidebar.clone());
+                move |_: &sb::ToggleAllGroups, _, cx| {
+                    state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.collapsed = false));
+                    sidebar.update(cx, |s, cx| s.toggle_all_groups(cx));
+                }
             });
         // A 终端：⌘= / ⌘- / ⌘0 由 TerminalView 自己处理（快捷键表里限定在 Terminal 上下文），不再挂占位
         let el = workspace::register_actions(el, self.workspace.clone(), cx);

@@ -130,6 +130,10 @@ pub struct SidebarView {
     heights: Vec<f32>,
     /// 项目视图里全部项目组的折叠键（「只看这个项目」用）
     project_keys: Vec<String>,
+    /// (折叠键, 有没有活跃会话)：一键展开 / 折叠全部要用
+    project_active: Vec<(String, bool)>,
+    /// 状态视图里可折叠的组 id（置顶 / 已打开 / 需要回应 / … / 日期段）
+    group_ids: Vec<String>,
     /// 键盘选中（和「当前打开的」是两个正交状态）
     selected: Option<String>,
     popup: Option<Popup>,
@@ -215,6 +219,8 @@ impl SidebarView {
             tops: vec![0.0],
             heights: Vec::new(),
             project_keys: Vec::new(),
+            project_active: Vec::new(),
+            group_ids: Vec::new(),
             selected: None,
             popup: None,
             closed_by_outside_at: None,
@@ -266,11 +272,13 @@ impl SidebarView {
         let top = vec![group("pinned", "置顶", false, &g.pinned), group("opened", "已打开", false, &g.opened)];
         let (mut labeled, mut history, mut projects) = (Vec::new(), Vec::new(), Vec::new());
         self.project_keys.clear();
+        self.project_active.clear();
         if project_view {
             let rest: Vec<usize> = filtered.iter().copied().filter(|&i| !opened.contains_key(&list[i].session_id) && !pinned.contains(&list[i].session_id)).collect();
             for pg in project_groups(list, &rest) {
                 let key = pg.key();
                 self.project_keys.push(key.clone());
+                self.project_active.push((key.clone(), pg.has_active));
                 projects.push(TreeProject {
                     collapsed: collapse::is_project_collapsed(&p.proj_collapsed, &key, pg.has_active),
                     cwd: pg.cwd(list),
@@ -300,6 +308,7 @@ impl SidebarView {
         } else {
             "无 session"
         };
+        self.group_ids = top.iter().chain(labeled.iter()).chain(history.iter()).map(|g| g.id.clone()).collect();
         let alive = |i: usize| meta_state(&list[i]) != RunState::Stopped;
         let tree = flatten(&TreeInput {
             top,
@@ -341,6 +350,17 @@ impl SidebarView {
     fn toggle_project(&mut self, key: &str, has_active: bool, cx: &mut Context<Self>) {
         let key = key.to_string();
         self.update_prefs(cx, |p| p.proj_collapsed = collapse::toggle_project_collapsed(&p.proj_collapsed, &key, has_active));
+    }
+
+    /// 一键展开 / 折叠全部分组（⌘⇧E / 头部按钮，#238）：有折叠的 → 全展开，否则全折叠
+    pub fn toggle_all_groups(&mut self, cx: &mut Context<Self>) {
+        if self.state.read(cx).prefs.sidebar.view == "project" {
+            let projects = self.project_active.clone();
+            self.update_prefs(cx, |p| p.proj_collapsed = collapse::toggle_all_projects(&p.proj_collapsed, &projects));
+        } else {
+            let ids = self.group_ids.clone();
+            self.update_prefs(cx, |p| p.group_collapsed = collapse::toggle_all_groups(&p.group_collapsed, &ids));
+        }
     }
 
     fn only_this_project(&mut self, key: &str, cx: &mut Context<Self>) {

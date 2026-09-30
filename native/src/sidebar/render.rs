@@ -227,6 +227,7 @@ impl SidebarView {
         let pinned = s.is_pinned(&m.session_id);
         let p = &s.prefs.sidebar;
         let (show_id, show_branch) = (p.row_short_id, p.row_branch);
+        let (show_logo, show_project, show_time) = (p.row_logo, p.row_project, p.row_time);
         let focused = s.workspace.active_tab().and_then(|t| t.session_id.as_deref()) == Some(m.session_id.as_str());
         let selected = self.selected.as_deref() == Some(m.session_id.as_str()) && self.list_focus.is_focused(window);
         let rs = meta_state(&m);
@@ -293,8 +294,8 @@ impl SidebarView {
                         .child(waiting_label(&m.waiting_for)),
                 )
             })
-            // `.tree-session-time`：10px、定宽右列 26、右对齐；tooltip 是 mtime_display
-            .child(
+            // `.tree-session-time`：10px、定宽右列 26、右对齐；tooltip 是 mtime_display。可在「显示选项」里隐藏（#238）
+            .when(show_time, |d| d.child(
                 div()
                     .id(SharedString::from(format!("time-{sid}")))
                     .flex_none()
@@ -305,7 +306,7 @@ impl SidebarView {
                     .text_color(t.fg_muted)
                     .tooltip(tip(m.mtime_display.clone()))
                     .child(relative_time(m.mtime, now_secs())),
-            );
+            ));
 
         // `.tree-session-row2`：gap 3、margin-top 2、10px --fg-muted
         let sub = |d: gpui::Div| d.flex_none().opacity(0.7);
@@ -319,6 +320,7 @@ impl SidebarView {
             .line_height(px(14.))
             .text_color(t.fg_muted)
             .map(|d| match (&logo, m.tool.as_str()) {
+                _ if !show_logo => d,
                 (Some(src), _) => d.child(img(src.clone()).size(px(10.)).flex_none().rounded(px(2.)).opacity(0.75)),
                 (None, "codex") => d.child(
                     div()
@@ -335,10 +337,12 @@ impl SidebarView {
                 _ => d,
             })
             .when(m.status == "busy", |d| d.child(div().flex_none().text_color(t.info).child(status_label::BUSY)))
-            .child(div().min_w_0().truncate().opacity(0.7).child(project))
-            .when(show_id, |d| d.child(sub(div()).child("·")).child(sub(div()).child(format!("[{}]", m.short_id))))
+            .when(show_project, |d| d.child(div().min_w_0().truncate().opacity(0.7).child(project)))
+            // 「·」只在前面已经有文字段的时候才画（项目名被隐藏时，第一段前面不该有点）
+            .when(show_id, |d| d.when(show_project, |d| d.child(sub(div()).child("·"))).child(sub(div()).child(format!("[{}]", m.short_id))))
             .when(show_branch && !m.git_branch.is_empty(), |d| {
-                d.child(sub(div()).child("·")).child(div().flex_none().max_w(px(80.)).truncate().child(format!("⑂{}", m.git_branch)))
+                d.when(show_project || show_id, |d| d.child(sub(div()).child("·")))
+                    .child(div().flex_none().max_w(px(80.)).truncate().child(format!("⑂{}", m.git_branch)))
             });
 
         let li = div()
@@ -400,6 +404,24 @@ impl SidebarView {
             .items_center()
             .p(px(8.))
             .child(self.search.clone())
+            .child(
+                div()
+                    .id("tree-toggle-all-btn")
+                    .ml(px(6.))
+                    .size(px(22.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(t.bg_hover))
+                    .tooltip(tip("展开 / 折叠全部分组（⌘⇧E）"))
+                    .text_size(px(12.))
+                    .text_color(t.fg_muted)
+                    .child("⇅")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_all_groups(cx))),
+            )
             .child(
                 div()
                     .id("tree-options-btn")
