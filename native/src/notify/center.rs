@@ -425,10 +425,6 @@ impl Notifier {
         self.selected = if n == 0 { None } else { Some(self.selected.unwrap_or(0).min(n - 1)) };
     }
 
-    pub fn is_open(&self) -> bool {
-        self.open
-    }
-
     pub fn toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.open {
             self.close(window, cx);

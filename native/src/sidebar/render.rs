@@ -408,7 +408,6 @@ impl SidebarView {
             collapse::any_group_collapsed(&p.group_collapsed, &self.group_ids)
         };
         div()
-            .group("tree-header-group")
             .flex_none()
             .flex()
             .items_center()
@@ -420,9 +419,6 @@ impl SidebarView {
                     .ml(px(2.))
                     .w(px(20.))
                     .h(px(22.))
-                    // 平时藏起来，鼠标进头部条才淡入
-                    .opacity(0.0)
-                    .group_hover("tree-header-group", |s| s.opacity(1.0))
                     .flex_none()
                     .flex()
                     .items_center()
@@ -440,9 +436,6 @@ impl SidebarView {
                     .ml(px(0.))
                     .w(px(20.))
                     .h(px(22.))
-                    // 设置偏离默认（图标已经染成强调色）或弹层开着 → 常亮；否则同上，进头部才显现
-                    .opacity(if changed || open { 1.0 } else { 0.0 })
-                    .when(!(changed || open), |d| d.group_hover("tree-header-group", |s| s.opacity(1.0)))
                     .flex_none()
                     .flex()
                     .items_center()

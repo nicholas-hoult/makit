@@ -53,9 +53,7 @@ pub fn icon_button(id: &'static str, icon: &'static str, size: f32, cx: &App) ->
         .justify_center()
         .rounded(px(4.0))
         .cursor_pointer()
-        // 平时藏起来，鼠标进标题栏才淡入（组名和铃铛共用）
-        .opacity(0.0)
-        .group_hover("app-titlebar-group", |s| s.opacity(0.5))
+        .opacity(0.5)
         .hover(|s| s.opacity(1.0).bg(t.bg_hover))
         .child(svg().path(icon).size(px(size)).text_color(t.fg_muted))
 }
@@ -74,7 +72,6 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
 
     div()
         .id("app-titlebar")
-        .group("app-titlebar-group")
         .relative()
         .flex()
         .flex_none()

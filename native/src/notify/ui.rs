@@ -320,18 +320,12 @@ fn row(n: Entity<Notifier>, i: usize, r: &super::book::Record, name: String, pro
         .into_any_element()
 }
 
-/// 铃铛平时的透明度：有未读或抽屉开着 → 常亮（事件驱动）；否则藏起来，鼠标进标题栏才显现（由 `group_hover` 拉到 0.5）
-pub fn bell_rest_opacity(unread: usize, drawer_open: bool) -> f32 {
-    if unread > 0 || drawer_open { 1.0 } else { 0.0 }
-}
-
 /// 标题栏铃铛（C 包在标题栏里 `.child(crate::notify::bell(cx))`）。App.css:1413-1434、1494-1510：
 /// 24×22、圆角 4、fg-muted、平时 0.5 / 有未读或 hover 时 1；未读只画一个 5px 琥珀点（不显示数字），描一圈 bg-soft
 pub fn bell(cx: &App) -> AnyElement {
     let Some(n) = Notifier::try_global(cx) else { return div().into_any_element() };
     let theme = cx.theme().clone();
     let unread = n.read(cx).unread_count();
-    let rest = bell_rest_opacity(unread, n.read(cx).is_open());
     let tip: SharedString = if unread > 0 { format!("通知中心 (⌘I) · {unread} 条未读").into() } else { "通知中心 (⌘I)".into() };
     let n_bounds = n.clone();
     let n_click = n.clone();
@@ -346,8 +340,7 @@ pub fn bell(cx: &App) -> AnyElement {
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .opacity(rest)
-        .when(rest < 1.0, |d| d.group_hover("app-titlebar-group", |s| s.opacity(0.5)))
+        .opacity(if unread > 0 { 1.0 } else { 0.5 })
         .hover(|s| s.opacity(1.0).bg(theme.bg_hover))
         .child(svg().path("icons/notif-bell.svg").size(px(13.0)).text_color(theme.fg_muted))
         .when(unread > 0, |d| {
@@ -380,12 +373,6 @@ pub fn bell(cx: &App) -> AnyElement {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn bell_hides_until_hover_unless_there_is_something_to_see() {
-        assert_eq!(super::bell_rest_opacity(0, false), 0.0, "没未读、抽屉关着：藏起来");
-        assert_eq!(super::bell_rest_opacity(3, false), 1.0, "有未读：常亮");
-        assert_eq!(super::bell_rest_opacity(0, true), 1.0, "抽屉开着：常亮");
-    }
 
     use super::*;
 
