@@ -77,7 +77,9 @@ pub fn find(lines: &[&str]) -> Option<Region> {
 /// codex 0.40：输入框是 `▌` 开头的行，下面隔一行空行是提示 `⏎ send   ⌃J newline …`；工作中时上面还有
 /// `  Working (1s • Esc to interrupt)`。历史里用户发的消息**也是** `▌` 开头，所以必须以提示行为锚点往上找
 fn find_codex(lines: &[&str]) -> Option<Region> {
-    let hint = lines.iter().rposition(|l| l.trim_start().starts_with("⏎ send"))?;
+    let Some(hint) = lines.iter().rposition(|l| l.trim_start().starts_with("⏎ send")) else {
+        return find_codex_menu(lines);
+    };
     let prompt = (hint.saturating_sub(3)..hint).rev().find(|&i| lines[i].starts_with('▌'))?;
     let mut start = prompt;
     // 往上带上 Working 状态行（中间最多隔一行空行）
@@ -93,6 +95,24 @@ fn find_codex(lines: &[&str]) -> Option<Region> {
     }
     let end = lines.iter().rposition(|l| !l.trim().is_empty()).filter(|&e| e >= hint).unwrap_or(hint);
     Some(Region { start, end })
+}
+
+/// codex 审批菜单：输入框和 `⏎ send` 提示都没了，屏底是一组连续的 `▌` 行
+/// （`▌Allow command?` / `▌ Yes   Always   No, provide feedback` / `▌ Approve and run the command`）。
+/// 上面的 `• Proposed Command` 属于历史（codex 把函数调用写进会话文件）
+fn find_codex_menu(lines: &[&str]) -> Option<Region> {
+    let end = lines.iter().rposition(|l| !l.trim().is_empty())?;
+    if !lines[end].starts_with('▌') {
+        return None;
+    }
+    let mut start = end;
+    while start > 0 && lines[start - 1].starts_with('▌') {
+        start -= 1;
+    }
+    // 至少两行、而且像选项：只有一行 ▌ 可能只是历史里的用户消息
+    let body = &lines[start..=end];
+    let looks_like_menu = body.len() >= 2 && body.iter().any(|l| l.contains("Yes") || l.contains("Allow") || l.contains("Approve"));
+    looks_like_menu.then_some(Region { start, end })
 }
 
 fn is_rule_line(l: &str) -> bool {
@@ -200,6 +220,36 @@ mod tests {
         assert!(body.contains("⏎ send"));
         // 历史里用户发的消息也是 ▌ 开头，不能被当成输入框
         assert!(!body.contains("只回复两个字母"), "用户消息属于历史：\n{body}");
+    }
+
+
+    #[test]
+    fn codex_after_an_answer_the_answer_is_history() {
+        let (r, lines) = region("codex-done");
+        let r = r.expect("回答后回到输入框");
+        let body = lines[r.start..=r.end].join("\n");
+        assert!(!body.contains("> ok"), "codex 的回答属于历史：\n{body}");
+        assert!(body.contains("⏎ send"));
+    }
+
+    #[test]
+    fn codex_long_output_keeps_the_region_small() {
+        let (r, lines) = region("codex-long");
+        let r = r.expect("长输出后仍有输入框");
+        assert_eq!(r.end, lines.len() - 1, "贴着屏底");
+        assert!(r.rows() <= 5, "历史（1..60）不能被当成活动区：{} 行", r.rows());
+    }
+
+    #[test]
+    fn codex_approval_menu_replaces_the_prompt_and_keeps_every_choice() {
+        let (r, lines) = region("codex-perm-menu");
+        let r = r.expect("codex 审批菜单");
+        let body = lines[r.start..=r.end].join("\n");
+        for want in ["Allow command?", "Yes", "Always", "No, provide feedback", "Approve and run"] {
+            assert!(body.contains(want), "少了「{want}」：\n{body}");
+        }
+        assert!(!body.contains("请运行 shell 命令"), "用户消息属于历史");
+        assert!(!body.contains("我将运行"), "codex 的说明属于历史");
     }
 
     #[test]
