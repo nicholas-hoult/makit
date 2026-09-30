@@ -24,7 +24,7 @@ app="$target/release/bundle/$APP_NAME.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-cp "$target/release/makit-native" "$app/Contents/MacOS/"
+cp "$target/release/makit-native" "$app/Contents/MacOS/$EXECUTABLE_NAME"
 cp "$root/$ICON_PATH" "$app/Contents/Resources/AppIcon.icns"
 
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -35,7 +35,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
         <key>CFBundleName</key><string>$APP_NAME</string>
         <key>CFBundleDisplayName</key><string>$APP_NAME</string>
         <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-        <key>CFBundleExecutable</key><string>makit-native</string>
+        <key>CFBundleExecutable</key><string>$EXECUTABLE_NAME</string>
         <key>CFBundleIconFile</key><string>AppIcon</string>
         <key>CFBundlePackageType</key><string>APPL</string>
         <key>CFBundleShortVersionString</key><string>$version</string>
