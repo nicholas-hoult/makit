@@ -37,6 +37,7 @@ use gpui::{
     Pixels, SharedString, Window,
 };
 
+pub mod active_region;
 mod element;
 pub(crate) use element::text_font;
 mod input;
