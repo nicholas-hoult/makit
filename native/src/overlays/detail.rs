@@ -10,33 +10,19 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{div, list, prelude::*, px, Context, Entity, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
-use makit_core::transcript::{Changes, Item, TranscriptReader};
+use makit_core::transcript::{Item, TranscriptReader};
 use makit_core::SessionMeta;
 
 use super::detail_logic::subtitle;
 use super::style::*;
 use crate::actions::overlays as act;
 use crate::theme::ActiveTheme;
+use crate::transcript_view::feed::{poll, Poll};
 use crate::transcript_view::logic::{list_ops, ListOp};
 use crate::transcript_view::render::{render_item, Toggle};
 
 pub enum DetailEvent {
     Close,
-}
-
-/// 后台线程一次 `poll()` 的结果：Item 已经克隆出来，前台不碰 reader
-struct Poll {
-    changes: Changes,
-    total: usize,
-    appended: Vec<Item>,
-    updated: Vec<(usize, Item)>,
-}
-
-fn poll(reader: &mut TranscriptReader) -> std::io::Result<Poll> {
-    let changes = reader.poll()?;
-    let appended = changes.appended.clone().map(|i| reader.item(i).clone()).collect();
-    let updated = changes.updated.iter().map(|&i| (i, reader.item(i).clone())).collect();
-    Ok(Poll { total: reader.len(), changes, appended, updated })
 }
 
 /// 旧 → 新用 `Bottom` 对齐：贴在底部时新内容追加，视图自己跟着走；往上翻过就锚在原位不动，不会被推来推去。
