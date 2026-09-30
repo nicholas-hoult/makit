@@ -458,6 +458,13 @@ impl Render for SettingsView {
                                     .child(action_btn(&theme, "install-hook", "安装 Claude Code Hook（推送模式）").mt(px(8.0)).on_click(cx.listener(|this, _, window, cx| this.install_hook(window, cx))))
                                     .child(hint("将 makit-hook.sh 注册到 ~/.claude/settings.json 的 Notification / Stop / UserPromptSubmit / SessionEnd 四个事件：等审批实时推送，任务完成的横幅才有 Claude 的原话做正文，发消息后自动清除未读。已经装过旧版（只有 Notification）的，再点一次会补齐。")),
                             )
+                            // 对话视图（#231）
+                            .child(
+                                section()
+                                    .child(label("对话视图"))
+                                    .child(toggle("reflow-view", prefs.reflow_view, "可重排（实验）").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.reflow_view = !p.reflow_view)))))
+                                    .child(hint("绑定了会话的标签里，历史对话由 makit 按窗口宽度重排（拖宽拖窄即时跟着变），输入框、菜单仍是真终端。关掉就是原来的终端。claude 全屏模式（tui: fullscreen）下不起作用。")),
+                            )
                             // Hover 详情卡片
                             .child(
                                 section()

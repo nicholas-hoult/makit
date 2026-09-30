@@ -964,6 +964,11 @@ impl TerminalView {
     }
 
     /// 可见区域的文字（调试用：`MAKIT_NATIVE_DUMP=<文件>` 时每 300ms 写一次，无人值守时核对网格内容）
+    /// 行高（逻辑像素）：可重排视图按它算活动区那一项的高度
+    pub(crate) fn line_h_px(&self) -> f32 {
+        f32::from(self.line_h)
+    }
+
     /// 活动区模式下画面往上平移多少行（鼠标换算 / 输入法候选框要跟着平移）；终端视图恒为 0
     pub(crate) fn row_shift(&self) -> usize {
         match (self.active_only, self.active_show) {

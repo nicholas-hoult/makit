@@ -2,5 +2,6 @@
 //! 设计见私有仓库 #231 TRD §13。
 
 pub mod feed;
+pub mod hybrid;
 pub mod logic;
 pub mod render;
