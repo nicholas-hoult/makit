@@ -206,6 +206,7 @@ impl Element for TerminalElement {
         let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
         // 先改尺寸（同帧生效），再拍内容
         self.view.update(cx, |v, cx| v.layout(w, h, cell_w, line_h, cx));
+        self.view.update(cx, |v, _| v.update_active_region());
 
         let now_ms = self.view.read(cx).now_ms();
         let scroll_geom = self.view.read(cx).scrollbar_geom(w, h);
@@ -224,6 +225,12 @@ impl Element for TerminalElement {
         let mouse_mode_cursor = view.term.lock().mode().intersects(TermMode::MOUSE_MODE);
         let activity = view.scroll_activity;
         let term_arc = view.term.clone();
+        // 可重排视图：只画活动区 start..=end，并把它平移到元素顶部（终端视图恒为 Whole，下面一切照旧）
+        let region = match view.active_show {
+            super::active_region::Show::Region(r) if view.active_only => Some(r),
+            _ => None,
+        };
+        let in_region = |row: usize| region.map_or(true, |r| row >= r.start && row <= r.end);
         let ts = window.text_system().clone();
         let fs = px(font_size);
 
@@ -231,7 +238,10 @@ impl Element for TerminalElement {
         let content = term.renderable_content();
         let overrides = content.colors;
         let offset = content.display_offset as i32;
-        let origin = bounds.origin;
+        let origin = match region {
+            Some(r) => point(bounds.origin.x, bounds.origin.y - line_h * r.start as f32),
+            None => bounds.origin,
+        };
         let cell_rect = |col: usize, row: usize, n: usize| {
             Bounds::new(point(origin.x + cell_w * col as f32, origin.y + line_h * row as f32), size(cell_w * n as f32, line_h))
         };
@@ -284,7 +294,7 @@ impl Element for TerminalElement {
         for cell in content.display_iter {
             let row_i = cell.point.line.0 + offset;
             let col = cell.point.column.0;
-            if row_i < 0 || row_i as usize >= rows || col >= cols {
+            if row_i < 0 || row_i as usize >= rows || col >= cols || !in_region(row_i as usize) {
                 continue;
             }
             let row = row_i as usize;
@@ -346,6 +356,9 @@ impl Element for TerminalElement {
             let start_row = sel.start.line.0 + offset;
             let end_row = sel.end.line.0 + offset;
             for row in start_row.max(0)..=end_row.min(rows as i32 - 1) {
+                if !in_region(row as usize) {
+                    continue;
+                }
                 let (from, to) = if sel.is_block {
                     (sel.start.column.0.min(sel.end.column.0), sel.start.column.0.max(sel.end.column.0))
                 } else {
@@ -362,7 +375,7 @@ impl Element for TerminalElement {
         let cursor_row = cur.point.line.0 + offset;
         let mut cursor = None;
         let mut cursor_text = None;
-        if cur.shape != CursorShape::Hidden && cursor_row >= 0 && (cursor_row as usize) < rows && cur.point.column.0 < cols {
+        if cur.shape != CursorShape::Hidden && cursor_row >= 0 && (cursor_row as usize) < rows && cur.point.column.0 < cols && in_region(cursor_row as usize) {
             let row = cursor_row as usize;
             let ccell = &term.grid()[cur.point];
             let wide = ccell.flags.contains(Flags::WIDE_CHAR);
@@ -413,6 +426,8 @@ impl Element for TerminalElement {
 
         // 滚动条（有可滚内容才画；显隐只管透明度）
         let mut animating = false;
+        // 活动区模式不显示回滚区，也就没有滚动条（滚动归外面的复合视图）
+        let scroll_geom = if region.is_some() { None } else { scroll_geom };
         let scrollbar = scroll_geom.and_then(|g| {
             animating = activity.animating(now_ms);
             let op = if gutter_hover || dragging { 1.0 } else { activity.opacity(now_ms) };
@@ -486,6 +501,16 @@ impl Element for TerminalElement {
         } else {
             CursorStyle::IBeam
         };
+
+        // 自检导出（MAKIT_NATIVE_DUMP）：这一帧实际画了网格里的哪几行 —— 验证可重排视图「只画活动区」
+        if std::env::var_os("MAKIT_NATIVE_DUMP").is_some() {
+            let top = f32::from(origin.y);
+            let mut drawn: Vec<usize> = lines.iter().map(|l| ((f32::from(l.origin.y) - top) / f32::from(line_h)).round() as usize).collect();
+            drawn.sort_unstable();
+            drawn.dedup();
+            let y0 = lines.iter().map(|l| f32::from(l.origin.y) - f32::from(bounds.origin.y)).fold(f32::INFINITY, f32::min);
+            self.view.update(cx, |v, _| v.dbg_drawn = format!("drawn_rows={drawn:?} first_line_y={:.1}", if y0.is_finite() { y0 } else { -1.0 }));
+        }
 
         Frame { hitbox, rects, outlines, lines, cursor, cursor_text, marked, scrollbar, line_h, cursor_style, animating }
     }

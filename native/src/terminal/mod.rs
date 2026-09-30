@@ -88,6 +88,26 @@ pub const INSET_BOTTOM: f32 = 2.0;
 pub const INSET_LEFT: f32 = 2.0;
 /// 光标闪烁间隔（xterm CursorBlinkStateManager 的 600ms）
 pub const CURSOR_BLINK_MS: u64 = 600;
+/// 屏幕上（不含回滚区）每一行的文字，行尾空白去掉；宽字符的占位格跳过（活动区识别用）
+fn screen_lines(term: &Term<Listener>, rows: usize, cols: usize) -> Vec<String> {
+    use alacritty_terminal::term::cell::Flags;
+    let grid = term.grid();
+    (0..rows)
+        .map(|r| {
+            let row = &grid[alacritty_terminal::index::Line(r as i32)];
+            let mut s = String::with_capacity(cols);
+            for c in 0..cols {
+                let cell = &row[alacritty_terminal::index::Column(c)];
+                if !cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                    s.push(cell.c);
+                }
+            }
+            s.truncate(s.trim_end().len());
+            s
+        })
+        .collect()
+}
+
 /// 大段输出时搜索结果最多隔多久重算一次
 const SEARCH_REFRESH_MS: u64 = 250;
 
@@ -202,6 +222,16 @@ pub(crate) enum LinkTarget {
 pub struct TerminalView {
     term: Arc<FairMutex<Term<Listener>>>,
     events_tx: UnboundedSender<AlacEvent>,
+    // ── 可重排视图（#231 第 3 期）：只画活动区那几行 ──
+    /// 开着时每帧识别活动区，只画那几行（历史由阅读视图从会话文件画）。关着 = 终端视图，和原来完全一样
+    pub(crate) active_only: bool,
+    /// 布局用的高度（活动区模式下元素只有几行高，但 PTY 必须按整块 pane 的高度开，不然 claude 按几行排菜单、选项被截掉）
+    pub(crate) layout_h_override: Option<f32>,
+    active_tracker: active_region::Tracker,
+    /// 自检导出用：上一帧实际画了哪些行
+    pub(crate) dbg_drawn: String,
+    /// 这一帧怎么画（`active_only` 关着时恒为 Whole）
+    pub(crate) active_show: active_region::Show,
     pty: Option<PtyHandle>,
     spec: SpawnSpec,
     /// cwd 闸：resume 标签 `Some(false)`；恢复对话框确认后重试 `Some(true)`；其余 `None`（降级）
@@ -316,6 +346,12 @@ impl TerminalView {
         Self {
             term,
             events_tx: tx,
+            // 设置页开关在 3.6 才接；开发 / 自检期间用环境变量打开（#231）
+            active_only: std::env::var_os("MAKIT_NATIVE_ACTIVE_ONLY").is_some(),
+            layout_h_override: None,
+            active_tracker: active_region::Tracker::default(),
+            dbg_drawn: String::new(),
+            active_show: active_region::Show::Whole,
             pty: None,
             spec,
             allow_fallback,
@@ -635,6 +671,7 @@ impl TerminalView {
 
     /// 每帧 prepaint 时调一次（= 每帧最多一次 resize）。量出来的区域太小（不可见 / 祖先隐藏）就什么都不做
     fn layout(&mut self, width: f32, height: f32, cell_w: Pixels, line_h: Pixels, cx: &mut Context<Self>) {
+        let height = self.layout_h_override.unwrap_or(height);
         if !is_visible_area(width, height) {
             return;
         }
@@ -927,6 +964,35 @@ impl TerminalView {
     }
 
     /// 可见区域的文字（调试用：`MAKIT_NATIVE_DUMP=<文件>` 时每 300ms 写一次，无人值守时核对网格内容）
+    /// 活动区模式下画面往上平移多少行（鼠标换算 / 输入法候选框要跟着平移）；终端视图恒为 0
+    pub(crate) fn row_shift(&self) -> usize {
+        match (self.active_only, self.active_show) {
+            (true, active_region::Show::Region(r)) => r.start,
+            _ => 0,
+        }
+    }
+
+    /// 每帧（prepaint 里）调：识别活动区，经保持器得出这一帧怎么画
+    pub(crate) fn update_active_region(&mut self) {
+        if !self.active_only {
+            self.active_show = active_region::Show::Whole;
+            return;
+        }
+        let rows = self.size.rows as usize;
+        let found = {
+            let term = self.term.lock();
+            // 备用屏（claude 全屏 / vim）：不是内联 agent，整块画
+            if term.mode().contains(TermMode::ALT_SCREEN) {
+                None
+            } else {
+                let lines = screen_lines(&term, rows, self.size.cols as usize);
+                let refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+                active_region::find(&refs)
+            }
+        };
+        self.active_show = self.active_tracker.update(found, rows, self.now_ms().max(0.0) as u64);
+    }
+
     fn dump_text(&self) -> String {
         use alacritty_terminal::term::cell::Flags;
         let term = self.term.lock();
@@ -940,6 +1006,12 @@ impl TerminalView {
             }
         }
         let mode = *term.mode();
+        let active = match (self.active_only, self.active_show) {
+            (false, _) => "off".to_string(),
+            (true, active_region::Show::Whole) => "whole".to_string(),
+            (true, active_region::Show::Region(r)) => format!("{}..={}", r.start, r.end),
+        };
+        let lines: Vec<String> = std::iter::once(format!("active={active} {}", self.dbg_drawn)).chain(lines).collect();
         format!(
             "area={:.1}x{:.1} desired={}x{} cols={} rows={} pty={:?} font={}@{} cell={:.3}x{:.3} alt_screen={} display_offset={} history={} cwd={}\n{}\n",
             self.laid_out.0,

@@ -127,6 +127,42 @@ fn is_status_line(l: &str) -> bool {
     matches!(first, '·' | '✢' | '✳' | '✶' | '✻' | '✽' | '∗' | '*' | '⏺') && second == ' ' && first != '⏺'
 }
 
+/// 这一帧怎么画：只画活动区那几行，还是整块画终端网格
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Show {
+    Region(Region),
+    Whole,
+}
+
+/// 认不出多久才整块画（#231 TRD §16：清屏瞬间 / 擦底重画会有零点几秒认不出，立刻切会闪）
+pub const HOLD_MS: u64 = 500;
+
+/// 保持器：认出了就用新结果；认不出时沿用上一次，连续 `HOLD_MS` 都认不出才整块画
+#[derive(Clone, Debug, Default)]
+pub struct Tracker {
+    last: Option<Region>,
+    missing_since: Option<u64>,
+}
+
+impl Tracker {
+    /// `found` = 这一帧的识别结果；`rows` = 网格当前行数（缩小窗口后上次的结果可能已经越界）
+    pub fn update(&mut self, found: Option<Region>, rows: usize, now_ms: u64) -> Show {
+        if let Some(r) = found {
+            self.last = Some(r);
+            self.missing_since = None;
+            return Show::Region(r);
+        }
+        let since = *self.missing_since.get_or_insert(now_ms);
+        match self.last {
+            Some(r) if r.end < rows && now_ms.saturating_sub(since) < HOLD_MS => Show::Region(r),
+            _ => {
+                self.last = None;
+                Show::Whole
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,5 +299,52 @@ mod tests {
     fn a_short_dash_run_is_not_a_rule() {
         // 输出里出现的 `---` 或几个 `─` 不是输入框的横线
         assert_eq!(find(&["表头", "─────", "❯", "─────"]), None);
+    }
+
+    // ---- 保持器 ----
+
+    fn rg(start: usize, end: usize) -> Region {
+        Region { start, end }
+    }
+
+    #[test]
+    fn a_found_region_is_shown_right_away() {
+        let mut t = Tracker::default();
+        assert_eq!(t.update(Some(rg(30, 35)), 40, 0), Show::Region(rg(30, 35)));
+        assert_eq!(t.update(Some(rg(28, 35)), 40, 16), Show::Region(rg(28, 35)), "变了就跟着变");
+    }
+
+    #[test]
+    fn a_brief_miss_keeps_the_last_region_so_it_does_not_flicker() {
+        let mut t = Tracker::default();
+        t.update(Some(rg(30, 35)), 40, 0);
+        assert_eq!(t.update(None, 40, 100), Show::Region(rg(30, 35)), "擦底重画的瞬间：沿用上一次");
+        assert_eq!(t.update(None, 40, 100 + HOLD_MS - 1), Show::Region(rg(30, 35)), "还没到 500ms");
+        assert_eq!(t.update(Some(rg(30, 35)), 40, 700), Show::Region(rg(30, 35)), "又认出来了");
+        assert_eq!(t.update(None, 40, 800), Show::Region(rg(30, 35)), "计时从新的一次认不出重新算");
+        assert_eq!(t.update(None, 40, 800 + HOLD_MS - 1), Show::Region(rg(30, 35)));
+    }
+
+    #[test]
+    fn a_sustained_miss_falls_back_to_the_whole_grid() {
+        let mut t = Tracker::default();
+        t.update(Some(rg(30, 35)), 40, 0);
+        t.update(None, 40, 100);
+        assert_eq!(t.update(None, 40, 100 + HOLD_MS), Show::Whole, "连续 500ms 认不出：整块画（比如 claude 退出回到 shell）");
+        assert_eq!(t.update(None, 40, 5000), Show::Whole);
+        assert_eq!(t.update(Some(rg(10, 13)), 40, 5016), Show::Region(rg(10, 13)), "再认出来立刻恢复");
+    }
+
+    #[test]
+    fn never_recognised_means_whole_from_the_start() {
+        let mut t = Tracker::default();
+        assert_eq!(t.update(None, 40, 0), Show::Whole, "一开始就认不出（普通 shell）：没有上一次可沿用");
+    }
+
+    #[test]
+    fn a_held_region_that_no_longer_fits_the_grid_is_not_used() {
+        let mut t = Tracker::default();
+        t.update(Some(rg(30, 35)), 40, 0);
+        assert_eq!(t.update(None, 20, 50), Show::Whole, "窗口缩小到 20 行：上次的 30..35 越界了，不能拿它画");
     }
 }

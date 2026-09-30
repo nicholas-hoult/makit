@@ -71,7 +71,8 @@ impl TerminalView {
     pub(crate) fn cell_at(&self, local: Point<Pixels>) -> (usize, usize) {
         super::grid::point_to_cell(
             f32::from(local.x),
-            f32::from(local.y),
+            // 活动区模式：画面往上平移了 row_shift 行，点到的是网格里更靠下的行
+            f32::from(local.y) + f32::from(self.line_h) * self.row_shift() as f32,
             f32::from(self.cell_w),
             f32::from(self.line_h),
             self.size.cols,
@@ -608,7 +609,7 @@ impl EntityInputHandler for TerminalView {
         let term = self.term.lock();
         let c = term.grid().cursor.point;
         let offset = term.grid().display_offset() as i32;
-        let row = (c.line.0 + offset).max(0) as f32;
+        let row = (c.line.0 + offset).max(0) as f32 - self.row_shift() as f32;
         Some(Bounds::new(
             point(element_bounds.origin.x + self.cell_w * c.column.0 as f32, element_bounds.origin.y + self.line_h * row),
             size(self.cell_w, self.line_h),
