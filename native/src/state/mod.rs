@@ -157,6 +157,25 @@ impl AppState {
             }
         })
         .detach();
+
+        // 存活巡检：进程被 kill / 崩溃 / 终端被关时不会有任何文件事件（`sessions/<pid>.json` 没人删），
+        // 靠监听永远等不到「已停止」。有会话在跑时每 3 秒重读一次运行状态（读的都是几十字节的小文件，
+        // 死进程会被 `list_running_sessions` 过滤掉），没有在跑的会话就什么都不做
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(3)).await;
+            let any_running = match this.update(cx, |s, _| s.sessions.iter().any(|m| m.running && m.pid > 0)) {
+                Ok(v) => v,
+                Err(_) => break,
+            };
+            if !any_running {
+                continue;
+            }
+            let list = cx.background_executor().spawn(async { makit_core::running::list_running_sessions() }).await;
+            if this.update(cx, |s, cx| s.apply_running(list, cx)).is_err() {
+                break;
+            }
+        })
+        .detach();
     }
 
     /// 全量重扫（启动、⌘R）

@@ -17,12 +17,18 @@ pub struct RunningInfo {
 }
 
 pub fn load_running_info() -> HashMap<String, RunningInfo> {
+    match dirs::home_dir() {
+        Some(h) => load_running_info_in(&h.join(".claude").join("sessions"), &pid_alive),
+        None => HashMap::new(),
+    }
+}
+
+/// `load_running_info` 的可测版本：目录 + 「这个 pid 还活着吗」。
+/// 进程被 kill / 崩溃 / 终端被关时 claude 不会删 `sessions/<pid>.json`，文件还在但进程没了 ——
+/// 这种条目不能算「在跑」，否则侧栏一直显示运行中，还会拦着不让重新打开（「正在运行中，不能重复启动」）
+pub fn load_running_info_in(dir: &Path, alive: &dyn Fn(u32) -> bool) -> HashMap<String, RunningInfo> {
     let mut map = HashMap::new();
-    let dir = match dirs::home_dir() {
-        Some(h) => h.join(".claude").join("sessions"),
-        None => return map,
-    };
-    let entries = match fs::read_dir(&dir) {
+    let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return map,
     };
@@ -63,6 +69,9 @@ pub fn load_running_info() -> HashMap<String, RunningInfo> {
             .unwrap_or("")
             .to_string();
         let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+        if pid > 0 && !alive(pid) {
+            continue; // 死进程留下的文件
+        }
         // 检查 claude 进程的环境变量获取 MAKIT_PTY_ID
         let pty_id = if pid > 0 {
             get_env_var_of_pid(pid, "MAKIT_PTY_ID").unwrap_or_default()
@@ -85,10 +94,16 @@ pub fn load_running_info() -> HashMap<String, RunningInfo> {
 
 // 轻量扫描：只读 running 状态（~/.claude/sessions/*.json），不扫 projects
 pub fn list_running_sessions() -> Vec<RunningMeta> {
-    let home = match dirs::home_dir() { Some(h) => h, None => return vec![] };
-    let sessions_dir = home.join(".claude").join("sessions");
+    match dirs::home_dir() {
+        Some(h) => list_running_sessions_in(&h.join(".claude").join("sessions"), &pid_alive),
+        None => vec![],
+    }
+}
+
+/// `list_running_sessions` 的可测版本，同样跳过死进程留下的文件
+pub fn list_running_sessions_in(sessions_dir: &Path, alive: &dyn Fn(u32) -> bool) -> Vec<RunningMeta> {
     let mut result = vec![];
-    if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+    if let Ok(entries) = std::fs::read_dir(sessions_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().map_or(true, |e| e != "json") { continue; }
@@ -101,6 +116,9 @@ pub fn list_running_sessions() -> Vec<RunningMeta> {
                     // name 必须带上：改名写的就是这个文件，而写它只会触发 `running-changed`。
                     // 少了这个字段，那条路就**结构上**搬不了标题，改名要 ⌘R 才生效（#4 / #8）。
                     let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
+                    if pid > 0 && !alive(pid) {
+                        continue;
+                    }
                     if !session_id.is_empty() {
                         result.push(RunningMeta { session_id, status, waiting_for, pid, name });
                     }
@@ -223,8 +241,35 @@ pub fn resolve_bindings_in(
 
 #[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
-    // signal 0：只做存在性/权限检查，不真的发信号
-    unsafe { libc::kill(pid as libc::pid_t, 0) == 0 }
+    // signal 0：只做存在性/权限检查，不真的发信号。但它对**僵尸**（已死、父进程还没 wait）也返回成功，
+    // 所以要再排除僵尸，否则被 kill 的会话在父进程回收前一直显示运行中
+    let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    exists && !is_zombie(pid)
+}
+
+/// 进程是不是僵尸。macOS 用 `proc_pidinfo`（比 fork 一次 `ps` 便宜得多，巡检每 3 秒要问一遍）。
+/// 实测（macOS 26）：僵尸进程 `kill(pid, 0)` 成功、`ps` 显示状态 Z，而 `proc_pidinfo` 返回 0 且 errno = ESRCH。
+/// 其它失败（比如 EPERM：别的用户的进程）当作活着，宁可多显示也不误杀
+#[cfg(target_os = "macos")]
+fn is_zombie(pid: u32) -> bool {
+    const SZOMB: u32 = 5; // <sys/proc.h>
+    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let n = unsafe { libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size) };
+    let errno = std::io::Error::last_os_error().raw_os_error();
+    if n == size {
+        info.pbi_status == SZOMB
+    } else {
+        errno == Some(libc::ESRCH)
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn is_zombie(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|s| s.rsplit(')').next().and_then(|rest| rest.trim_start().chars().next()))
+        == Some('Z')
 }
 
 #[cfg(not(unix))]
@@ -319,5 +364,65 @@ mod pty_binding_tests {
         assert!(out.is_empty(), "没有命中的 pty_id 时必须返回空");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod dead_pid_tests {
+    use super::*;
+
+    /// 为什么要测：错了在界面上就是「进程被 kill 之后侧栏一直显示运行中」「点它提示正在运行中不能重复启动，打不开」
+    fn dir_with(name: &str, entries: &[(&str, &str, u32)]) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("makit-running-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        for (i, (sid, status, pid)) in entries.iter().enumerate() {
+            let body = format!(r#"{{"sessionId":"{sid}","status":"{status}","pid":{pid},"name":"n{i}"}}"#);
+            fs::write(d.join(format!("{pid}-{i}.json")), body).unwrap();
+        }
+        d
+    }
+
+    #[test]
+    fn a_session_whose_process_is_gone_is_not_running() {
+        let d = dir_with("incr", &[("alive-s", "busy", 111), ("dead-s", "busy", 222)]);
+        let got = list_running_sessions_in(&d, &|pid| pid == 111);
+        let ids: Vec<_> = got.iter().map(|r| r.session_id.as_str()).collect();
+        assert_eq!(ids, ["alive-s"], "kill 掉的进程留下的文件不算在跑");
+    }
+
+    #[test]
+    fn full_scan_path_skips_dead_processes_too() {
+        let d = dir_with("full", &[("alive-s", "idle", 111), ("dead-s", "waiting", 222)]);
+        let got = load_running_info_in(&d, &|pid| pid == 111);
+        assert!(got.contains_key("alive-s"));
+        assert!(!got.contains_key("dead-s"), "全量扫描和增量路径判断要一致");
+    }
+
+    #[test]
+    fn an_entry_without_a_pid_is_kept_because_we_cannot_tell() {
+        let d = dir_with("nopid", &[("s", "idle", 0)]);
+        assert_eq!(list_running_sessions_in(&d, &|_| false).len(), 1, "没有 pid 的旧格式判断不了，保留");
+    }
+
+    /// 被杀掉的进程在父进程 wait 之前是僵尸：`kill(pid, 0)` 对僵尸照样成功，把「已经死了」误报成「还活着」。
+    /// 端到端实测就栽在这上面：kill 之后侧栏 8 秒都还显示运行中
+    #[test]
+    fn a_zombie_is_not_alive() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        // 不 wait：等它退出后成为僵尸（父进程是本测试进程，没回收）
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(!pid_alive(pid), "僵尸进程不算活着");
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn the_real_pid_check_knows_this_process_is_alive_and_a_reaped_child_is_not() {
+        assert!(pid_alive(std::process::id()));
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!pid_alive(pid), "已经退出并被回收的进程");
     }
 }

@@ -269,6 +269,29 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
         }
         let _ = state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.view = "status".into()));
 
+        // ---- 存活巡检：会话的进程被 kill 之后，侧栏要在几秒内变回「已停止」（不靠任何文件事件）----
+        // MAKIT_SELFTEST_KILL=<session_id>:<pid>（假 HOME 里已写好对应的 sessions/<pid>.json，pid 是个活着的子进程）
+        if let Ok(spec) = std::env::var("MAKIT_SELFTEST_KILL") {
+            if let Some((sid, pid)) = spec.split_once(':').and_then(|(a, b)| Some((a.to_string(), b.parse::<i32>().ok()?))) {
+                let running = |cx: &mut AsyncApp| cx.read_entity(&state, |s, _| s.session(&sid).map(|m| m.running)).ok().flatten();
+                pause(4000).await; // 等一轮巡检把初始状态合进来
+                let before = running(cx);
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+                let t = Instant::now();
+                let mut after = running(cx);
+                while after == Some(true) && t.elapsed() < Duration::from_secs(8) {
+                    pause(250).await;
+                    after = running(cx);
+                }
+                eprintln!("[selftest] 存活巡检：kill 前 running={before:?}，kill 后 {:.1}s running={after:?}", t.elapsed().as_secs_f64());
+                if before != Some(true) {
+                    failures.push(format!("存活巡检：kill 之前会话就不是运行中（{before:?}），测试前提不成立"));
+                } else if after != Some(false) {
+                    failures.push(format!("存活巡检：进程 kill 之后 8 秒内会话仍显示运行中（{after:?}）"));
+                }
+            }
+        }
+
         // ---- 后台刷新时的开销：运行状态合并（没变化）不该重建 ----
         let t = Instant::now();
         let _ = state.update(cx, |s, cx| s.sessions_changed(cx));
