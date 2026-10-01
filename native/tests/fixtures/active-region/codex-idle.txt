@@ -1,0 +1,20 @@
+✨⬆ 0.40.0 -> 0.159.0.
+Run brew upgrade codex to update.
+
+╭────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.40.0)                              │
+│                                                        │
+│ model:     gpt-5 minimal   /model to change            │
+│ directory: /w                          │
+╰────────────────────────────────────────────────────────╯
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /approvals - choose what Codex can do without approval
+  /model - choose what model and reasoning effort to use
+
+▌ Find and fix a bug in @filename
+
+⏎ send   ⌃J newline   ⌃T transcript   ⌃C quit

@@ -1,0 +1,31 @@
+✨⬆ 0.40.0 -> 0.159.2.
+Run brew upgrade codex to update.
+
+╭────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.40.0)                              │
+│                                                        │
+│ model:     gpt-5.6-luna medium   /model to change      │
+│ directory: /w                          │
+╰────────────────────────────────────────────────────────╯
+
+  To get started, describe a task or try one of these commands:
+
+  /init - create an AGENTS.md file with instructions for Codex
+  /status - show current session configuration
+  /approvals - choose what Codex can do without approval
+  /model - choose what model and reasoning effort to use
+
+▌ 请运行 shell 命令 touch a.txt
+
+> 我将运行 touch a.txt 创建文件。
+
+• Proposed Command
+  └ touch a.txt
+
+✗ You canceled the request to run touch a.txt
+
+
+
+▌Allow command?
+▌ Yes   Always   No, provide feedback
+▌ Approve and run the command

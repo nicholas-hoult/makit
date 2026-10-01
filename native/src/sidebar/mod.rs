@@ -141,6 +141,8 @@ pub struct SidebarView {
     closed_by_outside_at: Option<Point<Pixels>>,
     hover: Option<HoverCard>,
     hover_task: Option<Task<()>>,
+    /// 鼠标现在停在哪一行（#243：进出事件的先后顺序随移动方向变，按「在哪一行」判断才稳）
+    hover_tracker: hover::HoverTracker,
     refreshing: bool,
     resizing: bool,
     /// 鼠标在拖宽条上悬停（标题栏的竖线跟着亮，见 workspace::titlebar::TitlebarResizerHot）
@@ -226,6 +228,7 @@ impl SidebarView {
             closed_by_outside_at: None,
             hover: None,
             hover_task: None,
+            hover_tracker: hover::HoverTracker::default(),
             refreshing: false,
             resizing: false,
             resizer_hovered: false,
@@ -657,10 +660,15 @@ impl SidebarView {
 
     fn row_hovered(&mut self, item_ix: usize, session_id: String, hovered: bool, window: &mut Window, cx: &mut Context<Self>) {
         if !hovered {
-            // 离开行：200ms 后关（同一个定时器，顺带取消还没出来的卡片）
-            self.schedule_hover_close(cx);
+            // 离开行：200ms 后关（同一个定时器，顺带取消还没出来的卡片）。
+            // 但只认「离开的正是现在所在的行」：往下移时 GPUI 先发「进下一行」再发「出上一行」，
+            // 那个迟到的「出上一行」要是也排关，就把刚排上的「开下一行」顶掉了（#243）
+            if self.hover_tracker.leave(&session_id) == hover::HoverCmd::Close {
+                self.schedule_hover_close(cx);
+            }
             return;
         }
+        self.hover_tracker.enter(&session_id);
         let mode = self.state.read(cx).prefs.sidebar.hover_mode.clone();
         let Some(delay) = hover::hover_delay_ms(&mode, window.modifiers().platform) else { return };
         self.hover_task = Some(cx.spawn_in(window, async move |this, cx| {

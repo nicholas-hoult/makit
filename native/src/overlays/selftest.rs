@@ -287,7 +287,14 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
         pause(800).await;
         let tab = cx.read_entity(&state, |s, _| s.workspace.active_tab().map(|t| t.id.clone())).ok().flatten();
         if let Some(tab) = tab {
-            let _ = cx.update_window(any, |_, window, cx| super::recover::cwd_missing(&tab, "/nonexistent/makit-selftest", window, cx));
+            // 走真实路径：在工作区自己的更新里调（终端发 CwdMissing → 工作区订阅回调里调 cwd_missing）。
+            // 以前这里从外面直接调，没覆盖到「WorkspaceView 正被更新」的情况，double lease 闪退没被抓到
+            let _ = cx.update_window(any, |_, window, cx| {
+                if let Some(ws) = host(cx).map(|h| h.read(cx).workspace.clone()) {
+                    let t = tab.clone();
+                    ws.update(cx, |_, cx| super::recover::cwd_missing(&t, "/nonexistent/makit-selftest", window, cx));
+                }
+            });
             pause(500).await;
             let dbg = |cx: &mut AsyncApp| cx.update(|cx| host(cx).and_then(|h| h.read(cx).workspace.read(cx).debug_recover(&tab, cx))).ok().flatten();
             match dbg(cx) {

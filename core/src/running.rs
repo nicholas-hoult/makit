@@ -367,6 +367,53 @@ mod pty_binding_tests {
     }
 }
 
+// ─────────────── codex 的标签绑定（#231）───────────────
+//
+// claude 运行时写 `~/.claude/sessions/<pid>.json`（pid + 会话 id），标签绑定靠它；codex 不写这个文件，
+// 所以在 shell / 新建标签里手敲 `codex` 永远绑不上会话（状态点、可重排视图、关标签杀进程都拿不到）。
+// codex 这边的两头事实：进程环境里有 `MAKIT_PTY_ID`（= 标签 id）；进程开着自己的 rollout 文件，
+// 文件第一行 `session_meta.payload.id` 就是会话 id。
+
+/// `lsof -Fn` 的输出里，codex 开着的会话文件（在 `sessions_dir` 下、以 .jsonl 结尾）
+pub fn rollout_paths_from_lsof(output: &str, sessions_dir: &Path) -> Vec<std::path::PathBuf> {
+    output
+        .lines()
+        .filter_map(|l| l.strip_prefix('n'))
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.starts_with(sessions_dir) && p.extension().is_some_and(|e| e == "jsonl"))
+        .collect()
+}
+
+/// rollout 文件第一行 `session_meta` 里的会话 id
+pub fn codex_session_id_of(path: &Path) -> Option<String> {
+    use std::io::BufRead;
+    let f = fs::File::open(path).ok()?;
+    let first = std::io::BufReader::new(f).lines().map_while(Result::ok).find(|l| !l.trim().is_empty())?;
+    let v: serde_json::Value = serde_json::from_str(&first).ok()?;
+    if v.get("type").and_then(|t| t.as_str()) != Some("session_meta") {
+        return None;
+    }
+    v.pointer("/payload/id").and_then(|x| x.as_str()).map(String::from)
+}
+
+/// 正在运行、`MAKIT_PTY_ID` 在 `pty_ids` 里的 codex 进程 → (标签 id, 会话 id)。
+/// 只在有待绑定标签时调（每次一趟 pgrep + 每个命中进程一次 ps / lsof）
+pub fn codex_pty_bindings(pty_ids: &[String]) -> Vec<PtyBinding> {
+    let Some(sessions_dir) = dirs::home_dir().map(|h| h.join(".codex").join("sessions")) else { return vec![] };
+    let Ok(out) = std::process::Command::new("pgrep").args(["-x", "codex"]).output() else { return vec![] };
+    let mut result = vec![];
+    for pid in String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.trim().parse::<u32>().ok()) {
+        let Some(pty) = get_env_var_of_pid(pid, "MAKIT_PTY_ID").filter(|p| pty_ids.contains(p)) else { continue };
+        let Ok(lsof) = std::process::Command::new("lsof").args(["-p", &pid.to_string(), "-Fn"]).output() else { continue };
+        let paths = rollout_paths_from_lsof(&String::from_utf8_lossy(&lsof.stdout), &sessions_dir);
+        if let Some(sid) = paths.iter().find_map(|p| codex_session_id_of(p)) {
+            let short_id = sid.split('-').next().unwrap_or("").to_string();
+            result.push(PtyBinding { pty_id: pty, session_id: sid, short_id, name: String::new() });
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod dead_pid_tests {
     use super::*;
@@ -424,5 +471,31 @@ mod dead_pid_tests {
         let pid = child.id();
         child.wait().unwrap();
         assert!(!pid_alive(pid), "已经退出并被回收的进程");
+    }
+}
+
+#[cfg(test)]
+mod codex_binding_tests {
+    use super::*;
+
+    /// 为什么要测：错了在界面上就是「在 shell 里跑 codex，标签一直显示 shell、没有状态点、可重排视图不出现」
+    #[test]
+    fn lsof_output_picks_only_rollout_files_under_the_sessions_dir() {
+        let out = "p15369\nfcwd\nn/Users/me/proj\nf3\nn/Users/me/.codex/sessions/2026/10/01/rollout-2026-10-01T13-14-24-01a0f5e2.jsonl\nf4\nn/Users/me/.codex/log/codex-tui.log\nf5\nn/Users/me/other.jsonl\n";
+        let got = rollout_paths_from_lsof(out, Path::new("/Users/me/.codex/sessions"));
+        assert_eq!(got, vec![std::path::PathBuf::from("/Users/me/.codex/sessions/2026/10/01/rollout-2026-10-01T13-14-24-01a0f5e2.jsonl")]);
+        assert!(rollout_paths_from_lsof("", Path::new("/x")).is_empty());
+    }
+
+    #[test]
+    fn session_id_comes_from_the_session_meta_line() {
+        let d = std::env::temp_dir().join(format!("makit-codex-bind-{}", std::process::id()));
+        let _ = fs::create_dir_all(&d);
+        let f = d.join("rollout.jsonl");
+        fs::write(&f, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"01a0f5e2-9cd9\",\"cwd\":\"/w\"}}\n{\"type\":\"event_msg\"}\n").unwrap();
+        assert_eq!(codex_session_id_of(&f).as_deref(), Some("01a0f5e2-9cd9"));
+        fs::write(&f, "{\"type\":\"event_msg\"}\n").unwrap();
+        assert_eq!(codex_session_id_of(&f), None, "第一行不是 session_meta：不认");
+        assert_eq!(codex_session_id_of(&d.join("nope.jsonl")), None);
     }
 }

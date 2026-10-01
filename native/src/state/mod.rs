@@ -146,6 +146,8 @@ impl AppState {
                         Ok(list) => {
                             s.load_error = None;
                             s.apply_updated(list, cx);
+                            // codex 不写 ~/.claude/sessions，运行状态那条路触发不了绑定；它的会话文件一变就试一次（有 2 秒节流）
+                            s.bind_pending_tabs(false, cx);
                         }
                         // 增量解析失败：不动现有列表，只记下原因，等下一次成功的扫描自然清掉
                         Err(e) => s.load_error = Some(e),
@@ -278,7 +280,15 @@ impl AppState {
         self.last_bind_attempt = Some(now);
         let ids: Vec<String> = pending.iter().map(|p| p.tab_id.clone()).collect();
         cx.spawn(async move |this, cx| {
-            let bindings = cx.background_executor().spawn(async move { makit_core::running::resolve_pty_bindings(ids) }).await;
+            // claude 靠 ~/.claude/sessions/<pid>.json；codex 靠进程环境里的 MAKIT_PTY_ID + 它开着的 rollout 文件
+            let bindings = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut b = makit_core::running::resolve_pty_bindings(ids.clone());
+                    b.extend(makit_core::running::codex_pty_bindings(&ids));
+                    b
+                })
+                .await;
             if bindings.is_empty() {
                 return;
             }

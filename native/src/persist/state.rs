@@ -27,6 +27,8 @@ pub struct NativeState {
     pub theme: ThemePrefs,
     /// `makit-pane-icons`：beasts / flowers / fruits / dots / none
     pub pane_icons: String,
+    /// 对话视图：false = 终端（默认，和原来一样）；true = 可重排（历史来自会话文件，活动区来自真终端，#231）。全局，所有绑定了会话的标签一起跟着变
+    pub reflow_view: bool,
     pub palette: PalettePrefs,
     pub notify: NotifyPrefs,
     /// `makit-notifications`：通知记录（最多 100 条，每会话一条）。形状是 `notify::book::Record`
@@ -46,6 +48,7 @@ impl Default for NativeState {
             sidebar: SidebarPrefs::default(),
             theme: ThemePrefs::default(),
             pane_icons: "beasts".into(),
+            reflow_view: false,
             palette: PalettePrefs::default(),
             notify: NotifyPrefs::default(),
             notifications: Vec::new(),

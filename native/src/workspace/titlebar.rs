@@ -95,7 +95,27 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
         // 工作区段：标题居中
         .child(
             div().flex_1().min_w_0().h_full().flex().items_center().justify_center().bg(t.bg).child(
-                div().px(px(12.0)).max_w_full().truncate().text_size(px(12.0)).text_color(t.fg_muted).opacity(0.7).child(title),
+                div()
+                    .px(px(12.0))
+                    .max_w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    // dev 实例（dev.sh 传了 MAKIT_APP_NAME）：标题前面挂一个醒目的名字标签，免得和线上的窗口关错（#242）
+                    .when(crate::app::is_dev_instance(), |d| {
+                        d.child(
+                            div()
+                                .flex_none()
+                                .px(px(6.0))
+                                .rounded(px(4.0))
+                                .bg(t.warning)
+                                .text_color(t.bg)
+                                .text_size(px(11.0))
+                                .font_weight(gpui::FontWeight::BOLD)
+                                .child(crate::app::app_name()),
+                        )
+                    })
+                    .child(div().min_w_0().truncate().text_size(px(12.0)).text_color(t.fg_muted).opacity(0.7).child(title)),
             ),
         )
         // 按钮组：x=68 绝对定位，侧栏展开 / 折叠都看得见

@@ -119,6 +119,8 @@ pub struct WorkspaceView {
     pane_bounds: Rc<RefCell<HashMap<String, gpui::Bounds<Pixels>>>>,
     /// 启动目录不在的标签各自带一个恢复选择器（#239），挂在那块 pane 的底部
     recover_pickers: HashMap<String, (Entity<crate::overlays::recover::RecoverPicker>, Subscription)>,
+    /// 可重排视图（#231）：每个「绑定了会话」的标签一个，开关关掉 / 会话解绑时拆掉
+    hybrids: HashMap<String, Entity<crate::transcript_view::hybrid::HybridView>>,
 }
 
 impl WorkspaceView {
@@ -139,6 +141,7 @@ impl WorkspaceView {
             activation_sub: None,
             pane_bounds: Rc::default(),
             recover_pickers: HashMap::new(),
+            hybrids: HashMap::new(),
             size: Rc::new(Cell::new(Size { width: px(1000.0), height: px(600.0) })),
             split_drag: None,
             hover_split: None,
@@ -165,6 +168,7 @@ impl WorkspaceView {
     pub fn shutdown_tabs(&mut self, ids: &[String], cx: &mut Context<Self>) {
         for id in ids {
             self.recover_pickers.remove(id);
+            self.hybrids.remove(id);
             if let Some(t) = self.terminals.remove(id) {
                 t.view.update(cx, |v, _| v.shutdown());
             }
@@ -192,6 +196,31 @@ impl WorkspaceView {
         });
         self.recover_pickers.insert(tab_id, (picker, sub));
         cx.notify();
+    }
+
+    /// 按「全局开关 + 这个标签有没有绑定会话」决定要不要给它一个可重排视图（#231 TRD §17）：
+    /// 开关开着且绑定了会话 → 有（会话 id 变了就重建，读新会话的文件）；否则拆掉并让终端回到整块画
+    fn sync_hybrid(&mut self, tab_id: &str, cx: &mut Context<Self>) {
+        let want = {
+            let s = self.state.read(cx);
+            s.prefs.reflow_view.then(|| s.workspace.locate_tab(tab_id).and_then(|(_, t)| t.session_id.clone())).flatten()
+        };
+        let have = self.hybrids.get(tab_id).map(|h| h.read(cx).session_id.clone());
+        if want == have {
+            return;
+        }
+        if let Some(old) = self.hybrids.remove(tab_id) {
+            let term = old.read(cx).terminal();
+            term.update(cx, |t, _| {
+                t.active_only = false;
+                t.layout_h_override = None;
+            });
+        }
+        if let (Some(sid), Some(t)) = (want, self.terminals.get(tab_id)) {
+            let term = t.view.clone();
+            let h = cx.new(|cx| crate::transcript_view::hybrid::HybridView::new(term, sid, cx));
+            self.hybrids.insert(tab_id.to_string(), h);
+        }
     }
 
     /// 自检用：这个标签的恢复选择器 (选项数, 选中项, 忙)
@@ -964,9 +993,11 @@ impl WorkspaceView {
         let content: AnyElement = if c.tabs.is_empty() {
             welcome::render_welcome(theme)
         } else {
-            match self.terminals.get(&c.active_tab_id) {
-                Some(t) => div().size_full().child(t.view.clone()).into_any_element(),
-                None => Empty.into_any_element(),
+            self.sync_hybrid(&c.active_tab_id, cx);
+            match (self.hybrids.get(&c.active_tab_id), self.terminals.get(&c.active_tab_id)) {
+                (Some(h), _) => div().size_full().child(h.clone()).into_any_element(),
+                (None, Some(t)) => div().size_full().child(t.view.clone()).into_any_element(),
+                (None, None) => Empty.into_any_element(),
             }
         };
         let (c1, c2, c3, c4, c5, c6) = (c.id.clone(), c.id.clone(), c.id.clone(), c.id.clone(), c.id.clone(), c.id.clone());

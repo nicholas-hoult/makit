@@ -291,7 +291,7 @@ pub fn run() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     // C 工作区：透明标题栏（= Tauri 的 titleBarStyle Overlay + hiddenTitle），标题栏由 workspace::titlebar 自绘
-                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from("makit")), appears_transparent: true, ..Default::default() }),
+                    titlebar: Some(TitlebarOptions { title: Some(SharedString::from(app_name())), appears_transparent: true, ..Default::default() }),
                     window_min_size: Some(size(px(900.0), px(560.0))),
                     // 自检时用：不抢用户正在用的键盘焦点（B 侧栏包加的，见 sidebar/selftest.rs）
                     focus: std::env::var_os("MAKIT_NATIVE_BACKGROUND").is_none(),
@@ -350,4 +350,34 @@ pub fn run() {
             cx.activate(true);
         }
     });
+}
+
+/// 显示用的应用名：线上是 `makit`；`dev.sh` 通过 `MAKIT_APP_NAME` 传 `makit-dev`，用来在窗口上一眼区分 dev 和线上（#242）
+pub fn app_name_from(env: Option<String>) -> String {
+    env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "makit".to_string())
+}
+
+/// 当前进程的应用名（启动时定一次）
+pub fn app_name() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| app_name_from(std::env::var("MAKIT_APP_NAME").ok()))
+}
+
+/// 不是线上的默认名 → 是 dev（或别的非正式实例），标题栏要醒目标出来
+pub fn is_dev_instance() -> bool {
+    app_name() != "makit"
+}
+
+#[cfg(test)]
+mod app_name_tests {
+    use super::*;
+
+    /// 为什么要测：错了在界面上就是「dev 和线上长得一样，关错窗口」，或者线上莫名显示成 dev
+    #[test]
+    fn default_is_makit_and_dev_name_comes_from_env() {
+        assert_eq!(app_name_from(None), "makit");
+        assert_eq!(app_name_from(Some(String::new())), "makit", "空值不能把线上变成没有名字");
+        assert_eq!(app_name_from(Some("  ".into())), "makit");
+        assert_eq!(app_name_from(Some("makit-dev".into())), "makit-dev");
+    }
 }
