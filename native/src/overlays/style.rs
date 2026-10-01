@@ -14,12 +14,14 @@ pub const RADIUS_MD: f32 = 6.0;
 /// `--radius-lg`：命令面板、模态框
 pub const RADIUS_LG: f32 = 8.0;
 
-/// 界面等宽字体的主字体（CSS `ui-monospace, SFMono-Regular, Menlo, monospace`）
-const MONO_FAMILY: &str = "Menlo";
+/// 界面等宽字体的主字体：和终端同一个（JetBrains Mono，随程序打包）。
+/// **不能用 Menlo**：实测（2026-10-02，`MAKIT_NATIVE_SELFTEST=fonts`）基础字体是 Menlo 时，中文那段会被 GPUI 绑到一个错的
+/// 字体上去画（字形号是苹方的、字体编号却不是苹方）→ 画出别的汉字；加中文回退也一样。JetBrains Mono 没这个问题，终端一直在用
+const MONO_FAMILY: &str = "JetBrains Mono";
 
-/// 界面里的等宽字体（路径、键帽、命令）：Menlo + 和终端一样的中文回退。
+/// 界面里的等宽字体（路径、键帽、命令）：和终端完全一样（JetBrains Mono + 中文回退）。
 ///
-/// 不要只写 `font_family("Menlo")`：Menlo 没有中文字形，GPUI 自己挑回退时会画出**别的汉字**（不是方块，看着像乱码）——
+/// 不要写 `font_family("Menlo")`：中文会被画成**别的汉字**（不是方块，看着像乱码）——
 /// 「重建原目录」显示成「捶録乔逸禁」（用户 2026-10-02 截图，#239 的选择器）、查看对话面板也出过一次（#231）
 pub fn mono_font() -> gpui::Font {
     static CJK: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
@@ -149,7 +151,7 @@ mod tests {
     #[test]
     fn mono_font_has_cjk_fallbacks() {
         let f = mono_font();
-        assert_eq!(f.family.as_ref(), "Menlo");
+        assert_eq!(f.family.as_ref(), "JetBrains Mono", "和终端同一个主字体");
         let fb = f.fallbacks.expect("必须带回退字体");
         let names = fb.fallback_list();
         assert!(names.iter().any(|n| n.starts_with("PingFang") || n == "Hiragino Sans"), "回退里要有中日文字体：{names:?}");
