@@ -90,6 +90,12 @@ pub fn cwd_missing(tab_id: &str, cwd: &str, window: &mut Window, cx: &mut App) {
 }
 
 fn open_dialog(tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut App) {
+    // 推迟到这一轮更新结束再做：真实路径上 `cwd_missing` 是在**工作区自己的事件回调里**被调的（终端发 CwdMissing →
+    // 工作区订阅），那时 WorkspaceView 正在被更新，下面再读 / 写它就是 double lease，GPUI 直接 panic、整个应用闪退
+    window.defer(cx, move |window, cx| open_dialog_now(tab_id, cwd, session_id, window, cx));
+}
+
+fn open_dialog_now(tab_id: String, cwd: String, session_id: Option<String>, window: &mut Window, cx: &mut App) {
     let Some(h) = host(cx) else { return };
     // 面板自己先留一行说明（同 Tauri）：选择器被 Esc 掉之后，这块面板不能是一块没有线索的死屏
     let ws = h.read(cx).workspace.clone();
