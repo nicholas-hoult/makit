@@ -14,8 +14,22 @@ pub const RADIUS_MD: f32 = 6.0;
 /// `--radius-lg`：命令面板、模态框
 pub const RADIUS_LG: f32 = 8.0;
 
-/// 界面等宽字体（CSS `ui-monospace, SFMono-Regular, Menlo, monospace`）
-pub const MONO: &str = "Menlo";
+/// 界面等宽字体的主字体（CSS `ui-monospace, SFMono-Regular, Menlo, monospace`）
+const MONO_FAMILY: &str = "Menlo";
+
+/// 界面里的等宽字体（路径、键帽、命令）：Menlo + 和终端一样的中文回退。
+///
+/// 不要只写 `font_family("Menlo")`：Menlo 没有中文字形，GPUI 自己挑回退时会画出**别的汉字**（不是方块，看着像乱码）——
+/// 「重建原目录」显示成「捶録乔逸禁」（用户 2026-10-02 截图，#239 的选择器）、查看对话面板也出过一次（#231）
+pub fn mono_font() -> gpui::Font {
+    static CJK: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    let cjk = CJK.get_or_init(|| {
+        crate::terminal::fonts::cjk_fallbacks(&crate::terminal::fonts::system_preferred_languages()).into_iter().map(String::from).collect()
+    });
+    let mut f = gpui::font(MONO_FAMILY);
+    f.fallbacks = Some(gpui::FontFallbacks::from_fonts(cjk.clone()));
+    f
+}
 
 /// `box-shadow: 0 <y>px <blur>px <color>`
 pub fn shadow(y: f32, blur: f32, color: Hsla) -> BoxShadow {
@@ -35,7 +49,7 @@ pub fn mix_alpha(c: Hsla, pct: f32) -> Hsla {
 /// 键帽（`.palette-footer kbd` / `.settings-shortcuts kbd`）
 pub fn kbd(theme: &Theme, text: impl Into<SharedString>, fg: Hsla, pad_x: f32) -> Div {
     div()
-        .font_family(MONO)
+        .font(mono_font())
         .text_size(px(10.0))
         .line_height(px(14.0))
         .bg(theme.bg)
@@ -124,5 +138,20 @@ pub fn check_box(theme: &Theme, checked: bool, radio: bool, size: f32) -> Div {
         el.bg(theme.accent).child(mark)
     } else {
         el.bg(theme.bg).border_1().border_color(theme.border_strong)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 为什么要测：少了中文回退，等宽字体里的中文就会被画成别的字（看着像乱码）
+    #[test]
+    fn mono_font_has_cjk_fallbacks() {
+        let f = mono_font();
+        assert_eq!(f.family.as_ref(), "Menlo");
+        let fb = f.fallbacks.expect("必须带回退字体");
+        let names = fb.fallback_list();
+        assert!(names.iter().any(|n| n.starts_with("PingFang") || n == "Hiragino Sans"), "回退里要有中日文字体：{names:?}");
     }
 }

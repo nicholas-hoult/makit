@@ -243,7 +243,7 @@ impl Render for RecoverPicker {
                     })))
                     .on_click(cx.listener(move |this, _, window, cx| this.confirm(ix, window, cx)))
                     .child(div().flex_none().w(px(12.0)).text_color(accent).child(if selected { "❯" } else { "" }))
-                    .child(div().min_w_0().font_family(MONO).text_size(px(12.0)).text_color(theme.fg).child(main))
+                    .child(div().min_w_0().font(mono_font()).text_size(px(12.0)).text_color(theme.fg).child(main))
                     .child(div().flex_none().text_size(px(11.0)).text_color(theme.fg_muted).child(note))
                     .into_any_element()
             })
@@ -282,7 +282,7 @@ impl Render for RecoverPicker {
                     .pb(px(4.0))
                     .text_size(px(12.0))
                     .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.warning).child("启动目录已不存在"))
-                    .child(div().font_family(MONO).text_size(px(11.0)).text_color(theme.fg_muted).child(self.cwd.clone()))
+                    .child(div().font(mono_font()).text_size(px(11.0)).text_color(theme.fg_muted).child(self.cwd.clone()))
                     .child(div().text_size(px(11.0)).text_color(theme.fg_subtle).child("会话记录没丢。选一个目录继续  ·  ↑↓ 选择  Enter 确认  Esc 暂不处理")),
             )
             .children(rows)
