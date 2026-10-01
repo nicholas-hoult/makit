@@ -19,6 +19,49 @@ pub fn hover_delay_ms(mode: &str, cmd_pressed: bool) -> Option<u64> {
 /// 鼠标离开行 / 卡片后多久关
 pub const HOVER_CLOSE_MS: u64 = 200;
 
+/// 进出行之后该做什么
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoverCmd {
+    /// 按延迟出这一行的卡片
+    Open,
+    /// 过一会儿关卡片（到点时再看一眼 `should_close`）
+    Close,
+    /// 什么都不做
+    Nothing,
+}
+
+/// 鼠标现在停在哪一行（#243）。
+///
+/// 从 A 移到 B 会同时来「进 B」「出 A」两个事件，**顺序取决于方向**：GPUI 冒泡阶段倒序调监听器，
+/// 下面的行先收到。往下移时是「进 B → 出 A」——以前出 A 直接排关卡片的定时器，把刚排上的「开 B」顶掉了，
+/// 卡片出不来；往上移是「出 B → 进 A」，开卡片在后，正常。这里按「鼠标现在在哪一行」判断，和事件顺序无关
+#[derive(Clone, Debug, Default)]
+pub struct HoverTracker {
+    over: Option<String>,
+}
+
+impl HoverTracker {
+    pub fn enter(&mut self, session_id: &str) -> HoverCmd {
+        self.over = Some(session_id.to_string());
+        HoverCmd::Open
+    }
+
+    pub fn leave(&mut self, session_id: &str) -> HoverCmd {
+        // 只有离开的正是「现在所在的行」才算离开；离开的是旧行（往下移时那个迟到的事件）就忽略
+        if self.over.as_deref() == Some(session_id) {
+            self.over = None;
+            HoverCmd::Close
+        } else {
+            HoverCmd::Nothing
+        }
+    }
+
+    /// 关卡片的定时器到点时调：鼠标已经进了别的行就不关
+    pub fn should_close(&self) -> bool {
+        self.over.is_none()
+    }
+}
+
 /// 卡片左上角：行的右边 +4；y 取 min(行 top, 窗口高 - 300)
 pub fn card_origin(row_right: f32, row_top: f32, window_h: f32) -> (f32, f32) {
     (row_right + 4.0, row_top.min(window_h - 300.0))
@@ -96,6 +139,35 @@ mod tests {
         assert_eq!(hover_delay_ms("cmd", false), None, "cmd 模式没按 ⌘ 不出");
         assert_eq!(hover_delay_ms("off", true), None);
         assert_eq!(hover_delay_ms("", false), Some(400), "没存过按 always");
+    }
+
+    /// 为什么要测（#243）：错了在界面上就是「鼠标往下划过会话行，悬停卡不出来；往上划正常」
+    #[test]
+    fn moving_down_enter_comes_before_leave_and_the_card_still_opens() {
+        let mut t = HoverTracker::default();
+        assert_eq!(t.enter("a"), HoverCmd::Open);
+        // 往下移：GPUI 先发下面那行的「进 B」，再发上面那行的「出 A」
+        assert_eq!(t.enter("b"), HoverCmd::Open);
+        assert_eq!(t.leave("a"), HoverCmd::Nothing, "出的是旧行：不能排关卡片，否则会把刚排上的「开 B」顶掉");
+        assert!(!t.should_close(), "鼠标在 B 上，不关");
+    }
+
+    #[test]
+    fn moving_up_leave_comes_before_enter_and_the_card_opens() {
+        let mut t = HoverTracker::default();
+        t.enter("b");
+        // 往上移：先「出 B」，再「进 A」
+        assert_eq!(t.leave("b"), HoverCmd::Close);
+        assert_eq!(t.enter("a"), HoverCmd::Open);
+        assert!(!t.should_close(), "关卡片的定时器到点时鼠标已经在 A 上：不关");
+    }
+
+    #[test]
+    fn leaving_the_list_closes_the_card() {
+        let mut t = HoverTracker::default();
+        t.enter("a");
+        assert_eq!(t.leave("a"), HoverCmd::Close);
+        assert!(t.should_close(), "鼠标不在任何行上：到点就关");
     }
 
     #[test]
