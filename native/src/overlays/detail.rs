@@ -200,7 +200,6 @@ impl Render for DetailView {
         let s = &self.session;
         let n = self.items.borrow().len();
         let vp = window.viewport_size();
-        let mono = MONO;
         let accent_text = theme.var("--accent-text");
 
         let body: gpui::AnyElement = match &self.load {
@@ -276,7 +275,7 @@ impl Render for DetailView {
                                             .when(!s.display_name.is_empty(), |d| d.child(div().font_weight(FontWeight::MEDIUM).text_color(accent_text).child(s.display_name.clone()))),
                                     )
                                     .child(div().text_size(px(11.0)).text_color(theme.fg_muted).mt(px(4.0)).child(subtitle(s, n)))
-                                    .child(div().text_size(px(11.0)).text_color(theme.fg_muted).font_family(mono).mt(px(2.0)).child(s.cwd.clone())),
+                                    .child(div().text_size(px(11.0)).text_color(theme.fg_muted).font(mono_font()).mt(px(2.0)).child(s.cwd.clone())),
                             )
                             .child(
                                 div()

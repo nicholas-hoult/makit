@@ -38,6 +38,47 @@ pub fn summary(s: &AppState) -> String {
 
 pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
     // B 侧栏：`MAKIT_NATIVE_SELFTEST=sidebar`（见 sidebar/selftest.rs）
+    // 中文在等宽字体里会不会被画成别的字（#239 乱码）：同一段文字用「只有 Menlo」和 mono_font 各排一次，
+    // 打出每段用的字体和字形号，和「直接用苹方」排出来的字形号对比
+    if mode == "fonts" {
+        let _ = handle.update(cx, |_, window, _| {
+            let ts = window.text_system().clone();
+            let text = "重建原目录";
+            let shape = |f: gpui::Font| {
+                let run = gpui::TextRun { len: text.len(), font: f, color: gpui::black(), background_color: None, underline: None, strikethrough: None };
+                let l = ts.layout_line(text, gpui::px(12.0), &[run], None);
+                l.runs
+                    .iter()
+                    .map(|r| {
+                        let fam = format!("{:?}:{}", r.font_id, ts.get_font_for_id(r.font_id).map(|f| f.family.to_string()).unwrap_or_default());
+                        let ids: Vec<String> = r.glyphs.iter().map(|g| format!("{:?}", g.id)).collect();
+                        format!("{fam}{ids:?}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" + ")
+            };
+            eprintln!("[selftest] 只有 Menlo      : {}", shape(gpui::font("Menlo")));
+            eprintln!("[selftest] mono_font       : {}", shape(crate::overlays::style::mono_font()));
+            eprintln!("[selftest] 直接用 PingFang SC: {}", shape(gpui::font("PingFang SC")));
+            eprintln!("[selftest] 终端字体 text_font: {}", shape(crate::terminal::text_font(window)));
+            let mut jb = gpui::font("JetBrains Mono");
+            eprintln!("[selftest] 只有 JetBrains Mono: {}", shape(jb.clone()));
+            jb.fallbacks = Some(gpui::FontFallbacks::from_fonts(vec!["PingFang SC".into()]));
+            eprintln!("[selftest] JetBrains+苹方   : {}", shape(jb));
+            // 判定：界面等宽字体必须和终端字体排得一模一样（终端里的中文在真机上是对的，拿它当参照）
+            let (ui, term) = (shape(crate::overlays::style::mono_font()), shape(crate::terminal::text_font(window)));
+            if ui == term {
+                eprintln!("[selftest] 通过：mono_font 和终端字体一致");
+            } else {
+                eprintln!("[selftest] 失败：mono_font 和终端字体不一致：{ui} ≠ {term}");
+            }
+            for fam in ["Menlo", "JetBrains Mono", "PingFang SC", "PingFang TC", "Hiragino Sans", "Apple SD Gothic Neo", ".AppleSystemUIFont"] {
+                eprintln!("[selftest] 字体编号 {fam:20} = {:?}", ts.resolve_font(&gpui::font(fam)));
+            }
+        });
+        cx.quit();
+        return;
+    }
     if mode == "sidebar" {
         crate::sidebar::selftest::run(handle, state, cx);
         return;
