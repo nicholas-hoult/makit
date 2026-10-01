@@ -11,6 +11,10 @@
 # - 假 HOME 路径要短：hook 的 unix socket 路径有长度上限（SUN_LEN）
 set -euo pipefail
 
+# ── dev 的配置都在这里改（#242）──
+# 窗口标题 / 标题栏里显示的名字，用来和线上的 makit 区分（线上不传这个变量，显示 makit）
+DEV_APP_NAME="makit-dev"
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # 放在 .worktrees/ 下的 worktree 共用同级的 .target-gpui（避免每个 worktree 各编译一份）；
@@ -32,6 +36,7 @@ done
 
 # ZDOTDIR 会让终端里的 shell 读到别处的配置
 unset ZDOTDIR
+export MAKIT_APP_NAME="${DEV_APP_NAME}"
 
 # 先用真实 HOME 构建（cargo / rustup 要从 ~/.cargo、~/.rustup 找东西），再换 HOME 启动二进制
 # macOS 自带 bash 3.2：空数组在 set -u 下展开会报 unbound，所以用 ${arr[@]+...} 的写法
