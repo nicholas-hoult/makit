@@ -46,6 +46,11 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
         pause(500).await;
         let title = cx.read_entity(&state, |s, _| titlebar_text(s.workspace.active_tab(), None)).unwrap_or_default();
         check(title == "makit", &format!("没有标签时标题栏是 makit（实际 {title}）"));
+        // 欢迎卡顶部的「还没有会话 / 还没找到 Claude Code」提示（#197）。检测结果看的是真实 PATH，开发机上多半装着 claude / codex，
+        // 所以自检先把它设成「什么都没有」，不依赖这台机器
+        let _ = state.update(cx, |s, _| s.tools = makit_core::environment::ToolPresence::default());
+        let hint = cx.read_entity(&state, |s, _| super::empty_hint::empty_hint(&s.tools, s.sessions.len(), s.loaded, "⌘T")).ok().flatten();
+        check(hint.as_ref().is_some_and(|h| h.title.contains("还没有找到")), &format!("空工作区 + 无会话 + 没装工具：欢迎卡有「还没有找到」提示（实际 {:?}）", hint.map(|h| h.title)));
 
         // 2. pane 右键菜单（欢迎卡上）
         let cid = cx.read_entity(&state, |s, _| s.workspace.state.active_container_id.clone()).unwrap_or_default();

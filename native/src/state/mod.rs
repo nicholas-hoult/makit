@@ -52,6 +52,8 @@ pub struct AppState {
     /// 全部会话，按 mtime 降序（最近在前）。`loaded` 之前是空的
     pub sessions: Vec<SessionMeta>,
     pub loaded: bool,
+    /// 本机有没有 Claude Code / Codex 的迹象（#197，没有会话时欢迎卡的提示用）。启动时测一次，会话列表变化时刷新
+    pub tools: makit_core::environment::ToolPresence,
     /// 工作区模型（纯逻辑，见 workspace/model.rs）。持久化时写进 `prefs.workspace`
     pub workspace: Workspace,
     /// 其余持久化的偏好。**`prefs.workspace` 只在存盘时由 `workspace` 填**，平时别读它
@@ -79,6 +81,7 @@ impl AppState {
             let mut s = Self {
                 sessions: Vec::new(),
                 loaded: false,
+                tools: makit_core::environment::detect(),
                 workspace: Workspace::new(ws),
                 prefs,
                 archiving: HashSet::new(),
@@ -242,6 +245,10 @@ impl AppState {
     // ---- 改完之后的出口 ----
 
     pub fn sessions_changed(&mut self, cx: &mut Context<Self>) {
+        // 只在还没有会话时刷新检测（有会话就不会显示提示；几次 stat，很便宜）
+        if self.sessions.is_empty() {
+            self.tools = makit_core::environment::detect();
+        }
         cx.emit(AppEvent::SessionsChanged);
         cx.notify();
         self.bind_running_tabs(cx);

@@ -25,6 +25,7 @@
 
 pub mod dnd;
 pub mod drop;
+pub mod empty_hint;
 pub mod flash;
 pub mod labels;
 pub mod model;
@@ -993,7 +994,11 @@ impl WorkspaceView {
         let _ = window;
         let overlay = self.hover_drop.as_ref().filter(|(cid, _, _)| *cid == c.id).map(|(_, d, s)| overlay_fraction(*d, *s));
         let content: AnyElement = if c.tabs.is_empty() {
-            welcome::render_welcome(theme)
+            let hint = {
+                let s = self.state.read(cx);
+                empty_hint::empty_hint(&s.tools, s.sessions.len(), s.loaded, &welcome::key_label("cmd-t"))
+            };
+            welcome::render_welcome(theme, hint)
         } else {
             self.sync_hybrid(&c.active_tab_id, cx);
             match (self.hybrids.get(&c.active_tab_id), self.terminals.get(&c.active_tab_id)) {
