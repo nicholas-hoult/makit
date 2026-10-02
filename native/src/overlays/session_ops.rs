@@ -5,6 +5,7 @@ use gpui::{App, AsyncApp, ClipboardItem, PromptButton, PromptLevel, Window};
 use makit_core::SessionMeta;
 
 use super::{host, show_toast, toast};
+use crate::state::binding::{decide_open, OpenDecision};
 use crate::state::AppState;
 use crate::workspace::model::{collect_containers, resume_cmd, resume_init_command, Dir, Opened, Side, TabKind, TabSpec};
 
@@ -141,26 +142,30 @@ fn ensure_symlink(s: &SessionMeta) {
     let _ = makit_core::recovery::ensure_session_symlink(s.session_id.clone(), s.cwd.clone(), s.storage_folder.clone());
 }
 
-/// 打开一条会话（`openResumeTab`）：已在工作区里就切过去；外部 claude 进程在跑就 toast 拦下；
-/// 否则确保软链后开 resume 标签。
+/// 打开一条会话（`openResumeTab`）：已经在本软件的某个标签里（resume 标签、被绑定的 shell 标签、或进程的 `MAKIT_PTY_ID`
+/// 指向某个标签）就切过去；是别的终端里的进程就 toast 拦下；否则确保软链后开 resume 标签。判定见 `state::binding::decide_open`（#253）
 pub fn open_session(session_id: &str, cx: &mut App) {
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else { return };
-    let already = collect_containers(&state.read(cx).workspace.state.root)
-        .iter()
-        .any(|c| c.tabs.iter().any(|t| t.kind == TabKind::Resume && t.session_id.as_deref() == Some(session_id)));
-    if !already && s.running && s.pid != 0 {
-        show_toast(format!("该 session 正在运行中（PID {}），不能重复启动", s.pid), toast::ALREADY_RUNNING, cx);
-        return;
+    match decide_open(&state.read(cx).workspace.state.root, &s) {
+        OpenDecision::Switch { container_id, tab_id } => {
+            state.update(cx, |st, cx| {
+                st.workspace.tab_click(&container_id, &tab_id);
+                st.workspace_changed(cx);
+            });
+        }
+        OpenDecision::BlockedExternal { pid } => {
+            show_toast(format!("该 session 正在运行中（PID {pid}），不能重复启动"), toast::ALREADY_RUNNING, cx);
+        }
+        OpenDecision::OpenNew => {
+            ensure_symlink(&s);
+            let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
+            state.update(cx, |st, cx| {
+                let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(&s));
+                st.workspace_changed(cx);
+            });
+        }
     }
-    if !already {
-        ensure_symlink(&s);
-    }
-    let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
-    state.update(cx, |st, cx| {
-        let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(&s));
-        st.workspace_changed(cx);
-    });
 }
 
 /// ⌘Enter / ⌘⇧Enter：在当前 pane 旁边分屏打开（`handleSplitWithSession`，dir V = 左右、H = 上下）
