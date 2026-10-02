@@ -21,19 +21,8 @@ use crate::theme::{builtin::builtin_themes, itermcolors::import_itermcolors, set
 
 // ---------- 纯逻辑 ----------
 
-/// pane 落点图标套（`src/paneIcons.ts`）。九个对应 ⌥⌘1~⌥⌘9；空 = 不显示
-pub const PANE_ICON_SETS: [(&str, &str, &[&str]); 5] = [
-    ("beasts", "灵兽", &["🐉", "🐯", "🦊", "🐳", "🦉", "🐝", "🦄", "🐙", "🐺"]),
-    ("flowers", "花木", &["🌸", "🌹", "🌻", "🌷", "🌺", "🌼", "🪷", "💐", "🌾"]),
-    ("fruits", "果园", &["🍎", "🍊", "🍋", "🍇", "🍓", "🍑", "🥝", "🍒", "🥭"]),
-    ("dots", "色点", &["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫️", "⚪️"]),
-    ("none", "不显示", &[]),
-];
-
-/// 按 id 取图标；认不出的用第一套（`paneIconsFor`）
-pub fn pane_icons_for(id: &str) -> &'static [&'static str] {
-    PANE_ICON_SETS.iter().find(|s| s.0 == id).unwrap_or(&PANE_ICON_SETS[0]).2
-}
+// pane 落点图标套的数据在 `workspace::flash`（闪牌也用它），这里只引用，不再留第二份
+use crate::workspace::flash::{pane_icons_for, PANE_ICON_SETS};
 
 /// 导入的主题按 id 同名覆盖（位置不变），新的追加在后
 pub fn upsert_imported(list: &[ThemeSource], t: ThemeSource) -> Vec<ThemeSource> {
@@ -203,10 +192,10 @@ impl SettingsView {
             let cur = state.read(cx).prefs.pane_icons.clone();
             PANE_ICON_SETS
                 .iter()
-                .map(|(id, name, _)| {
-                    let (state, id) = (state.clone(), id.to_string());
+                .map(|set| {
+                    let (state, id) = (state.clone(), set.id.to_string());
                     let checked = id == cur;
-                    MenuItem::action(*name, move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.pane_icons = id.clone()))).checked(checked)
+                    MenuItem::action(set.name, move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.pane_icons = id.clone()))).checked(checked)
                 })
                 .collect()
         });
@@ -289,7 +278,7 @@ impl Render for SettingsView {
         let theme_name = Theme::by_id(&prefs.theme.id, &prefs.theme.imported).source.name;
         let swatches = (0..8).map(|i| div().flex_1().min_w_0().h(px(14.0)).rounded(px(2.0)).bg(theme.ansi[i]).border_1().border_color(theme.border));
         let icons = pane_icons_for(&prefs.pane_icons);
-        let icon_name = PANE_ICON_SETS.iter().find(|s| s.0 == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).1;
+        let icon_name = PANE_ICON_SETS.iter().find(|s| s.id == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).name;
         let hover_name = HOVER_MODES.iter().find(|m| m.0 == prefs.sidebar.hover_mode).unwrap_or(&HOVER_MODES[0]).1;
         let hooks = cx.try_global::<NotifyHooks>().cloned();
         let permission = hooks.as_ref().and_then(|h| (h.permission)(cx));
@@ -515,8 +504,8 @@ mod tests {
 
     #[test]
     fn pane_icon_sets_have_nine_or_none() {
-        for (id, _, icons) in PANE_ICON_SETS {
-            assert!(icons.len() == 9 || (id == "none" && icons.is_empty()), "{id}");
+        for s in PANE_ICON_SETS {
+            assert!(s.icons.len() == 9 || (s.id == "none" && s.icons.is_empty()), "{}", s.id);
         }
         assert_eq!(pane_icons_for("fruits")[0], "🍎");
         assert_eq!(pane_icons_for("???")[0], "🐉", "认不出的回到默认套");
