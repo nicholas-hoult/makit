@@ -45,6 +45,30 @@ pub fn upsert_imported(list: &[ThemeSource], t: ThemeSource) -> Vec<ThemeSource>
     out
 }
 
+/// 主题菜单里的显示顺序：深色内置 → 浅色内置 → 导入（和 `open_theme_menu` 一致）
+pub fn theme_menu_order(imported: &[ThemeSource]) -> Vec<String> {
+    let builtin = builtin_themes();
+    let dark = builtin.iter().filter(|t| !is_light(&t.bg));
+    let light = builtin.iter().filter(|t| is_light(&t.bg));
+    dark.chain(light).chain(imported.iter()).map(|t| t.id.clone()).collect()
+}
+
+/// 删掉导入的 `deleted` 后该用哪个主题：删的正是当前主题 → 菜单里它上面那一个（排第一就用下面那个）；删的不是当前 → 保持当前
+pub fn theme_after_delete(order: &[String], current: &str, deleted: &str) -> String {
+    if current != deleted {
+        return current.to_string();
+    }
+    let i = order.iter().position(|id| id == deleted).unwrap_or(0);
+    let neighbour = if i > 0 { order.get(i - 1) } else { order.get(1) };
+    neighbour.cloned().unwrap_or_else(|| builtin_themes().remove(0).id)
+}
+
+/// 找主题、下载 `.itermcolors` 的网站（iTerm2-Color-Schemes 的官方继任站）。批量下载用它的 GitHub 仓库
+pub const THEME_SITE: &str = "https://terminalthemes.com/";
+
+/// 主题下拉列表最宽多少（选择框更宽时也不跟着撑满）
+const THEME_MENU_MAX_W: f32 = 560.0;
+
 pub const HOVER_MODES: [(&str, &str); 3] = [("always", "始终显示（400ms 延迟）"), ("cmd", "仅按住 ⌘ 时显示"), ("off", "关闭")];
 
 // ---------- 通知包的接口 ----------
@@ -75,6 +99,8 @@ pub struct SettingsView {
     focus: FocusHandle,
     scroll: gpui::ScrollHandle,
     scrollbar: Entity<crate::scrollbar::Scrollbar>,
+    /// 主题选择框这一帧在窗口里的位置（`on_children_prepainted` 写入），下拉列表贴着它展开
+    theme_select: Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -91,7 +117,7 @@ impl SettingsView {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         let scroll = gpui::ScrollHandle::new();
         let scrollbar = crate::scrollbar::Scrollbar::handle(&scroll, cx);
-        Self { state, focus, scroll, scrollbar }
+        Self { state, focus, scroll, scrollbar, theme_select: Rc::new(std::cell::Cell::new(None)) }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -113,12 +139,19 @@ impl SettingsView {
 
     fn open_theme_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         let state = self.state.clone();
-        super::show_context_menu(ev.position(), window, cx, move |cx| {
+        // 贴着选择框展开：左边对齐、紧挨下方、宽度和选择框一致（最宽 THEME_MENU_MAX_W）；拿不到位置才退回鼠标点的地方
+        let (pos, min_w) = match self.theme_select.get() {
+            Some(b) => (gpui::point(b.origin.x, b.origin.y + b.size.height + px(2.0)), Some(f32::from(b.size.width).min(THEME_MENU_MAX_W))),
+            None => (ev.position(), None),
+        };
+        super::show_searchable_menu(pos, "搜索主题…", min_w, window, cx, move |cx| {
             let p = &state.read(cx).prefs.theme;
             let current = p.id.clone();
             let pick = |t: &ThemeSource| {
                 let (state, id) = (state.clone(), t.id.clone());
-                MenuItem::action(t.name.clone(), move |_, cx| Self::apply_theme(&state, id.clone(), None, cx)).checked(t.id == current)
+                let mut colors = vec![crate::theme::to_hsla(&t.bg)];
+                colors.extend((1..=6).filter_map(|i| t.ansi.get(i)).map(|c| crate::theme::to_hsla(c)));
+                MenuItem::action(t.name.clone(), move |_, cx| Self::apply_theme(&state, id.clone(), None, cx)).checked(t.id == current).preview(colors)
             };
             let builtin = builtin_themes();
             let mut items = vec![MenuItem::header("深色")];
@@ -127,7 +160,10 @@ impl SettingsView {
             items.extend(builtin.iter().filter(|t| is_light(&t.bg)).map(pick));
             if !p.imported.is_empty() {
                 items.push(MenuItem::header("导入"));
-                items.extend(p.imported.iter().map(pick));
+                items.extend(p.imported.iter().map(|t| {
+                    let (state, id) = (state.clone(), t.id.clone());
+                    pick(t).removable(move |_, cx| Self::delete_imported_theme(&state, &id, cx))
+                }));
             }
             items
         });
@@ -153,11 +189,12 @@ impl SettingsView {
         .detach();
     }
 
-    fn delete_current_theme(&mut self, cx: &mut Context<Self>) {
-        let p = self.state.read(cx).prefs.theme.clone();
-        let list: Vec<ThemeSource> = p.imported.into_iter().filter(|t| t.id != p.id).collect();
-        let first = builtin_themes().remove(0).id;
-        Self::apply_theme(&self.state, first, Some(list), cx);
+    /// 删掉一个导入的主题；删的正是当前主题就换成菜单里它上面的那一个
+    fn delete_imported_theme(state: &Entity<AppState>, id: &str, cx: &mut App) {
+        let p = state.read(cx).prefs.theme.clone();
+        let next = theme_after_delete(&theme_menu_order(&p.imported), &p.id, id);
+        let list: Vec<ThemeSource> = p.imported.into_iter().filter(|t| t.id != id).collect();
+        Self::apply_theme(state, next, Some(list), cx);
     }
 
     fn open_icon_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -257,7 +294,6 @@ impl Render for SettingsView {
         let hooks = cx.try_global::<NotifyHooks>().cloned();
         let permission = hooks.as_ref().and_then(|h| (h.permission)(cx));
         let accent_text = theme.var("--accent-text");
-        let danger = theme.danger;
 
         let groups = shortcut_groups(&keymap());
         let shortcut_groups_el = groups.iter().enumerate().map(|(i, g)| {
@@ -341,7 +377,13 @@ impl Render for SettingsView {
                             .child(
                                 section()
                                     .child(label("外观主题"))
-                                    .child(select_box(&theme, "theme-select", theme_name).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_theme_menu(ev, window, cx))))
+                                    .child({
+                                        let cell = self.theme_select.clone();
+                                        div()
+                                            .w_full()
+                                            .on_children_prepainted(move |b, _, _| cell.set(b.first().copied()))
+                                            .child(select_box(&theme, "theme-select", theme_name).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_theme_menu(ev, window, cx))))
+                                    })
                                     .child(
                                         div()
                                             .flex()
@@ -362,23 +404,9 @@ impl Render for SettingsView {
                                             .gap(px(8.0))
                                             .mt(px(8.0))
                                             .child(action_btn(&theme, "import-iterm", "导入 .itermcolors").on_click(cx.listener(|this, _, window, cx| this.import_itermcolors(window, cx))))
-                                            .when(prefs.theme.id.starts_with("imported:"), |d| {
-                                                d.child(
-                                                    div()
-                                                        .id("theme-delete")
-                                                        .px(px(6.0))
-                                                        .py(px(5.0))
-                                                        .text_size(px(12.0))
-                                                        .text_color(danger)
-                                                        .rounded(px(RADIUS))
-                                                        .cursor_pointer()
-                                                        .hover(move |s| s.bg(mix_alpha(danger, 0.14)))
-                                                        .child("删除当前")
-                                                        .on_click(cx.listener(|this, _, _, cx| this.delete_current_theme(cx))),
-                                                )
-                                            }),
+                                            .child(action_btn(&theme, "get-themes", "下载主题").on_click(|_, _, cx| cx.open_url(THEME_SITE)))
                                     )
-                                    .child(hint("UI 配色由终端 16 色 + 前景/背景推导，因此任何 iTerm2 色板都能直接用。")),
+                                    .child(hint("UI 配色由终端 16 色 + 前景/背景推导，因此任何 iTerm2 色板都能直接用。「下载主题」打开 terminalthemes.com，下载 .itermcolors 后再导入。")),
                             )
                             // pane 落点图标
                             .child(
@@ -503,5 +531,30 @@ mod tests {
         assert_eq!(out[0].bg, "#222", "同名覆盖、位置不变");
         let out = upsert_imported(&list, t("imported:c", "#333"));
         assert_eq!(out.last().unwrap().id, "imported:c");
+    }
+
+    fn imported(id: &str) -> ThemeSource {
+        ThemeSource { id: id.into(), name: id.into(), bg: "#000000".into(), fg: "#ffffff".into(), ansi: vec![], selection: None }
+    }
+
+    /// 为什么要测：删掉正在用的导入主题后，错了在界面上就是回到一个莫名其妙的主题（以前总是回到第一个深色），或者指向已被删掉的 id 导致配色错乱
+    #[test]
+    fn deleting_current_imported_theme_falls_back_to_the_one_above() {
+        let list = [imported("imported:a"), imported("imported:b"), imported("imported:c")];
+        let order = theme_menu_order(&list);
+        assert_eq!(theme_after_delete(&order, "imported:b", "imported:b"), "imported:a", "上面是上一个导入的");
+        assert_eq!(theme_after_delete(&order, "imported:c", "imported:c"), "imported:b");
+        let above_first = theme_after_delete(&order, "imported:a", "imported:a");
+        let light_last = order[order.iter().position(|i| i == "imported:a").unwrap() - 1].clone();
+        assert_eq!(above_first, light_last, "第一个导入的上面是浅色内置的最后一套");
+        assert!(!above_first.starts_with("imported:"));
+    }
+
+    #[test]
+    fn deleting_another_imported_theme_keeps_the_current_one() {
+        let list = [imported("imported:a"), imported("imported:b")];
+        let order = theme_menu_order(&list);
+        assert_eq!(theme_after_delete(&order, "dracula", "imported:b"), "dracula");
+        assert_eq!(theme_after_delete(&order, "imported:a", "imported:b"), "imported:a");
     }
 }

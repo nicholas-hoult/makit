@@ -31,6 +31,12 @@ pub const FONT: f32 = 12.0;
 pub const HEADER_H: f32 = 22.0;
 /// ✓ 的槽宽
 pub const CHECK_W: f32 = 16.0;
+/// ✕（可删除的项）的槽宽
+pub const REMOVE_W: f32 = 22.0;
+/// 色块预览的宽度（含和标签之间的空隙）
+pub const PREVIEW_W: f32 = 52.0;
+/// 带搜索框的菜单最高多少（项多时出滚动条，不撑满整个窗口）
+pub const SEARCH_MENU_MAX_H: f32 = 400.0;
 
 type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -42,12 +48,12 @@ pub enum MenuItem {
     /// 不可点的小标题（下拉选择里的「深色 / 浅色 / 导入」分组）
     Header(SharedString),
     /// `checked` 为真时前面画 ✓（下拉选择的当前项）；菜单里只要有一项打了勾，所有项都留出勾的位置
-    Action { label: SharedString, disabled: bool, checked: bool, handler: Handler },
+    Action { label: SharedString, disabled: bool, checked: bool, handler: Handler, remove: Option<Handler>, preview: Option<Vec<gpui::Hsla>> },
 }
 
 impl MenuItem {
     pub fn action(label: impl Into<SharedString>, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
-        MenuItem::Action { label: label.into(), disabled: false, checked: false, handler: Rc::new(handler) }
+        MenuItem::Action { label: label.into(), disabled: false, checked: false, handler: Rc::new(handler), remove: None, preview: None }
     }
 
     pub fn header(label: impl Into<SharedString>) -> Self {
@@ -59,21 +65,83 @@ impl MenuItem {
     }
 
     /// `MenuItem::action(..).disabled(条件)`
-    pub fn disabled(self, yes: bool) -> Self {
-        match self {
-            MenuItem::Action { label, handler, checked, .. } => MenuItem::Action { label, disabled: yes, checked, handler },
-            s => s,
+    pub fn disabled(mut self, yes: bool) -> Self {
+        if let MenuItem::Action { disabled, .. } = &mut self {
+            *disabled = yes;
         }
+        self
     }
 
     /// `MenuItem::action(..).checked(是当前值)`
-    pub fn checked(self, yes: bool) -> Self {
-        match self {
-            MenuItem::Action { label, handler, disabled, .. } => MenuItem::Action { label, disabled, checked: yes, handler },
-            s => s,
+    pub fn checked(mut self, yes: bool) -> Self {
+        if let MenuItem::Action { checked, .. } = &mut self {
+            *checked = yes;
         }
+        self
+    }
+
+    /// 这一行右侧加一个 ✕（鼠标移到这一行才显示），点它执行 `handler` 但**不关菜单**——
+    /// 要连着删好几项时不用每次重新打开（导入的主题）。菜单项每次渲染重新算，删完列表自己会更新
+    pub fn removable(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        if let MenuItem::Action { remove, .. } = &mut self {
+            *remove = Some(Rc::new(handler));
+        }
+        self
+    }
+
+    /// 标签前面的小色块预览：第一个颜色是底色，其余画成圆点（主题的底色 + 红绿黄蓝紫青）
+    pub fn preview(mut self, colors: Vec<gpui::Hsla>) -> Self {
+        if let MenuItem::Action { preview, .. } = &mut self {
+            *preview = Some(colors);
+        }
+        self
     }
 }
+
+/// 有没有可删除的项（有就给所有项留 ✕ 的位置，免得菜单宽度跟着鼠标跳）
+pub fn has_removable(items: &[MenuItem]) -> bool {
+    items.iter().any(|i| matches!(i, MenuItem::Action { remove: Some(_), .. }))
+}
+
+/// 搜索框里输入文字后留下的菜单项：不区分大小写的子串匹配（空查询 = 全部）。
+/// 分组标题只在它下面还有命中的项时保留；过滤时分隔线一律去掉（分组被挖空后剩下的线没有意义）
+pub fn filter_menu_items(items: &[MenuItem], query: &str) -> Vec<MenuItem> {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return items.to_vec();
+    }
+    let mut out: Vec<MenuItem> = Vec::new();
+    // 当前分组的标题先挂着，等到有命中的项时才放进结果
+    let mut pending_header: Option<MenuItem> = None;
+    for item in items {
+        match item {
+            MenuItem::Separator => {}
+            MenuItem::Header(_) => pending_header = Some(item.clone()),
+            MenuItem::Action { label, .. } if label.to_lowercase().contains(&q) => {
+                out.extend(pending_header.take());
+                out.push(item.clone());
+            }
+            MenuItem::Action { .. } => {}
+        }
+    }
+    out
+}
+
+/// ↑↓ 在可选项里移动一格：`count` 个可选项，到头绕回另一头；没有可选项返回 0
+pub fn step_selection(count: usize, sel: usize, delta: isize) -> usize {
+    if count == 0 {
+        return 0;
+    }
+    (sel as isize + delta).rem_euclid(count as isize) as usize
+}
+
+/// 可选项（没灰掉的 Action）在整个菜单项列表里的下标，↑↓ / 回车按这个走
+pub fn selectable(items: &[MenuItem]) -> Vec<usize> {
+    items.iter().enumerate().filter(|(_, i)| matches!(i, MenuItem::Action { disabled: false, .. })).map(|(n, _)| n).collect()
+}
+
+/// 带搜索框的菜单顶部那一行的高度（输入框 + 下边线）
+pub const SEARCH_H: f32 = 34.0;
 
 /// 生成菜单项的闭包（每帧调一次）
 pub type MenuBuilder = Rc<dyn Fn(&App) -> Vec<MenuItem>>;
@@ -175,5 +243,67 @@ mod tests {
         assert_eq!(label.as_ref(), "复制");
         assert!(disabled);
         assert!(matches!(MenuItem::separator().disabled(true), MenuItem::Separator));
+    }
+
+    fn labels(items: &[MenuItem]) -> Vec<String> {
+        items
+            .iter()
+            .map(|i| match i {
+                MenuItem::Action { label, .. } => label.to_string(),
+                MenuItem::Header(l) => format!("# {l}"),
+                MenuItem::Separator => "---".to_string(),
+            })
+            .collect()
+    }
+
+    /// 为什么要测：主题有几十套，错了在界面上就是「搜 night 找不到 Tokyo Night」或「搜完留着一个空的分组标题」
+    fn themes() -> Vec<MenuItem> {
+        vec![
+            MenuItem::header("深色"),
+            MenuItem::action("Tokyo Night", |_, _| {}),
+            MenuItem::action("Nord", |_, _| {}),
+            MenuItem::header("浅色"),
+            MenuItem::action("GitHub Light", |_, _| {}),
+            MenuItem::separator(),
+            MenuItem::header("导入"),
+            MenuItem::action("Night Owl", |_, _| {}),
+        ]
+    }
+
+    #[test]
+    fn empty_query_keeps_everything() {
+        assert_eq!(labels(&filter_menu_items(&themes(), "")).len(), 8);
+        assert_eq!(labels(&filter_menu_items(&themes(), "   ")).len(), 8, "只有空白也算空");
+    }
+
+    #[test]
+    fn filter_is_case_insensitive_substring_and_keeps_only_non_empty_groups() {
+        let out = labels(&filter_menu_items(&themes(), "NIGHT"));
+        assert_eq!(out, ["# 深色", "Tokyo Night", "# 导入", "Night Owl"], "浅色分组没有命中，标题和分隔线都去掉");
+    }
+
+    #[test]
+    fn filter_with_no_match_is_empty() {
+        assert!(filter_menu_items(&themes(), "zzz").is_empty());
+    }
+
+    #[test]
+    fn filter_matches_chinese_labels() {
+        let items = vec![MenuItem::action("重建原目录", |_, _| {}), MenuItem::action("取消", |_, _| {})];
+        assert_eq!(labels(&filter_menu_items(&items, "目录")), ["重建原目录"]);
+    }
+
+    #[test]
+    fn selection_wraps_around_both_ends() {
+        assert_eq!(step_selection(3, 0, 1), 1);
+        assert_eq!(step_selection(3, 2, 1), 0, "最后一项再往下回到第一项");
+        assert_eq!(step_selection(3, 0, -1), 2, "第一项再往上回到最后一项");
+        assert_eq!(step_selection(0, 0, 1), 0, "没有可选项不越界");
+    }
+
+    #[test]
+    fn selectable_skips_headers_separators_and_disabled() {
+        let items = vec![MenuItem::header("组"), MenuItem::action("a", |_, _| {}), MenuItem::separator(), MenuItem::action("b", |_, _| {}).disabled(true), MenuItem::action("c", |_, _| {})];
+        assert_eq!(selectable(&items), [1, 4]);
     }
 }

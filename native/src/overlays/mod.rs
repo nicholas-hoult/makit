@@ -62,11 +62,12 @@ pub mod text_input;
 pub mod toast;
 
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FocusHandle, Global, MouseButton, Pixels, Point, SharedString, Subscription, Task,
+    div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, Pixels, Point, SharedString, Subscription, Task,
     Window,
 };
 
 use crate::actions::overlays as act;
+use text_input::{TextInput, TextInputEvent};
 use crate::state::AppState;
 use crate::theme::ActiveTheme;
 use crate::workspace::WorkspaceView;
@@ -85,6 +86,15 @@ pub fn host(cx: &App) -> Option<Entity<OverlayHost>> {
 pub fn show_context_menu(position: Point<Pixels>, window: &mut Window, cx: &mut App, build: impl Fn(&App) -> Vec<MenuItem> + 'static) {
     if let Some(h) = host(cx) {
         h.update(cx, |h, cx| h.open_menu(position, std::rc::Rc::new(build), window, cx));
+    }
+}
+
+/// 带搜索框的菜单（项很多的下拉，比如主题）：顶部一个输入框，打字过滤，↑↓ 选、回车确认。
+/// `build` 照常给出全部项，过滤由外壳做
+pub fn show_searchable_menu(position: Point<Pixels>, placeholder: &str, min_w: Option<f32>, window: &mut Window, cx: &mut App, build: impl Fn(&App) -> Vec<MenuItem> + 'static) {
+    if let Some(h) = host(cx) {
+        let placeholder = placeholder.to_string();
+        h.update(cx, |h, cx| h.open_searchable_menu(position, &placeholder, min_w, std::rc::Rc::new(build), window, cx));
     }
 }
 
@@ -137,6 +147,11 @@ struct MenuState {
     focus: FocusHandle,
     /// 打开前焦点在哪，关掉后还回去
     prev: Option<FocusHandle>,
+    /// 带搜索框的菜单：搜索框 + 当前高亮的可选项序号（`context_menu::selectable` 里的第几个）
+    search: Option<Entity<TextInput>>,
+    sel: usize,
+    /// 菜单至少这么宽（下拉列表和触发它的选择框等宽）
+    min_w: Option<f32>,
 }
 
 pub struct OverlayHost {
@@ -323,8 +338,56 @@ impl OverlayHost {
         };
         let focus = cx.focus_handle();
         window.focus(&focus);
-        self.menu = Some(MenuState { pos, build, focus, prev });
+        self.menu = Some(MenuState { pos, build, focus, prev, search: None, sel: 0, min_w: None });
         cx.notify();
+    }
+
+    pub fn open_searchable_menu(&mut self, pos: Point<Pixels>, placeholder: &str, min_w: Option<f32>, all: MenuBuilder, window: &mut Window, cx: &mut Context<Self>) {
+        let prev = match self.menu.take() {
+            Some(m) => m.prev,
+            None => window.focused(cx),
+        };
+        let input = cx.new(|cx| TextInput::new(placeholder.to_string(), cx));
+        cx.subscribe(&input, |this, _, _: &TextInputEvent, cx| {
+            if let Some(m) = this.menu.as_mut() {
+                m.sel = 0;
+            }
+            cx.notify();
+        })
+        .detach();
+        let filter_input = input.clone();
+        let build: MenuBuilder = std::rc::Rc::new(move |cx| context_menu::filter_menu_items(&all(cx), filter_input.read(cx).text()));
+        let focus = cx.focus_handle();
+        window.focus(&input.focus_handle(cx));
+        self.menu = Some(MenuState { pos, build, focus, prev, search: Some(input), sel: 0, min_w });
+        cx.notify();
+    }
+
+    fn menu_step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let Some(m) = self.menu.as_ref() else { return };
+        if m.search.is_none() {
+            return;
+        }
+        let count = context_menu::selectable(&(m.build)(cx)).len();
+        let sel = context_menu::step_selection(count, m.sel, delta);
+        if let Some(m) = self.menu.as_mut() {
+            m.sel = sel;
+        }
+        cx.notify();
+    }
+
+    /// 回车：执行高亮的那一项并关菜单（只有带搜索框的菜单响应）
+    fn menu_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(m) = self.menu.as_ref() else { return };
+        if m.search.is_none() {
+            return;
+        }
+        let items = (m.build)(cx);
+        let pick = context_menu::selectable(&items).get(m.sel).copied();
+        if let Some(MenuItem::Action { handler, .. }) = pick.and_then(|i| items.get(i)).cloned() {
+            self.close_menu(window, cx);
+            handler(window, cx);
+        }
     }
 
     pub fn close_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -370,9 +433,15 @@ impl OverlayHost {
                 MenuItem::Separator => None,
             })
             .fold(0.0_f32, f32::max);
-        let check_slot = has_checks(&items);
-        let max_label = max_label + if check_slot { CHECK_W } else { 0.0 };
-        let (w, h) = (menu_width(max_label), menu_height(&items));
+        let searchable = m.search.is_some();
+        let check_slot = has_checks(&items) && !searchable;
+        let preview_slot = items.iter().any(|i| matches!(i, MenuItem::Action { preview: Some(_), .. }));
+        let remove_slot = has_removable(&items);
+        let max_label = max_label + if check_slot { CHECK_W } else { 0.0 } + if remove_slot { REMOVE_W } else { 0.0 } + if preview_slot { PREVIEW_W } else { 0.0 };
+        let search = m.search.clone();
+        let search_h = if search.is_some() { SEARCH_H } else { 0.0 };
+        let selected_item = if search.is_some() { selectable(&items).get(m.sel).copied() } else { None };
+        let (w, h) = (menu_width(max_label).max(m.min_w.unwrap_or(0.0)), menu_height(&items) + search_h);
         let vp = window.viewport_size();
         let (x, y) = clamp_menu_position(f32::from(m.pos.x), f32::from(m.pos.y), w, h, f32::from(vp.width), f32::from(vp.height));
         let host = cx.entity();
@@ -382,18 +451,20 @@ impl OverlayHost {
                 .h(px(HEADER_H))
                 .px(px(ITEM_PAD_X))
                 .pt(px(6.0))
-                .text_size(px(11.0))
+                .text_size(px(10.5))
                 .line_height(px(14.0))
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(theme.fg_subtle)
+                .text_color(theme.fg_muted)
                 .whitespace_nowrap()
                 .child(label)
                 .into_any_element(),
-            MenuItem::Action { label, disabled, checked, handler } => {
+            MenuItem::Action { label, disabled, checked, handler, remove, preview } => {
                 let host = host.clone();
                 let hover = theme.bg_hover;
+                let host_for_remove = host.clone();
+                let group: SharedString = format!("menu-row-{i}").into();
                 div()
                     .id(("menu-item", i))
+                    .group(group.clone())
                     .w_full()
                     .h(px(ITEM_H))
                     .px(px(ITEM_PAD_X))
@@ -404,6 +475,11 @@ impl OverlayHost {
                     .line_height(px(14.0))
                     .whitespace_nowrap()
                     .text_color(if disabled { theme.fg_muted } else { theme.fg })
+                    .relative()
+                    .when(selected_item == Some(i), |d| d.bg(hover))
+                    .when(searchable && checked, |d| {
+                        d.child(div().absolute().left(px(3.0)).top(px(6.0)).bottom(px(6.0)).w(px(2.0)).rounded(px(1.0)).bg(theme.accent))
+                    })
                     .when(!disabled, |d| {
                         d.cursor_pointer().hover(move |s| s.bg(hover)).on_click(move |_, window, cx| {
                             host.update(cx, |h, cx| h.close_menu(window, cx));
@@ -411,7 +487,53 @@ impl OverlayHost {
                         })
                     })
                     .when(check_slot, |d| d.child(div().w(px(CHECK_W)).flex_none().text_color(theme.accent).child(if checked { "✓" } else { "" })))
-                    .child(label)
+                    .when_some(preview, |d, colors| {
+                        // 色块：底色 + 6 个小圆点，一眼看出深浅和配色
+                        let mut it = colors.into_iter();
+                        let bg = it.next().unwrap_or(theme.bg);
+                        d.child(
+                            div()
+                                .flex_none()
+                                .w(px(PREVIEW_W - 10.0))
+                                .h(px(14.0))
+                                .mr(px(10.0))
+                                .px(px(4.0))
+                                .flex()
+                                .items_center()
+                                .justify_between()
+                                .rounded(px(3.0))
+                                .bg(bg)
+                                .border_1()
+                                .border_color(theme.border)
+                                .children(it.map(|c| div().size(px(4.0)).rounded(px(2.0)).bg(c))),
+                        )
+                    })
+                    .child(div().flex_1().child(label))
+                    .when_some(remove, |d, remove| {
+                        // ✕ 只在鼠标移到这一行时显示；点它只删，不触发整行的「选中」，菜单也不关
+                        let (host, danger, fg, subtle) = (host_for_remove, theme.danger, theme.fg, theme.fg_subtle);
+                        d.child(
+                            div()
+                                .id(("menu-item-remove", i))
+                                .flex_none()
+                                .size(px(18.0))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(RADIUS))
+                                .text_size(px(11.0))
+                                .text_color(subtle)
+                                .invisible()
+                                .group_hover(group, |s| s.visible())
+                                .hover(move |s| s.bg(mix_alpha(danger, 0.16)).text_color(fg))
+                                .child("✕")
+                                .on_click(move |_, window, cx| {
+                                    cx.stop_propagation();
+                                    remove(window, cx);
+                                    host.update(cx, |_, cx| cx.notify());
+                                }),
+                        )
+                    })
                     .into_any_element()
             }
         });
@@ -440,20 +562,41 @@ impl OverlayHost {
                         .key_context("Overlay ContextMenu")
                         .track_focus(&focus)
                         .on_action(cx.listener(|this, _: &act::Dismiss, window, cx| this.close_menu(window, cx)))
+                        .on_action(cx.listener(|this, _: &act::SelectNext, _, cx| this.menu_step(1, cx)))
+                        .on_action(cx.listener(|this, _: &act::SelectPrev, _, cx| this.menu_step(-1, cx)))
+                        .on_action(cx.listener(|this, _: &act::Confirm, window, cx| this.menu_confirm(window, cx)))
                         .occlude()
                         .absolute()
                         .left(px(x))
                         .top(px(y))
                         .w(px(w))
-                        .max_h(vp.height - px(16.0))
-                        .overflow_y_scroll()
-                        .p(px(MENU_PAD))
+                        .max_h((vp.height - px(16.0)).min(px(if searchable { SEARCH_MENU_MAX_H } else { f32::MAX })))
+                        .flex()
+                        .flex_col()
                         .bg(theme.bg_soft)
                         .border_1()
                         .border_color(theme.border_strong)
                         .rounded(px(RADIUS_MD))
                         .shadow(vec![shadow(8.0, 24.0, theme.var("--shadow-strong"))])
-                        .children(rows),
+                        .when_some(search, |d, input| {
+                            // 搜索行固定在顶部，不跟着列表滚走
+                            d.child(
+                                div()
+                                    .h(px(SEARCH_H))
+                                    .flex_none()
+                                    .px(px(ITEM_PAD_X))
+                                    .flex()
+                                    .items_center()
+                                    .border_b_1()
+                                    .border_color(theme.border)
+                                    .text_size(px(FONT))
+                                    .text_color(theme.fg)
+                                    .gap(px(8.0))
+                                    .child(gpui::svg().path(icons::SEARCH).size(px(14.0)).flex_none().text_color(theme.fg_subtle))
+                                    .child(div().flex_1().min_w_0().child(input)),
+                            )
+                        })
+                        .child(div().id("context-menu-rows").flex_1().min_h_0().overflow_y_scroll().p(px(MENU_PAD)).children(rows)),
                 )
                 .into_any_element(),
         )
