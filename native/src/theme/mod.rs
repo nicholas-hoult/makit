@@ -9,6 +9,8 @@
 pub mod builtin;
 pub mod derive;
 pub mod itermcolors;
+#[cfg(test)]
+pub mod legacy_fixture;
 
 use std::collections::BTreeMap;
 

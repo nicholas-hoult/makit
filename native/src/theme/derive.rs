@@ -214,9 +214,9 @@ pub fn parse_color(s: &str) -> Option<[f32; 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::builtin::builtin_themes;
+    use crate::theme::legacy_fixture::legacy_themes;
 
-    /// TS 版（`src/theme.ts` 的 `deriveVars`）对 25 套内置主题 + 2 个边界输入的推导结果
+    /// TS 版（`src/theme.ts` 的 `deriveVars`）对当时 25 套内置主题（现存于 `legacy_fixture.rs`）+ 2 个边界输入的推导结果
     const FIXTURE: &str = include_str!("../../tests/fixtures/theme-derived.json");
 
     fn fixture() -> BTreeMap<String, BTreeMap<String, String>> {
@@ -224,10 +224,10 @@ mod tests {
     }
 
     #[test]
-    fn every_builtin_theme_derives_exactly_like_the_ts_version() {
+    fn every_legacy_theme_derives_exactly_like_the_ts_version() {
         let want = fixture();
-        let themes = builtin_themes();
-        assert_eq!(themes.len(), 25, "内置 25 套");
+        let themes = legacy_themes();
+        assert_eq!(themes.len(), 25, "fixture 对应的 25 套");
         let mut diffs = Vec::new();
         for t in &themes {
             let expected = want.get(&t.id).unwrap_or_else(|| panic!("fixture 里没有 {}", t.id));
@@ -246,7 +246,7 @@ mod tests {
     #[test]
     fn edge_inputs_match_ts_too() {
         let want = fixture();
-        let vs = builtin_themes()[0].ansi.clone();
+        let vs = legacy_themes()[0].ansi.clone();
         let with_sel = ThemeSource {
             id: "x".into(),
             name: "x".into(),
