@@ -173,3 +173,24 @@ pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx
     })
     .detach();
 }
+
+// ---- 帧耗时统计（只在 MAKIT_NATIVE_FORCE_DRAW 的强制绘制循环里记；自检用来量「某段动画期间每帧画多久」）----
+
+static FRAME_MS: std::sync::Mutex<Vec<f64>> = std::sync::Mutex::new(Vec::new());
+
+pub(crate) fn record_frame(ms: f64) {
+    if let Ok(mut v) = FRAME_MS.lock() {
+        v.push(ms);
+    }
+}
+
+/// 取走并清空这段时间里的帧耗时，返回 (帧数, 平均 ms, 95 分位 ms, 最大 ms)
+pub(crate) fn take_frame_stats() -> (usize, f64, f64, f64) {
+    let mut v = FRAME_MS.lock().map(|mut g| std::mem::take(&mut *g)).unwrap_or_default();
+    if v.is_empty() {
+        return (0, 0.0, 0.0, 0.0);
+    }
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let avg = v.iter().sum::<f64>() / v.len() as f64;
+    (v.len(), avg, v[(v.len() * 95 / 100).min(v.len() - 1)], *v.last().unwrap())
+}

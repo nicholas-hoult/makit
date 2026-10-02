@@ -317,9 +317,11 @@ pub fn run() {
             let any: gpui::AnyWindowHandle = handle.into();
             cx.spawn(async move |cx| loop {
                 cx.background_executor().timer(Duration::from_millis(16)).await;
+                let t0 = std::time::Instant::now();
                 if cx.update_window(any, |_, window, cx| window.draw(cx).clear()).is_err() {
                     break;
                 }
+                crate::selftest::record_frame(t0.elapsed().as_secs_f64() * 1000.0);
             })
             .detach();
         }

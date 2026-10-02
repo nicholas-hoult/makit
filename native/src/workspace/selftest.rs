@@ -79,6 +79,11 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
         check(!title.is_empty() && title != "makit", &format!("有标签时标题栏是 cwd 的 basename（实际 {title}）"));
 
         // 4. ⌥⌘1 / ⌥⌘→ 闪牌
+        // 帧耗时：先量 1s 空闲（没有动画）当对照，再量闪牌期间。强制绘制每 16ms 画一次，所以「帧数」≈ 时长 / 16ms
+        pause(300).await;
+        let _ = crate::selftest::take_frame_stats();
+        pause(1000).await;
+        let idle = crate::selftest::take_frame_stats();
         press(cx, "alt-cmd-1");
         pause(100).await;
         let f = cx.read_entity(&ws, |v, _| v.flash.as_ref().map(|f| (f.icon, f.name.clone()))).ok().flatten();
@@ -89,7 +94,13 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
         check(f == Some(Some("🐯")), &format!("⌥⌘→ 闪第 2 个 pane 的图标 🐯（实际 {f:?}）"));
         pause(900).await;
         let gone = cx.read_entity(&ws, |v, _| v.flash.is_none()).unwrap_or(false);
-        check(gone, "闪牌 0.7s 后自己消失");
+        check(gone, "闪牌 0.85s 后自己消失");
+        let flash = crate::selftest::take_frame_stats();
+        eprintln!("[selftest] 帧耗时 空闲：{} 帧 平均 {:.2}ms p95 {:.2}ms 最大 {:.2}ms", idle.0, idle.1, idle.2, idle.3);
+        eprintln!("[selftest] 帧耗时 闪牌：{} 帧 平均 {:.2}ms p95 {:.2}ms 最大 {:.2}ms", flash.0, flash.1, flash.2, flash.3);
+        // 闪牌动画不能明显拖慢每一帧：平均耗时不超过空闲时的 2 倍 + 1ms（实测 release 空闲 2.8ms / 闪牌 4.0ms；
+        // debug 版空闲就要 15ms，所以用比值而不是绝对值）。光晕的模糊阴影、边框、图标缩放加起来出过 2 倍以上就该查
+        check(flash.0 > 0 && idle.0 > 0 && flash.1 <= idle.1 * 2.0 + 1.0, &format!("闪牌期间每帧平均耗时 {:.2}ms 不超过空闲 {:.2}ms 的 2 倍 + 1ms", flash.1, idle.1));
 
         // 5. 拖分割线（直接改 ratio，模拟拖动中的状态）
         let sid = cx.read_entity(&state, |s, _| match &s.workspace.state.root {
