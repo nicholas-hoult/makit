@@ -624,6 +624,7 @@ dependencies = [
  "chrono",
  "dirs",
  "libc",
+ "log",
  "notify",
  "notify-debouncer-mini",
  "portable-pty",

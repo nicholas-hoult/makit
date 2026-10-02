@@ -37,6 +37,10 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
     "std", "block2", "bitflags", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest",
     "UNNotificationResponse", "UNNotification", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger",
 ] }
+log = "0.4"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "env-filter", "std", "ansi", "tracing-log"] }
 
 [profile.release]
 # 原型阶段要反复编 release 做测量，开增量编译省时间

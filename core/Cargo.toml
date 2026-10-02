@@ -19,6 +19,7 @@ notify = "6"
 notify-debouncer-mini = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 base64 = "0.22"
+log = "0.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
