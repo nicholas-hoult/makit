@@ -23,6 +23,7 @@
 pub mod actions;
 pub mod app;
 pub mod assets;
+pub mod logging;
 pub mod notify;
 pub mod overlays;
 pub mod perf;

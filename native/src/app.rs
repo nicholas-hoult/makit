@@ -266,6 +266,7 @@ fn wire_notify_settings(cx: &mut App) {
 
 /// 应用入口（main.rs 只调这个）
 pub fn run() {
+    crate::logging::init();
     perf::mark("main 开始");
     Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
@@ -274,7 +275,7 @@ pub fn run() {
         };
         // 终端主字体 JetBrains Mono 随程序打包（对标 对标产品 / 对标终端，见 terminal/fonts.rs）
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
-            eprintln!("[font] 加载内置字体失败：{e}");
+            log::warn!(target: "font", "加载内置字体失败：{e}");
         }
         cx.set_global(Theme::by_id(&prefs.theme.id, &prefs.theme.imported));
         crate::pulse::start(cx);
@@ -337,10 +338,10 @@ pub fn run() {
                 let _ = cx.update_window(any, |_, window, _| {
                     let before = window.viewport_size();
                     window.resize(size(px(w), px(h)));
-                    eprintln!("[debug] 窗口 resize：{before:?} → 请求 {w}x{h}，现在 {:?}", window.viewport_size());
+                    log::debug!(target: "debug", "窗口 resize：{before:?} → 请求 {w}x{h}，现在 {:?}", window.viewport_size());
                 });
                 cx.background_executor().timer(Duration::from_millis(1000)).await;
-                let _ = cx.update_window(any, |_, window, _| eprintln!("[debug] 1s 后视口 {:?}", window.viewport_size()));
+                let _ = cx.update_window(any, |_, window, _| log::debug!(target: "debug", "1s 后视口 {:?}", window.viewport_size()));
             })
             .detach();
         }

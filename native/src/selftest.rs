@@ -5,6 +5,7 @@
 //!   再从侧栏恢复第一个会话（有的话），每步打印布局摘要，最后写盘退出。
 //! - `MAKIT_NATIVE_SELFTEST=sidebar`：侧栏（B 包）的按键 / 分组 / 性能自检，见 `sidebar/selftest.rs`。
 //! - `MAKIT_NATIVE_SELFTEST=workspace`：C 工作区包的自检，见 `workspace/selftest.rs`。
+//! - `MAKIT_NATIVE_SELFTEST=logging`：日志（#254）端到端——写带家目录路径的日志、子线程里真 panic，再读日志文件检查落盘 / 脱敏 / panic 记录。
 //! - `MAKIT_NATIVE_SELFTEST=restore`：启动后打印恢复出来的布局摘要，退出（配合上一步验证布局能保存 / 恢复）。
 //!
 //! 配合 `MAKIT_NATIVE_FORCE_DRAW=1`（锁屏时逼 GPUI 每帧画）和 `MAKIT_NATIVE_DUMP=<文件>`（终端网格导出）。
@@ -36,7 +37,47 @@ pub fn summary(s: &AppState) -> String {
     node(&w.root, &w.active_container_id, w.maximized_container_id.as_deref())
 }
 
+/// `MAKIT_NATIVE_SELFTEST=logging`：真的走一遍「写日志 → 脱敏 → panic 落盘」，再把日志文件读回来检查
+fn logging_selftest() -> Vec<String> {
+    let mut fails = Vec::new();
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    log::warn!(target: "selftest", "读 {home}/.claude/x.json 失败（这行用来检查家目录会被替换成 ~）");
+    let _ = std::thread::spawn(|| panic!("日志自检：故意 panic")).join();
+    let text = crate::logging::log_dir()
+        .and_then(|d| std::fs::read_dir(d).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "log"))
+        .filter_map(|p| std::fs::read_to_string(p).ok())
+        .collect::<String>();
+    let mut check = |ok: bool, what: &str| {
+        eprintln!("[selftest] {} {what}", if ok { "✓" } else { "✗" });
+        if !ok {
+            fails.push(what.to_string());
+        }
+    };
+    check(!text.is_empty(), "日志文件写出来了（~/.claude/makit/logs/makit.<日期>.log）");
+    check(text.contains("启动："), "有启动横幅（版本 + 系统）");
+    check(text.contains("读 ~/.claude/x.json 失败"), "家目录被替换成 ~");
+    check(!home.is_empty() && !text.contains(&home), "日志里任何地方都没有家目录原文");
+    check(text.contains("panic：日志自检：故意 panic"), "panic 落盘了，带消息");
+    check(text.contains("selftest.rs"), "panic 带位置");
+    fails
+}
+
 pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
+    if mode == "logging" {
+        let fails = logging_selftest();
+        if fails.is_empty() {
+            eprintln!("[selftest] 通过");
+        } else {
+            eprintln!("[selftest] 失败：{}", fails.join("；"));
+        }
+        cx.quit();
+        return;
+    }
     // B 侧栏：`MAKIT_NATIVE_SELFTEST=sidebar`（见 sidebar/selftest.rs）
     // 中文在等宽字体里会不会被画成别的字（#239 乱码）：同一段文字用「只有 Menlo」和 mono_font 各排一次，
     // 打出每段用的字体和字形号，和「直接用苹方」排出来的字形号对比
