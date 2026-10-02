@@ -48,23 +48,15 @@ pub fn flash_name(active_tab_title: Option<&str>) -> String {
     }
 }
 
-/// 整张牌的透明度随时间（0–1）：10% 淡入到位、65% 前保持、之后淡出（`@keyframes pane-flash-in`）
+/// 整张牌的透明度随时间（0–1）：按键后**立刻**半透明可见，4% 内（约 35ms）到位，65% 前保持，之后淡出。
+/// 旧曲线照 CSS 抄的（10% 才到位，850ms 里就是 85ms 的「慢半拍」），实测用户能感觉到显示延迟（#201）
 pub fn card_opacity(t: f32) -> f32 {
-    if t < 0.10 {
-        t / 0.10
+    if t < 0.04 {
+        0.5 + 0.5 * (t / 0.04)
     } else if t < 0.65 {
         1.0
     } else {
         (1.0 - (t - 0.65) / 0.35).max(0.0)
-    }
-}
-
-/// 整张牌的缩放：0% 时 0.96，10% 到 1（`pane-flash-in` 的 scale）
-pub fn card_scale(t: f32) -> f32 {
-    if t < 0.10 {
-        0.96 + 0.04 * (t / 0.10)
-    } else {
-        1.0
     }
 }
 
@@ -135,15 +127,15 @@ mod tests {
         assert_eq!(flash_name(None), "pane");
     }
 
+    /// 为什么要测：按键到牌出现的延迟用户能感觉到。淡入的第一帧就得看得见，且很快到位
     #[test]
-    fn keyframes_match_the_css() {
-        assert_eq!(card_opacity(0.0), 0.0);
-        assert_eq!(card_opacity(0.10), 1.0);
+    fn card_is_visible_at_once_and_fully_shown_within_40ms() {
+        assert!(card_opacity(0.0) >= 0.5, "第一帧就半透明可见，不是从 0 开始");
+        assert_eq!(card_opacity(0.04), 1.0);
+        assert!(0.04 * FLASH_MS as f32 <= 40.0, "淡入到位不超过 40ms");
         assert_eq!(card_opacity(0.5), 1.0);
         assert!((card_opacity(0.825) - 0.5).abs() < 1e-4, "65%→100% 线性淡出，中点一半");
         assert_eq!(card_opacity(1.0), 0.0);
-        assert!((card_scale(0.0) - 0.96).abs() < 1e-6);
-        assert_eq!(card_scale(0.2), 1.0);
     }
 
     /// 为什么要测：弹出动画的数值错了，在界面上就是图标一直是 0 号 / 负数字号（消失或崩）、停不回原大小（落点后图标是歪的）、
