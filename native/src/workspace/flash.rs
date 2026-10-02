@@ -21,11 +21,14 @@ pub const PANE_ICON_SETS: &[PaneIconSet] = &[
     PaneIconSet { id: "flowers", name: "花木", icons: &["🌸", "🌹", "🌻", "🌷", "🌺", "🌼", "🪷", "💐", "🌾"] },
     PaneIconSet { id: "fruits", name: "果园", icons: &["🍎", "🍊", "🍋", "🍇", "🍓", "🍑", "🥝", "🍒", "🥭"] },
     PaneIconSet { id: "dots", name: "色点", icons: &["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫️", "⚪️"] },
+    PaneIconSet { id: "cosmos", name: "宇宙", icons: &["🚀", "🛸", "🪐", "🌌", "☄️", "🌋", "🌪️", "⚡️", "🔥"] },
+    PaneIconSet { id: "arms", name: "兵器", icons: &["⚔️", "🛡️", "🏹", "🔱", "🪓", "🗡️", "👑", "💎", "🔮"] },
+    PaneIconSet { id: "wild", name: "夸张表情", icons: &["🤯", "🥶", "🥵", "😈", "👻", "🤡", "💀", "👽", "🤖"] },
     PaneIconSet { id: "none", name: "不显示", icons: &[] },
 ];
 
-/// 闪牌总时长（App.css `pane-flash-in 700ms`）
-pub const FLASH_MS: u64 = 700;
+/// 闪牌总时长。比 TS 版的 700ms 长一点，给「弹出 → 回弹 → 光晕散开」留够时间（#201）
+pub const FLASH_MS: u64 = 850;
 
 /// 按 id 取图标套，未知 id 回退到第一套（灵兽）
 pub fn pane_icons_for(id: &str) -> &'static [&'static str] {
@@ -63,6 +66,37 @@ pub fn card_scale(t: f32) -> f32 {
     } else {
         1.0
     }
+}
+
+/// 图标的「弹出」缩放（相对基准大小）：从 0.55 冲到 1.14 左右再回弹到 1.0，前 38% 完成，之后保持 1.0。
+/// GPUI 的 div 没有 transform scale，调用方拿它去乘字号
+pub fn punch_scale(t: f32) -> f32 {
+    const END: f32 = 0.38;
+    const FROM: f32 = 0.55;
+    const C1: f32 = 3.5; // easeOutBack 的过冲系数：峰值约 1.14
+    if t >= END {
+        return 1.0;
+    }
+    let u = (t / END).max(0.0) - 1.0;
+    let ease = 1.0 + (C1 + 1.0) * u * u * u + C1 * u * u;
+    FROM + (1.0 - FROM) * ease
+}
+
+/// 卡片外圈光晕：(扩散半径 px, 透明度 0–1)。从卡片边缘向外扩散并淡掉，前 70% 完成
+pub fn halo(t: f32) -> (f32, f32) {
+    const END: f32 = 0.7;
+    const MAX_SPREAD: f32 = 34.0;
+    const START_ALPHA: f32 = 0.55;
+    let p = (t / END).clamp(0.0, 1.0);
+    let out = 1.0 - (1.0 - p) * (1.0 - p); // easeOutQuad：先快后慢地散开
+    (MAX_SPREAD * out, START_ALPHA * (1.0 - p))
+}
+
+/// 目标 pane 整圈边框强调色闪一下的透明度：开头最亮，约 60% 处淡完
+pub fn ring_opacity(t: f32) -> f32 {
+    const END: f32 = 0.6;
+    const START: f32 = 0.9;
+    START * (1.0 - (t / END).clamp(0.0, 1.0))
 }
 
 #[cfg(test)]
@@ -110,5 +144,49 @@ mod tests {
         assert_eq!(card_opacity(1.0), 0.0);
         assert!((card_scale(0.0) - 0.96).abs() < 1e-6);
         assert_eq!(card_scale(0.2), 1.0);
+    }
+
+    /// 为什么要测：弹出动画的数值错了，在界面上就是图标一直是 0 号 / 负数字号（消失或崩）、停不回原大小（落点后图标是歪的）、
+    /// 或者光晕一直不散。这些在 GPUI 里没有 CSS 兜底，必须自己守住
+    #[test]
+    fn punch_overshoots_then_settles_exactly_at_one() {
+        assert!(punch_scale(0.0) < 0.7, "从小处弹出");
+        let peak = (0..=100).map(|i| punch_scale(i as f32 / 100.0)).fold(0.0_f32, f32::max);
+        assert!(peak > 1.08 && peak < 1.3, "要有过冲但不能夸张到溢出：{peak}");
+        assert_eq!(punch_scale(0.38), 1.0, "38% 起稳定在 1.0");
+        assert_eq!(punch_scale(1.0), 1.0);
+        assert!((0..=100).all(|i| punch_scale(i as f32 / 100.0) > 0.0), "字号不能是 0 或负数");
+    }
+
+    #[test]
+    fn halo_expands_and_fades_out() {
+        let (r0, a0) = halo(0.0);
+        let (r1, a1) = halo(0.35);
+        let (r2, a2) = halo(0.7);
+        assert!(r0 < r1 && r1 < r2, "半径单调变大");
+        assert!(a0 > a1 && a1 > a2, "透明度单调变淡");
+        assert_eq!(a2, 0.0, "70% 后完全消失");
+        assert!(a0 > 0.3 && a0 <= 1.0, "起点要看得见");
+        assert_eq!(halo(1.0), (halo(0.7).0, 0.0), "之后保持散尽的状态");
+    }
+
+    #[test]
+    fn ring_flashes_bright_then_gone() {
+        assert!(ring_opacity(0.0) > 0.6, "开头最亮");
+        assert!(ring_opacity(0.3) < ring_opacity(0.0));
+        assert_eq!(ring_opacity(0.6), 0.0, "60% 后没了");
+        assert_eq!(ring_opacity(1.0), 0.0);
+    }
+
+    #[test]
+    fn new_icon_sets_exist_and_are_distinct() {
+        for id in ["cosmos", "arms", "wild"] {
+            assert_eq!(pane_icons_for(id).len(), 9, "{id}");
+        }
+        let mut all: Vec<&str> = PANE_ICON_SETS.iter().flat_map(|s| s.icons.iter().copied()).collect();
+        let n = all.len();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), n, "各套之间不重复，不然换套看不出区别");
     }
 }

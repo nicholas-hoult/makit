@@ -82,6 +82,8 @@ struct Flash {
     container_id: String,
     icon: Option<&'static str>,
     name: String,
+    /// 这是第几个 pane（1–9，对应 ⌥⌘N）；超过 9 个没有数字键，不显示提示
+    number: Option<usize>,
     seq: u64,
 }
 
@@ -366,7 +368,7 @@ impl WorkspaceView {
 
     /// 目标 pane 中央浮出「图标 + 名字」的牌，0.7s 淡出；连续触发直接替换。E 通知包「从通知跳转」也调它
     pub fn flash_container(&mut self, cid: &str, cx: &mut Context<Self>) {
-        let (icon, name) = {
+        let (icon, name, number) = {
             let s = self.state.read(cx);
             let cs = collect_containers(&s.workspace.state.root);
             let Some(idx) = cs.iter().position(|c| c.id == cid) else { return };
@@ -375,11 +377,11 @@ impl WorkspaceView {
                 let meta = t.session_id.as_deref().and_then(|id| s.session(id));
                 tab_title(t, meta)
             });
-            (flash::flash_icon(&s.prefs.pane_icons, idx), flash::flash_name(title.as_deref()))
+            (flash::flash_icon(&s.prefs.pane_icons, idx), flash::flash_name(title.as_deref()), (idx < 9).then_some(idx + 1))
         };
         self.flash_seq += 1;
         let seq = self.flash_seq;
-        self.flash = Some(Flash { container_id: cid.to_string(), icon, name, seq });
+        self.flash = Some(Flash { container_id: cid.to_string(), icon, name, number, seq });
         cx.notify();
         cx.spawn(async move |this: WeakEntity<Self>, cx| {
             cx.background_executor().timer(Duration::from_millis(flash::FLASH_MS)).await;
@@ -1126,40 +1128,63 @@ fn render_status_dot(st: TabStatus, _tab_id: &str, theme: &Theme) -> AnyElement 
     }
 }
 
-/// 闪牌：pane 正中的药丸（App.css `.pane-flash`：accent 底、圆角 999、内边距 6/13/6/10、间距 7、12px 500、阴影）
+/// 闪牌（#201 加强版）：目标 pane 整圈边框闪一下强调色，正中一张牌——大图标「弹出」（先冲过头再回弹）、
+/// 卡片外圈光晕向外扩散并淡掉、右下角提示 ⌥⌘N。全是一次性动画，只在 `FLASH_MS` 内逐帧重绘，结束后零开销。
+/// 图标放在固定大小的格子里，弹出时只变字号，不引起卡片尺寸抖动
 fn render_flash(f: &Flash, theme: &Theme) -> AnyElement {
+    const ICON_PX: f32 = 46.0;
+    const ICON_BOX: f32 = 62.0;
+    let ms = Duration::from_millis(flash::FLASH_MS);
+    let key = |what: &str| SharedString::from(format!("flash-{what}-{}", f.seq));
+    let (accent, shadow_c) = (theme.accent, theme.var("--shadow-strong"));
+
+    let label = div()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .child(div().truncate().text_size(px(15.0)).line_height(px(20.0)).font_weight(FontWeight::SEMIBOLD).child(f.name.clone()))
+        .when_some(f.number, |d, n| d.child(div().text_size(px(10.5)).line_height(px(14.0)).opacity(0.75).child(format!("⌥⌘{n}"))));
+
     let card = div()
         .flex()
         .items_center()
-        .gap(px(7.0))
+        .gap(px(10.0))
         .max_w(relative(0.8))
-        .pl(px(10.0))
-        .pr(px(13.0))
-        .py(px(6.0))
-        .rounded(px(999.0))
-        .bg(theme.accent)
+        .pl(px(12.0))
+        .pr(px(20.0))
+        .py(px(10.0))
+        .rounded(px(26.0))
+        .bg(accent)
         .text_color(theme.accent_fg)
-        .text_size(px(12.0))
-        .font_weight(FontWeight::MEDIUM)
-        .shadow(vec![BoxShadow { color: theme.var("--shadow-strong"), offset: point(px(0.0), px(4.0)), blur_radius: px(14.0), spread_radius: px(0.0) }])
         .when_some(f.icon, |d, icon| {
-            // 图标：前 22% 从左侧 16px 处滑进来、淡入（TS 版还有转一圈 + 彗尾，GPUI 文字不支持旋转 / text-shadow，省掉）
             d.child(
-                div().flex_none().text_size(px(20.0)).line_height(px(20.0)).child(icon).with_animation(
-                    SharedString::from(format!("flash-icon-{}", f.seq)),
-                    Animation::new(Duration::from_millis(flash::FLASH_MS)),
-                    |d, t| {
-                        let p = (t / 0.22).min(1.0);
-                        d.opacity(p).ml(px(-16.0 * (1.0 - p)))
-                    },
-                ),
+                div()
+                    .flex_none()
+                    .size(px(ICON_BOX))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(div().child(icon).with_animation(key("icon"), Animation::new(ms), |d, t| {
+                        let px_size = ICON_PX * flash::punch_scale(t);
+                        d.text_size(px(px_size)).line_height(px(px_size)).opacity((t / 0.12).min(1.0))
+                    })),
             )
         })
-        .child(div().min_w_0().truncate().child(f.name.clone()))
-        .with_animation(SharedString::from(format!("flash-{}", f.seq)), Animation::new(Duration::from_millis(flash::FLASH_MS)), |d, t| {
-            d.opacity(flash::card_opacity(t))
+        .child(label)
+        .with_animation(key("card"), Animation::new(ms), move |d, t| {
+            let (spread, alpha) = flash::halo(t);
+            let glow = BoxShadow { color: gpui::Hsla { a: alpha, ..accent }, offset: point(px(0.0), px(0.0)), blur_radius: px(spread * 1.4), spread_radius: px(spread) };
+            let drop = BoxShadow { color: shadow_c, offset: point(px(0.0), px(6.0)), blur_radius: px(18.0), spread_radius: px(0.0) };
+            d.opacity(flash::card_opacity(t)).shadow(vec![glow, drop])
         });
-    div().absolute().inset_0().flex().items_center().justify_center().child(card).into_any_element()
+
+    let ring = div().absolute().inset_0().border_2().border_color(accent).with_animation(key("ring"), Animation::new(ms), |d, t| d.opacity(flash::ring_opacity(t)));
+    div()
+        .absolute()
+        .inset_0()
+        .child(ring)
+        .child(div().absolute().inset_0().flex().items_center().justify_center().child(card))
+        .into_any_element()
 }
 
 impl Focusable for WorkspaceView {
