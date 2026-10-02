@@ -58,7 +58,7 @@ pub fn read_localstorage(db: &Path) -> Option<std::collections::BTreeMap<String,
     let _ = std::fs::remove_dir_all(&dir);
     let out = out?;
     if !out.status.success() {
-        eprintln!("[persist] 读 {} 失败：{}", db.display(), String::from_utf8_lossy(&out.stderr).trim());
+        log::warn!(target: "persist", "读 {} 失败：{}", db.display(), String::from_utf8_lossy(&out.stderr).trim());
         return None;
     }
     Some(parse_sqlite_hex_dump(&String::from_utf8_lossy(&out.stdout)))

@@ -22,7 +22,7 @@ pub fn mark(stage: &str) {
         m.push((stage.to_string(), now_epoch_ms()));
     }
     if std::env::var_os("MAKIT_TIMING").is_some() {
-        eprintln!("[startup] {stage} {:.0}ms", now_epoch_ms() - process_start_epoch_ms());
+        log::info!(target: "startup", "{stage} {:.0}ms", now_epoch_ms() - process_start_epoch_ms());
     }
 }
 

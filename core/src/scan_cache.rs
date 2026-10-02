@@ -158,7 +158,7 @@ pub fn save_scan_cache_throttled(force: bool) {
     drop(last);
     if let Some(p) = scan_cache_path() {
         if let Err(e) = save_scan_cache_to(&p) {
-            eprintln!("scan-cache 写盘失败: {e}");
+            log::warn!(target: "scan_cache", "写盘失败: {e}");
         }
     }
 }

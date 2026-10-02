@@ -102,7 +102,7 @@ pub fn record(mut event: Value) {
     }
     if let Some(p) = log_path() {
         if let Err(e) = append_lines_to(&p, &[event], MAX_LOG_BYTES) {
-            eprintln!("perf.log 写入失败: {e}");
+            log::warn!(target: "perf", "perf.log 写入失败: {e}");
         }
     }
 }
@@ -114,7 +114,7 @@ pub fn record_batch(events: Vec<Value>) {
     }
     if let Some(p) = log_path() {
         if let Err(e) = append_lines_to(&p, &events, MAX_LOG_BYTES) {
-            eprintln!("perf.log 写入失败: {e}");
+            log::warn!(target: "perf", "perf.log 写入失败: {e}");
         }
     }
 }

@@ -525,7 +525,7 @@ impl TerminalView {
                 let p = p.clone();
                 std::thread::spawn(move || {
                     if let Err(e) = makit_core::paths::open_path(p, false) {
-                        eprintln!("[终端] 打开链接失败：{e}");
+                        log::warn!(target: "终端", "打开链接失败：{e}");
                     }
                 });
             }

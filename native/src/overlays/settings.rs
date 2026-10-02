@@ -220,6 +220,10 @@ impl SettingsView {
         let handle = window.window_handle();
         cx.spawn(async move |_, cx: &mut AsyncApp| {
             let r = cx.background_executor().spawn(async { makit_core::hook::install_claude_hook() }).await;
+            match &r {
+                Ok(s) => log::info!(target: "hook", "安装 Claude Code Hook：{s}"),
+                Err(e) => log::error!(target: "hook", "安装 Claude Code Hook 失败：{e}"),
+            }
             let _ = cx.update_window(handle, |_, window, cx| match r {
                 Ok(s) if s == "already_installed" => message(window, cx, PromptLevel::Info, "安装 Hook", "Hook 已安装，无需重复操作。"),
                 Ok(_) => message(window, cx, PromptLevel::Info, "安装 Hook", "Hook 安装成功！Claude Code 重启后生效。"),
@@ -474,6 +478,27 @@ impl Render for SettingsView {
                                     .child(hint("立刻发一条横幅验证链路，不必等真有 session 进入等待状态。"))
                                     .child(action_btn(&theme, "install-hook", "安装 Claude Code Hook（推送模式）").mt(px(8.0)).on_click(cx.listener(|this, _, window, cx| this.install_hook(window, cx))))
                                     .child(hint("将 makit-hook.sh 注册到 ~/.claude/settings.json 的 Notification / Stop / UserPromptSubmit / SessionEnd 四个事件：等审批实时推送，任务完成的横幅才有 Claude 的原话做正文，发消息后自动清除未读。已经装过旧版（只有 Notification）的，再点一次会补齐。")),
+                            )
+                            // 诊断（#254）：出问题时把日志目录和诊断信息交出去
+                            .child(
+                                section()
+                                    .child(label("诊断"))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .gap(px(8.0))
+                                            .child(action_btn(&theme, "open-logs", "打开日志目录").on_click(|_, _, cx| {
+                                                if let Some(dir) = crate::logging::log_dir() {
+                                                    let _ = std::fs::create_dir_all(&dir);
+                                                    cx.reveal_path(&dir);
+                                                }
+                                            }))
+                                            .child(action_btn(&theme, "copy-diagnostics", "复制诊断信息").on_click(|_, _, cx| {
+                                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(crate::logging::diagnostics_text()));
+                                                super::show_toast("诊断信息已复制", super::toast::COPY_OK, cx);
+                                            })),
+                                    )
+                                    .child(hint("日志按天保存在 ~/.claude/makit/logs，只留最近 7 天；记的是启动、失败和关键操作，不含对话内容和终端输出，路径里的用户名已替换成 ~，但项目目录名仍可能出现，贴出去前请自己看一眼。")),
                             )
                             // 对话视图（#231）
                             .child(

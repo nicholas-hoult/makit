@@ -21,7 +21,7 @@ pub fn socket_path() -> Option<PathBuf> {
 pub fn start(on_line: impl Fn(String) + Send + Sync + 'static) {
     let Some(path) = socket_path() else { return };
     if let Err(e) = start_at(&path, on_line) {
-        eprintln!("[hook_server] bind error: {e}");
+        log::error!(target: "hook_server", "bind error: {e}");
     }
 }
 
@@ -41,7 +41,7 @@ pub fn start_at(path: &Path, on_line: impl Fn(String) + Send + Sync + 'static) -
                     let cb = on_line.clone();
                     std::thread::spawn(move || handle_conn(stream, &*cb));
                 }
-                Err(e) => eprintln!("[hook_server] accept error: {e}"),
+                Err(e) => log::warn!(target: "hook_server", "accept error: {e}"),
             }
         }
     });

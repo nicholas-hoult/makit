@@ -414,7 +414,7 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
     let output = match Command::new("ps").args(["-xEww", "-o", "pid,command"]).output() {
         Ok(o) if o.status.success() => o,
         _ => {
-            eprintln!("[escaped-pty] ps 执行失败，兜底清理跳过");
+            log::warn!(target: "escaped-pty", "ps 执行失败，兜底清理跳过");
             return;
         }
     };
@@ -443,15 +443,14 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
     if hits.is_empty() {
         // 没命中只在 dev 里打一行 —— 关 tab 是每天几十次的路径，release 不该刷屏；
         // 但"跑了但没找到"和"根本没跑"必须分得开，这个 bug 本身就是被后者掩盖了三个月。
-        #[cfg(debug_assertions)]
-        eprintln!("[escaped-pty] 扫了 {} 个 pty id，没有逃逸进程", pty_ids.len());
+        log::debug!(target: "escaped-pty", "扫了 {} 个 pty id，没有逃逸进程", pty_ids.len());
         return;
     }
     for (pid, pty_id) in &hits {
         if dry_run {
-            eprintln!("[escaped-pty] dry-run 命中 pid={pid} pty_id={pty_id}（MAKIT_KILL_ESCAPED=0，未发信号）");
+            log::info!(target: "escaped-pty", "dry-run 命中 pid={pid} pty_id={pty_id}（MAKIT_KILL_ESCAPED=0，未发信号）");
         } else {
-            eprintln!("[escaped-pty] SIGKILL pid={pid} pty_id={pty_id}");
+            log::info!(target: "escaped-pty", "SIGKILL pid={pid} pty_id={pty_id}");
             unsafe { libc::kill(*pid as libc::pid_t, libc::SIGKILL); }
         }
     }

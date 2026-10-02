@@ -422,8 +422,10 @@ impl TerminalView {
             Err(e) => {
                 self.spawn_blocked = true;
                 if let Some(dir) = e.strip_prefix("cwd-missing:") {
+                    log::warn!(target: "pty", "启动目录不存在：{dir}");
                     cx.emit(TerminalSpawnEvent::CwdMissing(dir.to_string()));
                 } else {
+                    log::error!(target: "pty", "PTY 启动失败（规划阶段）：{e}");
                     self.write_local(&format!("\x1b[31mPTY 启动失败: {e}\x1b[0m\r\n"));
                 }
                 return;
@@ -473,6 +475,7 @@ impl TerminalView {
             }
             Err(e) => {
                 self.spawn_blocked = true;
+                log::error!(target: "pty", "PTY 启动失败：{e}");
                 self.write_local(&format!("\x1b[31mPTY 启动失败: {e}\x1b[0m\r\n"));
             }
         }

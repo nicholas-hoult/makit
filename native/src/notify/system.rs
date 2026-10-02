@@ -125,11 +125,11 @@ impl System {
     pub fn start(tx: UnboundedSender<SysEvent>) -> Self {
         let _ = EVENTS.set(tx);
         let Some(bid) = bundle_id() else {
-            eprintln!("[notify] 没有 app 身份（裸二进制 / cargo run）：系统横幅不可用，只记通知中心 + Dock 角标（#215）");
+            log::info!(target: "notify", "没有 app 身份（裸二进制 / cargo run）：系统横幅不可用，只记通知中心 + Dock 角标（#215）");
             emit(SysEvent::Permission(Permission::Unavailable));
             return Self { center: None, _delegate: None };
         };
-        eprintln!("[notify] app 身份 {bid}：用原生 UNUserNotificationCenter");
+        log::info!(target: "notify", "app 身份 {bid}：用原生 UNUserNotificationCenter");
         let center = UNUserNotificationCenter::currentNotificationCenter();
         let delegate = Delegate::new();
         center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
@@ -158,7 +158,7 @@ impl System {
         let block = RcBlock::new(|granted: Bool, err: *mut NSError| {
             if !err.is_null() {
                 let e = unsafe { &*err };
-                eprintln!("[notify] 请求通知授权失败：{}（没签名 / 不在「应用程序」目录时系统直接拒，#215 第 0 期）", e.localizedDescription());
+                log::warn!(target: "notify", "请求通知授权失败：{}（没签名 / 不在「应用程序」目录时系统直接拒，#215 第 0 期）", e.localizedDescription());
             }
             emit(SysEvent::Permission(if granted.as_bool() { Permission::Granted } else { Permission::Denied }));
         });
@@ -186,7 +186,7 @@ impl System {
         let done = RcBlock::new(|err: *mut NSError| {
             if !err.is_null() {
                 let e = unsafe { &*err };
-                eprintln!("[notify] 横幅发送失败：{}", e.localizedDescription());
+                log::warn!(target: "notify", "横幅发送失败：{}", e.localizedDescription());
             }
         });
         center.addNotificationRequest_withCompletionHandler(&req, Some(&done));

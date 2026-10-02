@@ -161,7 +161,7 @@ impl Notifier {
 
     fn on_hook_line(&mut self, line: &str, cx: &mut Context<Self>) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
-            eprintln!("[notify] hook 行不是 JSON，跳过");
+            log::warn!(target: "notify", "hook 行不是 JSON，跳过");
             return;
         };
         if let Some((sid, sig)) = classify_hook_event(&v) {
@@ -304,7 +304,7 @@ impl Notifier {
                     self.system.request_permission();
                 }
             }
-            deliver::PostPlan::Skip => eprintln!("[notify] （无 app 身份或已被拒绝，未发横幅）{title}｜{subtitle}｜{body}"),
+            deliver::PostPlan::Skip => log::info!(target: "notify", "无 app 身份或已被拒绝，未发横幅（标题 / 正文可能含对话内容，不记）"),
         }
     }
 
@@ -384,7 +384,7 @@ impl Notifier {
             None => {
                 if self.state.read(cx).session(sid).is_none() {
                     // #215 问题 7：Tauri 版这里静默失败。会话可能已归档 / 列表还没加载
-                    eprintln!("[notify] 跳转：会话 {sid} 不在列表里（已归档或还没加载）");
+                    log::info!(target: "notify", "跳转：会话 {sid} 不在列表里（已归档或还没加载）");
                 }
                 cx.emit(NotifyEvent::RevealSession { session_id: sid.to_string() });
             }
@@ -485,11 +485,11 @@ impl Notifier {
 /// `MAKIT_NATIVE_NO_HOOK=1` 时不起（跑测试实例又不想抢 hook 时用；假 HOME 下 socket 本来就在假目录里，不会抢）。
 fn start_hook_server(tx: futures::channel::mpsc::UnboundedSender<String>) {
     if std::env::var_os("MAKIT_NATIVE_NO_HOOK").is_some() {
-        eprintln!("[notify] MAKIT_NATIVE_NO_HOOK：不起 hook 服务，只靠状态文件");
+        log::info!(target: "notify", "MAKIT_NATIVE_NO_HOOK：不起 hook 服务，只靠状态文件");
         return;
     }
     if let Some(p) = makit_core::hook::socket_path() {
-        eprintln!("[notify] hook 服务：{}（后启动的一方拿到 hook）", p.display());
+        log::info!(target: "notify", "hook 服务：{}（后启动的一方拿到 hook）", p.display());
     }
     makit_core::hook::start(move |line| {
         let _ = tx.unbounded_send(line);

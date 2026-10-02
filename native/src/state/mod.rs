@@ -190,8 +190,8 @@ impl AppState {
                 .await;
             crate::perf::mark("会话列表返回");
             match &result {
-                Ok(list) => eprintln!("[state] list_sessions: {} 条，{:?}", list.len(), t.elapsed()),
-                Err(e) => eprintln!("[state] list_sessions 失败：{e}"),
+                Ok(list) => log::debug!(target: "state", "list_sessions: {} 条，{:?}", list.len(), t.elapsed()),
+                Err(e) => log::error!(target: "state", "list_sessions 失败：{e}"),
             }
             let _ = this.update(cx, |s, cx| {
                 let first = !s.loaded;

@@ -134,12 +134,14 @@ fn close_session_tabs(session_id: &str, cx: &mut App) {
     }
 }
 
-/// 恢复前确保存储路径的软链在（`ensureSessionPath`），失败静默
+/// 恢复前确保存储路径的软链在（`ensureSessionPath`）。失败不拦着用户（还是会去开 resume），但要留痕
 fn ensure_symlink(s: &SessionMeta) {
     if s.cwd.is_empty() || s.storage_folder.is_empty() {
         return;
     }
-    let _ = makit_core::recovery::ensure_session_symlink(s.session_id.clone(), s.cwd.clone(), s.storage_folder.clone());
+    if let Err(e) = makit_core::recovery::ensure_session_symlink(s.session_id.clone(), s.cwd.clone(), s.storage_folder.clone()) {
+        log::warn!(target: "session", "会话 {} 恢复前建存储软链失败：{e}", s.short_id);
+    }
 }
 
 /// 打开一条会话（`openResumeTab`）：已经在本软件的某个标签里（resume 标签、被绑定的 shell 标签、或进程的 `MAKIT_PTY_ID`
@@ -147,7 +149,13 @@ fn ensure_symlink(s: &SessionMeta) {
 pub fn open_session(session_id: &str, cx: &mut App) {
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else { return };
-    match decide_open(&state.read(cx).workspace.state.root, &s) {
+    let decision = decide_open(&state.read(cx).workspace.state.root, &s);
+    log::info!(target: "session", "打开会话 {}：{}", s.short_id, match &decision {
+        OpenDecision::Switch { .. } => "已在本软件的标签里，切过去".to_string(),
+        OpenDecision::BlockedExternal { pid } => format!("在别的终端里运行（PID {pid}），不重复启动"),
+        OpenDecision::OpenNew => "新开 resume 标签".to_string(),
+    });
+    match decision {
         OpenDecision::Switch { container_id, tab_id } => {
             state.update(cx, |st, cx| {
                 st.workspace.tab_click(&container_id, &tab_id);
