@@ -6,7 +6,9 @@
 //! 为什么单独测：这条规则错了，要么新用户在浅色系统里被一块黑底迎接，要么老用户升级后主题莫名其妙变了。
 //! `MAKIT_APPEARANCE=light|dark` 可以在 dev 里覆盖系统外观复现（不用真去切系统设置）。
 
-use gpui::{App, WindowAppearance};
+use gpui::{App, Entity, WindowAppearance};
+
+use crate::state::AppState;
 
 use super::builtin::DEFAULT_THEME_ID;
 
@@ -35,6 +37,13 @@ pub fn parse_override(value: &str) -> Option<bool> {
         "dark" => Some(true),
         _ => None,
     }
+}
+
+/// 按当前偏好和系统外观算出该用的主题并换上（启动、系统外观变化、设置里改主题之后都调它）
+pub fn refresh(state: &Entity<AppState>, cx: &mut App) {
+    let t = state.read(cx).prefs.theme.clone();
+    let dark = system_is_dark(cx);
+    super::set_theme(effective_theme_id(t.chosen, &t.id, dark), &t.imported, cx);
 }
 
 /// 现在系统是不是深色外观（`MAKIT_APPEARANCE` 优先，给 dev 复现用）

@@ -8,6 +8,9 @@
 #   bash native/scripts/dev.sh --fake-home --data=ok|empty|missing|unreadable
 #                                           # 在假 HOME 里造出会话目录的状态（#256 B1）：empty=目录在但空；missing=没有目录；
 #                                           # unreadable=目录在但 chmod 000（读不了）。给了 --data 但没给 --tools 时按真实检测走（不用 none 覆盖）
+#   bash native/scripts/dev.sh --fake-home --first-run [--appearance=light|dark]
+#                                           # 模拟「全新用户第一次启动」：删掉假 HOME 的状态文件（主题 / 窗口 / 布局都回到初始），
+#                                           # --appearance 覆盖系统外观（#256 A6：没主动选过主题就跟系统）。不带 --first-run 时状态保留
 #   bash native/scripts/dev.sh --fast       # 「快 debug」：自己的代码仍是 debug（增量编译快），依赖开优化（运行时接近 release）。
 #                                           # 日常开发推荐；第一次要把依赖按优化编一遍（约十分钟，之后共用缓存）
 #   bash native/scripts/dev.sh --fake-home --tools=none|claude|codex|both
@@ -42,18 +45,23 @@ fake_home=0
 tools=""
 no_build=0
 data=""
+first_run=0
+appearance=""
 for a in "$@"; do
     case "$a" in
         --fake-home) fake_home=1 ;;
         --release) profile=(--release); profdir=release ;;
         --fast) profile=(--profile devfast); profdir=devfast ;;
         --no-build) no_build=1 ;;
+        --first-run) first_run=1 ;;
+        --appearance=light|--appearance=dark) appearance="${a#--appearance=}" ;;
+        --appearance=*) echo "--appearance 的值要是 light / dark（收到：${a#--appearance=}）" >&2; exit 2 ;;
         --data=ok|--data=empty|--data=missing|--data=unreadable) data="${a#--data=}" ;;
         --data=*) echo "--data 的值要是 ok / empty / missing / unreadable（收到：${a#--data=}）" >&2; exit 2 ;;
         --tools=none|--tools=claude|--tools=codex|--tools=both) tools="${a#--tools=}" ;;
         --tools=*) echo "--tools 的值要是 none / claude / codex / both（收到：${a#--tools=}）" >&2; exit 2 ;;
         -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) echo "不认识的参数：${a}（可用：--fake-home / --release / --fast / --no-build / --tools=none|claude|codex|both）" >&2; exit 2 ;;
+        *) echo "不认识的参数：${a}（可用：--fake-home / --first-run / --appearance= / --data= / --release / --fast / --no-build / --tools=）" >&2; exit 2 ;;
     esac
 done
 
@@ -78,6 +86,10 @@ if [[ $fake_home == 1 ]]; then
     # 假 HOME 默认当作「什么都没装」，这样首次打开的提示（#197）在 dev 里看得到；要看别的状态用 --tools=
     # 给了 --data 就要看真实的目录检测，不能再用 MAKIT_TOOLS=none 盖掉（那个覆盖连目录状态一起抹了）
     [[ -z "${data}" ]] && tools="${tools:-none}"
+    if [[ $first_run == 1 ]]; then
+        rm -f "${HOME}/.claude/makit/native-state.json" "${HOME}/.claude/makit/native-state.json.bad"
+        echo "→ 已删掉假 HOME 的状态文件：按全新用户第一次启动"
+    fi
     case "${data}" in
         "") ;;
         ok) mkdir -p "${HOME}/.claude/projects" "${HOME}/.codex/sessions"; chmod 755 "${HOME}/.claude/projects" "${HOME}/.codex/sessions" ;;
@@ -91,6 +103,7 @@ if [[ $fake_home == 1 ]]; then
     esac
     echo "→ 假 HOME：${HOME}（不读 ~/.claude，里面没有真会话）"
 fi
+[[ -n "${appearance}" ]] && export MAKIT_APPEARANCE="${appearance}" && echo "→ 系统外观按 MAKIT_APPEARANCE=${appearance} 算（不看真实系统设置）"
 [[ -n "${tools}" ]] && export MAKIT_TOOLS="${tools}" && echo "→ 工具检测按 MAKIT_TOOLS=${tools} 算（不看真实 PATH）"
 echo "→ ${bin}"
 [[ "${DEV_DRY_RUN:-}" == 1 ]] && exit 0

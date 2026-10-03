@@ -277,7 +277,11 @@ pub fn run() {
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
             log::warn!(target: "font", "加载内置字体失败：{e}");
         }
-        cx.set_global(Theme::by_id(&prefs.theme.id, &prefs.theme.imported));
+        // 没主动选过主题就按系统外观选（#256 A6）
+        let startup_dark = crate::theme::auto::system_is_dark(cx);
+        let startup_theme = crate::theme::auto::effective_theme_id(prefs.theme.chosen, &prefs.theme.id, startup_dark);
+        log::info!(target: "theme", "启动主题：{startup_theme}（{}，系统外观{}）", if prefs.theme.chosen { "用户选的" } else { "跟随系统" }, if startup_dark { "深色" } else { "浅色" });
+        cx.set_global(Theme::by_id(startup_theme, &prefs.theme.imported));
         crate::pulse::start(cx);
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
@@ -302,6 +306,19 @@ pub fn run() {
             )
             .expect("窗口创建失败");
         perf::mark("窗口创建");
+        // 系统切深色 / 浅色时，没主动选过主题的用户跟着变；选过的不动（#256 A6）
+        {
+            let theme_state = state.clone();
+            let _ = handle.update(cx, |_, window, _| {
+                window
+                    .observe_window_appearance(move |_, cx| {
+                        if !theme_state.read(cx).prefs.theme.chosen {
+                            crate::theme::auto::refresh(&theme_state, cx);
+                        }
+                    })
+                    .detach();
+            });
+        }
         crate::notify::attach_window(handle, cx);
 
         // 退出前把防抖中的状态写掉

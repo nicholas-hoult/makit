@@ -17,7 +17,7 @@ use super::MenuItem;
 use crate::actions::{keymap, overlays as act};
 use crate::state::AppState;
 use crate::theme::derive::{is_light, ThemeSource};
-use crate::theme::{builtin::builtin_themes, itermcolors::import_itermcolors, set_theme, ActiveTheme, Theme};
+use crate::theme::{builtin::builtin_themes, itermcolors::import_itermcolors, ActiveTheme, Theme};
 
 // ---------- 纯逻辑 ----------
 
@@ -57,6 +57,12 @@ pub const THEME_SITE: &str = "https://terminalthemes.com/";
 
 /// 主题下拉列表最宽多少（选择框更宽时也不跟着撑满）
 const THEME_MENU_MAX_W: f32 = 560.0;
+
+/// 删掉导入的主题 `deleted` 之后要不要切换主题（#256 A6）：只有**主动选了它、而且它正是当前主题**才要切到菜单里它上面那个；
+/// 没主动选过（跟随系统）时存着的 id 不是实际在用的，删别的主题也不该让自动模式变成固定
+pub fn switch_after_delete(order: &[String], chosen: bool, current: &str, deleted: &str) -> Option<String> {
+    (chosen && current == deleted).then(|| theme_after_delete(order, current, deleted))
+}
 
 pub const HOVER_MODES: [(&str, &str); 3] = [("always", "始终显示（400ms 延迟）"), ("cmd", "仅按住 ⌘ 时显示"), ("off", "关闭")];
 
@@ -117,13 +123,19 @@ impl SettingsView {
         state.update(cx, |s, cx| {
             s.update_prefs(cx, |p| {
                 p.theme.id = id;
+                p.theme.chosen = true; // 主动选了主题：不再跟系统外观（#256 A6）
                 if let Some(v) = imported {
                     p.theme.imported = v;
                 }
             })
         });
-        let t = state.read(cx).prefs.theme.clone();
-        set_theme(&t.id, &t.imported, cx);
+        crate::theme::auto::refresh(state, cx);
+    }
+
+    /// 「跟随系统」：把「主动选过」清掉，主题回到按系统外观自动选（#256 A6）
+    fn follow_system(state: &Entity<AppState>, cx: &mut App) {
+        state.update(cx, |s, cx| s.update_prefs(cx, |p| p.theme.chosen = false));
+        crate::theme::auto::refresh(state, cx);
     }
 
     fn open_theme_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -135,15 +147,16 @@ impl SettingsView {
         };
         super::show_searchable_menu(pos, "搜索主题…", min_w, window, cx, move |cx| {
             let p = &state.read(cx).prefs.theme;
-            let current = p.id.clone();
+            let (current, chosen) = (p.id.clone(), p.chosen);
             let pick = |t: &ThemeSource| {
                 let (state, id) = (state.clone(), t.id.clone());
                 let mut colors = vec![crate::theme::to_hsla(&t.bg)];
                 colors.extend((1..=6).filter_map(|i| t.ansi.get(i)).map(|c| crate::theme::to_hsla(c)));
-                MenuItem::action(t.name.clone(), move |_, cx| Self::apply_theme(&state, id.clone(), None, cx)).checked(t.id == current).preview(colors)
+                MenuItem::action(t.name.clone(), move |_, cx| Self::apply_theme(&state, id.clone(), None, cx)).checked(chosen && t.id == current).preview(colors)
             };
             let builtin = builtin_themes();
-            let mut items = vec![MenuItem::header("深色")];
+            let follow = state.clone();
+            let mut items = vec![MenuItem::action("跟随系统", move |_, cx| Self::follow_system(&follow, cx)).checked(!chosen), MenuItem::header("深色")];
             items.extend(builtin.iter().filter(|t| !is_light(&t.bg)).map(pick));
             items.push(MenuItem::header("浅色"));
             items.extend(builtin.iter().filter(|t| is_light(&t.bg)).map(pick));
@@ -178,12 +191,18 @@ impl SettingsView {
         .detach();
     }
 
-    /// 删掉一个导入的主题；删的正是当前主题就换成菜单里它上面的那一个
+    /// 删掉一个导入的主题；删的正是主动选中的当前主题就换成菜单里它上面的那一个（`switch_after_delete`），否则只是从列表里去掉
     fn delete_imported_theme(state: &Entity<AppState>, id: &str, cx: &mut App) {
         let p = state.read(cx).prefs.theme.clone();
-        let next = theme_after_delete(&theme_menu_order(&p.imported), &p.id, id);
+        let next = switch_after_delete(&theme_menu_order(&p.imported), p.chosen, &p.id, id);
         let list: Vec<ThemeSource> = p.imported.into_iter().filter(|t| t.id != id).collect();
-        Self::apply_theme(state, next, Some(list), cx);
+        match next {
+            Some(next) => Self::apply_theme(state, next, Some(list), cx),
+            None => {
+                state.update(cx, |s, cx| s.update_prefs(cx, |pp| pp.theme.imported = list));
+                crate::theme::auto::refresh(state, cx);
+            }
+        }
     }
 
     fn open_icon_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -279,7 +298,9 @@ impl Render for SettingsView {
         let set_notify = |f: fn(&mut crate::persist::state::NotifyPrefs)| {
             cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| f(&mut p.notify))))
         };
-        let theme_name = Theme::by_id(&prefs.theme.id, &prefs.theme.imported).source.name;
+        let effective_id = crate::theme::auto::effective_theme_id(prefs.theme.chosen, &prefs.theme.id, crate::theme::auto::system_is_dark(cx));
+        let theme_name = Theme::by_id(effective_id, &prefs.theme.imported).source.name;
+        let theme_name = if prefs.theme.chosen { theme_name } else { format!("跟随系统（{theme_name}）") };
         let swatches = (0..8).map(|i| div().flex_1().min_w_0().h(px(14.0)).rounded(px(2.0)).bg(theme.ansi[i]).border_1().border_color(theme.border));
         let icons = pane_icons_for(&prefs.pane_icons);
         let icon_name = PANE_ICON_SETS.iter().find(|s| s.id == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).name;
@@ -570,5 +591,15 @@ mod tests {
         let order = theme_menu_order(&list);
         assert_eq!(theme_after_delete(&order, "dracula", "imported:b"), "dracula");
         assert_eq!(theme_after_delete(&order, "imported:a", "imported:b"), "imported:a");
+    }
+
+    /// 为什么要测：跟随系统时删一个导入的主题，如果被当成「选了新主题」，自动模式就悄悄变成固定了
+    #[test]
+    fn deleting_a_theme_only_switches_when_the_current_chosen_one_goes() {
+        let order = theme_menu_order(&[imported("imported:a"), imported("imported:b")]);
+        assert_eq!(switch_after_delete(&order, true, "imported:b", "imported:b"), Some("imported:a".to_string()), "选了它又删了它：切到上面那个");
+        assert_eq!(switch_after_delete(&order, true, "nord", "imported:b"), None, "删的不是当前主题：不动");
+        assert_eq!(switch_after_delete(&order, false, "imported:b", "imported:b"), None, "跟随系统时存着的 id 不是实际在用的：不动，自动模式保持");
+        assert_eq!(switch_after_delete(&order, false, "nord", "imported:a"), None);
     }
 }
