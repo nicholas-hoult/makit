@@ -4,7 +4,7 @@
 //! 为什么单独测：这块文字错了，用户第一眼就被误导——明明装了却说没找到（以为 makit 坏了），或没装却让人去「新建会话」。
 //! 另外**不能说「没安装」**：我们只能检测到命令在不在常见位置、会话目录在不在，检测不到不等于没装（可能装在 shell 配置的路径里）。
 
-use makit_core::environment::ToolPresence;
+use makit_core::environment::{ErrKind, ToolPresence};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmptyHint {
@@ -25,6 +25,18 @@ pub fn empty_hint(tools: &ToolPresence, session_count: usize, loaded: bool, new_
         return None;
     }
     let status = format!("Claude Code：{}　Codex：{}", mark(tools.claude()), mark(tools.codex()));
+    // 读不了最优先：这时「没有会话」是误导（#256 B1）。原因不明时只说「读取失败」，不断言是权限
+    let unreadable = tools.unreadable_dirs();
+    if !unreadable.is_empty() {
+        let lines = unreadable
+            .iter()
+            .map(|(path, kind)| match kind {
+                ErrKind::PermissionDenied => format!("makit 想读取 {path}，但系统拒绝了（权限不足）。请检查这个目录的读取权限。"),
+                ErrKind::Other => format!("makit 想读取 {path}，但读取失败。请检查这个目录是否可用（比如外置盘有没有挂载）。"),
+            })
+            .collect();
+        return Some(EmptyHint { title: "读不了会话目录".into(), lines, status });
+    }
     if !tools.any() {
         return Some(EmptyHint {
             title: "还没有找到 Claude Code 或 Codex".into(),
@@ -44,11 +56,56 @@ pub fn empty_hint(tools: &ToolPresence, session_count: usize, loaded: bool, new_
 }
 
 #[cfg(test)]
+mod unreadable_tests {
+    use super::*;
+    use makit_core::environment::{DirState, ErrKind};
+
+    /// 为什么要测（#256 B1）：目录读不了时，如果界面说「没有会话」，用户会以为自己没有会话，
+    /// 而不是知道是系统拒绝了读取、该去查权限
+    #[test]
+    fn unreadable_dir_is_explained_not_called_empty() {
+        let t = ToolPresence { claude_dir: DirState::Unreadable(ErrKind::PermissionDenied), ..Default::default() };
+        let h = empty_hint(&t, 0, true, "⌘T").unwrap();
+        assert_eq!(h.title, "读不了会话目录");
+        let all = h.lines.join("\n");
+        assert!(all.contains("~/.claude/projects") && all.contains("权限"), "{all}");
+        assert!(!h.title.contains("没有会话") && !all.contains("还没有会话"), "不能说成没有会话：{h:?}");
+    }
+
+    #[test]
+    fn other_read_errors_do_not_claim_permission() {
+        let t = ToolPresence { codex_dir: DirState::Unreadable(ErrKind::Other), ..Default::default() };
+        let h = empty_hint(&t, 0, true, "⌘T").unwrap();
+        let all = h.lines.join("\n");
+        assert!(all.contains("~/.codex/sessions") && all.contains("读取失败"), "{all}");
+        assert!(!all.contains("权限"), "原因不明时别断言是权限：{all}");
+    }
+
+    #[test]
+    fn both_unreadable_lists_both() {
+        let t = ToolPresence {
+            claude_dir: DirState::Unreadable(ErrKind::PermissionDenied),
+            codex_dir: DirState::Unreadable(ErrKind::PermissionDenied),
+            ..Default::default()
+        };
+        let all = empty_hint(&t, 0, true, "⌘T").unwrap().lines.join("\n");
+        assert!(all.contains("~/.claude/projects") && all.contains("~/.codex/sessions"));
+    }
+
+    #[test]
+    fn unreadable_is_still_hidden_while_loading_or_when_sessions_exist() {
+        let t = ToolPresence { claude_dir: DirState::Unreadable(ErrKind::PermissionDenied), ..Default::default() };
+        assert_eq!(empty_hint(&t, 0, false, "⌘T"), None, "还在加载");
+        assert_eq!(empty_hint(&t, 5, true, "⌘T"), None, "另一个工具有会话时不打扰用户");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     fn tools(claude: bool, codex: bool) -> ToolPresence {
-        ToolPresence { claude_bin: claude, codex_bin: codex, claude_data: false, codex_data: false }
+        ToolPresence { claude_bin: claude, codex_bin: codex, ..Default::default() }
     }
 
     #[test]
@@ -76,7 +133,7 @@ mod tests {
 
     #[test]
     fn session_directory_alone_counts_as_installed() {
-        let t = ToolPresence { codex_data: true, ..Default::default() };
+        let t = ToolPresence { codex_dir: makit_core::environment::DirState::Empty, ..Default::default() };
         let h = empty_hint(&t, 0, true, "⌘T").unwrap();
         assert_eq!(h.title, "还没有会话", "有 ~/.codex/sessions 就说明用过 Codex");
         assert!(h.status.contains("Codex：已检测到"));

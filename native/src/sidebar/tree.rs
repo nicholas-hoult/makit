@@ -128,6 +128,19 @@ impl Tree {
     }
 }
 
+/// 列表为空时侧栏显示的那一行字（#256 B1：读不了会话目录时不能说「无 session」）
+pub fn empty_text(loaded: bool, has_query: bool, unreadable_dirs: bool) -> &'static str {
+    if !loaded {
+        "加载中…"
+    } else if has_query {
+        "无匹配 session"
+    } else if unreadable_dirs {
+        "读不了会话目录"
+    } else {
+        "无 session"
+    }
+}
+
 /// 拍平（同 SessionTree.tsx 的渲染结构 + treeOrder.ts 的顺序规则）
 pub fn flatten(input: &TreeInput) -> Tree {
     #[derive(PartialEq)]
@@ -604,5 +617,15 @@ mod tests {
         assert_eq!(clamp_width(100.0), 180.0);
         assert_eq!(clamp_width(300.0), 300.0);
         assert_eq!(clamp_width(999.0), 480.0);
+    }
+
+    #[test]
+    fn sidebar_empty_text_by_situation() {
+        assert_eq!(empty_text(false, false, false), "加载中…");
+        assert_eq!(empty_text(true, true, false), "无匹配 session");
+        assert_eq!(empty_text(true, false, false), "无 session");
+        assert_eq!(empty_text(true, false, true), "读不了会话目录", "读不了不能说成无 session");
+        assert_eq!(empty_text(true, true, true), "无匹配 session", "有搜索词时先说没匹配");
+        assert_eq!(empty_text(false, false, true), "加载中…", "没加载完不下结论");
     }
 }

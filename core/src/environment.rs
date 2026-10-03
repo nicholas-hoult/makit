@@ -7,26 +7,84 @@
 
 use std::path::{Path, PathBuf};
 
+/// 读目录失败的原因，只分「权限」和「别的」（要放进 `Copy` 的结构里，不带错误文字）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ErrKind {
+    PermissionDenied,
+    Other,
+}
+
+/// 一个会话目录的状态（#256 B1）。**「读不了」和「空」必须分开**：读不了时界面不能说「没有会话」，
+/// 否则用户会以为自己没有会话，而不是知道系统拒绝了读取
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DirState {
+    /// 目录不存在（这个工具没用过）
+    #[default]
+    Missing,
+    /// 目录在、里面没有条目
+    Empty,
+    HasEntries,
+    /// 目录在，但读不了
+    Unreadable(ErrKind),
+}
+
+impl DirState {
+    /// 有没有用过这个工具的迹象：目录在（哪怕空着、读不了）
+    pub fn exists(&self) -> bool {
+        !matches!(self, DirState::Missing)
+    }
+}
+
+/// 探测一个目录：一次 `read_dir`。NotFound → Missing；权限不够 → Unreadable(PermissionDenied)；别的错 → Unreadable(Other)
+pub fn probe_dir(path: &Path) -> DirState {
+    match std::fs::read_dir(path) {
+        Ok(mut it) => {
+            if it.next().is_some() {
+                DirState::HasEntries
+            } else {
+                DirState::Empty
+            }
+        }
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::NotFound => DirState::Missing,
+            std::io::ErrorKind::PermissionDenied => DirState::Unreadable(ErrKind::PermissionDenied),
+            _ => DirState::Unreadable(ErrKind::Other),
+        },
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ToolPresence {
     pub claude_bin: bool,
     pub codex_bin: bool,
-    pub claude_data: bool,
-    pub codex_data: bool,
+    pub claude_dir: DirState,
+    pub codex_dir: DirState,
 }
 
 impl ToolPresence {
     /// Claude Code 的任何一个迹象
     pub fn claude(&self) -> bool {
-        self.claude_bin || self.claude_data
+        self.claude_bin || self.claude_dir.exists()
     }
 
     pub fn codex(&self) -> bool {
-        self.codex_bin || self.codex_data
+        self.codex_bin || self.codex_dir.exists()
     }
 
     pub fn any(&self) -> bool {
         self.claude() || self.codex()
+    }
+
+    /// 读不了的会话目录：(显示用的路径, 原因)。欢迎卡和侧栏据此说「读不了」，而不是「没有会话」
+    pub fn unreadable_dirs(&self) -> Vec<(&'static str, ErrKind)> {
+        let mut v = Vec::new();
+        if let DirState::Unreadable(k) = self.claude_dir {
+            v.push(("~/.claude/projects", k));
+        }
+        if let DirState::Unreadable(k) = self.codex_dir {
+            v.push(("~/.codex/sessions", k));
+        }
+        v
     }
 }
 
@@ -65,8 +123,8 @@ pub fn detect_in(home: &Path, path_env: &str) -> ToolPresence {
     ToolPresence {
         claude_bin: has_command("claude", &dirs),
         codex_bin: has_command("codex", &dirs),
-        claude_data: home.join(".claude/projects").is_dir(),
-        codex_data: home.join(".codex/sessions").is_dir(),
+        claude_dir: probe_dir(&home.join(".claude/projects")),
+        codex_dir: probe_dir(&home.join(".codex/sessions")),
     }
 }
 
@@ -74,7 +132,7 @@ pub fn detect_in(home: &Path, path_env: &str) -> ToolPresence {
 /// 为什么要有：dev 的假 HOME 只隔离了会话目录，命令检测仍读开发机真实的 PATH，永远看不到「没装」那种提示。
 /// 认不出的值返回 None（按真实检测走），不报错
 pub fn parse_override(value: &str) -> Option<ToolPresence> {
-    let on = |claude, codex| Some(ToolPresence { claude_bin: claude, codex_bin: codex, claude_data: false, codex_data: false });
+    let on = |claude, codex| Some(ToolPresence { claude_bin: claude, codex_bin: codex, ..Default::default() });
     match value.trim().to_ascii_lowercase().as_str() {
         "none" => on(false, false),
         "claude" => on(true, false),
@@ -152,9 +210,9 @@ mod tests {
         let h = temp_home("data");
         fs::create_dir_all(h.join(".claude/projects")).unwrap();
         let p = detect_in(&h, "");
-        assert!(p.claude_data && !p.codex_data && p.claude() && !p.codex() && p.any(), "{p:?}");
+        assert!(p.claude_dir.exists() && !p.codex_dir.exists() && p.claude() && !p.codex() && p.any(), "{p:?}");
         fs::create_dir_all(h.join(".codex/sessions")).unwrap();
-        assert!(detect_in(&h, "").codex_data);
+        assert!(detect_in(&h, "").codex_dir.exists());
     }
 
     #[test]
@@ -167,7 +225,7 @@ mod tests {
     /// 为什么要测：覆盖开关写错，dev 里想看的提示就出不来，又得怀疑是不是提示本身坏了
     #[test]
     fn override_presets() {
-        let on = |c, x| ToolPresence { claude_bin: c, codex_bin: x, claude_data: false, codex_data: false };
+        let on = |c, x| ToolPresence { claude_bin: c, codex_bin: x, ..Default::default() };
         assert_eq!(parse_override("none"), Some(on(false, false)));
         assert_eq!(parse_override("claude"), Some(on(true, false)));
         assert_eq!(parse_override("codex"), Some(on(false, true)));
@@ -175,5 +233,47 @@ mod tests {
         assert_eq!(parse_override(" BOTH "), Some(on(true, true)), "忽略大小写和空白");
         assert_eq!(parse_override("乱写"), None, "认不出就按真实检测走");
         assert_eq!(parse_override(""), None);
+    }
+
+    // ---- probe_dir（#256 B1）----
+
+    #[test]
+    fn missing_empty_and_populated_dirs_are_told_apart() {
+        let h = temp_home("probe");
+        assert_eq!(probe_dir(&h.join("没有这个")), DirState::Missing);
+        let empty = h.join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        assert_eq!(probe_dir(&empty), DirState::Empty, "空目录不是读不了");
+        fs::write(empty.join("a"), "").unwrap();
+        assert_eq!(probe_dir(&empty), DirState::HasEntries);
+    }
+
+    /// 为什么要测：目录读不了时界面如果说「没有会话」，用户会以为自己没有会话，而不是去检查权限。
+    /// chmod 000 在 root 下拦不住，所以用 root 跑时这条跳过——对照组不能依赖运行身份
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_dir_is_not_reported_as_empty() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!("以 root 运行，chmod 拦不住读取，跳过");
+            return;
+        }
+        let h = temp_home("denied");
+        let d = h.join(".claude/projects");
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("x"), "").unwrap();
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
+        let state = probe_dir(&d);
+        let p = detect_in(&h, "");
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap(); // 先还原，免得清理不掉
+        assert_eq!(state, DirState::Unreadable(ErrKind::PermissionDenied));
+        assert!(p.claude(), "目录在就算有迹象");
+        assert_eq!(p.unreadable_dirs(), vec![("~/.claude/projects", ErrKind::PermissionDenied)]);
+    }
+
+    #[test]
+    fn nothing_unreadable_by_default() {
+        assert!(ToolPresence::default().unreadable_dirs().is_empty());
+        assert!(!DirState::Missing.exists() && DirState::Empty.exists() && DirState::Unreadable(ErrKind::Other).exists());
     }
 }

@@ -304,13 +304,7 @@ impl SidebarView {
                 vec![group("history", "", false, &g.history)]
             };
         }
-        let empty_text = if !s.loaded {
-            "加载中…"
-        } else if !self.query.trim().is_empty() {
-            "无匹配 session"
-        } else {
-            "无 session"
-        };
+        let empty_text = tree::empty_text(s.loaded, !self.query.trim().is_empty(), !s.tools.unreadable_dirs().is_empty());
         self.group_ids = top.iter().chain(labeled.iter()).chain(history.iter()).map(|g| g.id.clone()).collect();
         let alive = |i: usize| meta_state(&list[i]) != RunState::Stopped;
         let tree = flatten(&TreeInput {

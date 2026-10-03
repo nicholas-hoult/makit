@@ -48,6 +48,17 @@ pub enum AppEvent {
     PrefsChanged,
 }
 
+/// 检测本机的 Claude Code / Codex，并把结果记进日志（出问题时能从日志里看到「当时检测到了什么」，#254）
+fn detect_tools() -> makit_core::environment::ToolPresence {
+    let t = makit_core::environment::detect();
+    log::info!(
+        target: "environment",
+        "工具检测：Claude Code 命令 {} 会话目录 {:?}；Codex 命令 {} 会话目录 {:?}",
+        t.claude_bin, t.claude_dir, t.codex_bin, t.codex_dir
+    );
+    t
+}
+
 pub struct AppState {
     /// 全部会话，按 mtime 降序（最近在前）。`loaded` 之前是空的
     pub sessions: Vec<SessionMeta>,
@@ -81,7 +92,7 @@ impl AppState {
             let mut s = Self {
                 sessions: Vec::new(),
                 loaded: false,
-                tools: makit_core::environment::detect(),
+                tools: detect_tools(),
                 workspace: Workspace::new(ws),
                 prefs,
                 archiving: HashSet::new(),
@@ -247,7 +258,7 @@ impl AppState {
     pub fn sessions_changed(&mut self, cx: &mut Context<Self>) {
         // 只在还没有会话时刷新检测（有会话就不会显示提示；几次 stat，很便宜）
         if self.sessions.is_empty() {
-            self.tools = makit_core::environment::detect();
+            self.tools = detect_tools();
         }
         cx.emit(AppEvent::SessionsChanged);
         cx.notify();
