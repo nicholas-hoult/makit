@@ -9,6 +9,16 @@ use gpui::{div, prelude::*, px, AnyElement, FontWeight};
 
 use crate::theme::Theme;
 
+/// 欢迎卡副标题（#256 A3）。点名两个工具：只用 Codex 的人看到「Claude Code Session 管理」会觉得不是给自己的。
+/// 做多语言（#71）时和别的文案一起搬走
+pub const TAGLINE: &str = "Claude Code · Codex 会话管理 · 工作区终端";
+
+/// 欢迎卡底部的信任说明（#256 A5）。**写进去的每句话都要是真的**（核实见 TRD #256 §2.1）：
+/// makit 读取这两个目录；自己的数据在 `~/.claude/makit`；不会把会话内容发出去。
+/// 不写「只读」——恢复搬走了目录的会话时会在 `~/.claude/projects` 里建软链，点了才装的 hook 会写 `settings.json`；
+/// 也不写「不联网」——用户明确不要（#200 的版本检查之后可能联网）
+pub const TRUST_NOTE: &str = "makit 在本机读取你的会话记录（~/.claude、~/.codex），不会上传；自己的设置存在 ~/.claude/makit。";
+
 /// 一行左边的键帽怎么排
 #[derive(Clone, Copy, Debug)]
 pub enum Keys {
@@ -212,7 +222,7 @@ pub fn render_welcome(t: &Theme, hint: Option<super::empty_hint::EmptyHint>) -> 
                 .items_center()
                 .gap(px(12.0))
                 .child(div().text_size(px(28.0)).font_weight(FontWeight::SEMIBOLD).text_color(t.fg).child("makit"))
-                .child(div().text_size(px(13.0)).opacity(0.8).child("Claude Code Session 管理 · 工作区终端"))
+                .child(div().text_size(px(13.0)).opacity(0.8).child(TAGLINE))
                 .child(
                     div()
                         .mt(px(4.0))
@@ -242,7 +252,9 @@ pub fn render_welcome(t: &Theme, hint: Option<super::empty_hint::EmptyHint>) -> 
                             .child(div().mt(px(2.0)).text_size(px(11.0)).text_color(t.fg_subtle).child(h.status)),
                     )
                 })
-                .child(div().mt(px(24.0)).w_full().flex().flex_wrap().gap_x(px(24.0)).gap_y(px(16.0)).children(groups)),
+                .child(div().mt(px(24.0)).w_full().flex().flex_wrap().gap_x(px(24.0)).gap_y(px(16.0)).children(groups))
+                // 信任说明：最下面一行小字，不抢戏（#256 A5）
+                .child(div().mt(px(20.0)).text_size(px(11.0)).text_color(t.fg_subtle).text_center().child(TRUST_NOTE)),
         )
         .into_any_element()
 }
@@ -288,5 +300,23 @@ mod tests {
     fn four_groups_like_tauri() {
         assert_eq!(GROUPS.len(), 4);
         assert_eq!(GROUPS.iter().map(|g| g.rows.len()).sum::<usize>(), 21);
+    }
+
+    /// 为什么要测（#256 A3）：副标题错了，只用 Codex 的新用户第一眼就觉得这个软件不是给自己的
+    #[test]
+    fn tagline_names_both_tools() {
+        assert!(TAGLINE.contains("Claude Code") && TAGLINE.contains("Codex"), "{TAGLINE}");
+    }
+
+    /// 为什么要测（#256 A5）：信任说明里一句不真实的话比没有更糟。这里守住三条：说明了读哪、写哪、不上传；
+    /// 没有「只读」（会建软链、点了才装 hook 会写 settings.json）；没有「联网」字样（用户明确不要写）
+    #[test]
+    fn trust_note_is_accurate_and_complete() {
+        for must in ["~/.claude", "~/.codex", "~/.claude/makit", "不会上传"] {
+            assert!(TRUST_NOTE.contains(must), "缺「{must}」：{TRUST_NOTE}");
+        }
+        for never in ["只读", "联网"] {
+            assert!(!TRUST_NOTE.contains(never), "不能出现「{never}」：{TRUST_NOTE}");
+        }
     }
 }
