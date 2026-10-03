@@ -54,7 +54,9 @@ pub enum Item {
     ProjectHeader { key: String, name: String, cwd: String, count: usize, collapsed: bool, has_active: bool },
     /// `row` 是会话列表里的下标；`show_status` 按组给（整组都停止时不画状态点）
     /// `compact` = 第二行一项都不显示（见 `SESSION_H_COMPACT`）
-    Session { row: usize, show_status: bool, compact: bool },
+    /// `nav`：这一行是不是「导航用的那份」——项目视图里已打开 / 置顶的会话既在顶部组里、也在自己的项目里（#259），
+    /// 同一条会话只有一份算 nav（进 `order`、画选中框、被定位 / 悬停卡认作它的位置）；别的情况恒为 true
+    Session { row: usize, show_status: bool, compact: bool, nav: bool },
     Empty(String),
 }
 
@@ -123,8 +125,20 @@ pub struct Tree {
 
 impl Tree {
     /// 会话行在 items 里的位置
+    /// 同一条会话出现两次时认导航那份（项目里那份），只有一份时就是它
     pub fn item_of_row(&self, row: usize) -> Option<usize> {
-        self.items.iter().position(|i| matches!(i, Item::Session { row: r, .. } if *r == row))
+        let mut alias = None;
+        for (ix, i) in self.items.iter().enumerate() {
+            if let Item::Session { row: r, nav, .. } = i {
+                if *r == row {
+                    if *nav {
+                        return Some(ix);
+                    }
+                    alias = alias.or(Some(ix));
+                }
+            }
+        }
+        alias
     }
 }
 
@@ -152,6 +166,10 @@ pub fn flatten(input: &TreeInput) -> Tree {
     let mut t = Tree { items: vec![Item::Space(PAD_H)], ..Default::default() };
     let mut prev = Prev::Nothing;
     let collapsed_groups = input.collapsed_groups;
+    // 项目视图：顶部「置顶 / 已打开」里的会话同时也在自己的项目里（#259）。row → 那个项目是不是折叠着。
+    // 项目折叠时顶部那份是唯一看得见的，算导航那份；项目展开时项目里那份算导航那份、顶部那份是别名
+    let in_project: HashMap<usize, bool> =
+        if input.project_view { input.projects.iter().flat_map(|p| p.rows.iter().map(move |&r| (r, p.collapsed))).collect() } else { HashMap::new() };
 
     // 一组 = 可选的组标签 + 会话行；组之间 10px（`.tree-group + .tree-group`）。空组整块不渲染
     let push_group = |t: &mut Tree, prev: &mut Prev, g: &TreeGroup| {
@@ -174,8 +192,11 @@ pub fn flatten(input: &TreeInput) -> Tree {
         if !collapsed {
             let show_status = g.rows.iter().any(|&r| (input.alive)(r));
             for &row in &g.rows {
-                t.items.push(Item::Session { row, show_status, compact: input.compact_rows });
-                t.order.push(row);
+                let nav = in_project.get(&row).copied().unwrap_or(true);
+                t.items.push(Item::Session { row, show_status, compact: input.compact_rows, nav });
+                if nav {
+                    t.order.push(row);
+                }
             }
         }
     };
@@ -212,7 +233,7 @@ pub fn flatten(input: &TreeInput) -> Tree {
             if !p.collapsed {
                 for &row in &p.rows {
                     // hasActive 就是 anyAlive(组)，整组一起画状态列
-                    t.items.push(Item::Session { row, show_status: p.has_active, compact: input.compact_rows });
+                    t.items.push(Item::Session { row, show_status: p.has_active, compact: input.compact_rows, nav: true });
                     t.order.push(row);
                 }
             }
@@ -627,5 +648,65 @@ mod tests {
         assert_eq!(empty_text(true, false, true), "读不了会话目录", "读不了不能说成无 session");
         assert_eq!(empty_text(true, true, true), "无匹配 session", "有搜索词时先说没匹配");
         assert_eq!(empty_text(false, false, true), "加载中…", "没加载完不下结论");
+    }
+
+    // ---- 项目视图里已打开 / 置顶的会话同时出现在项目里（#259，用户选的 B）----
+
+    fn session_items(t: &Tree) -> Vec<(&'static str, bool)> {
+        t.items.iter().filter_map(|i| if let Item::Session { row, nav, .. } = i { Some((NAMES[*row], *nav)) } else { None }).collect()
+    }
+
+    /// 为什么要测：用户在项目视图里点 ⌘L，已打开的会话只在顶部组里、它所在的项目目录不展开也看不到它。
+    /// 现在同一条会话会出现两次（顶部 + 自己的项目），错了要么导航走到重复行、要么定位仍然落在顶部那份上
+    #[test]
+    fn opened_session_appears_in_its_project_too_but_navigates_once() {
+        let t = build(Case {
+            project_view: true,
+            top: vec![g("opened", &["o1", "o2"])],
+            projects: vec![proj("x", false, &["x1", "x2", "o1"]), proj("y", true, &["y1", "o2"])],
+            ..Case::default()
+        });
+        // 顶部：o1 的项目 x 展开着 → 顶部那份不算导航（nav=false）；o2 的项目 y 折叠着 → 顶部那份是唯一看得见的，算导航
+        assert_eq!(session_items(&t), [("o1", false), ("o2", true), ("x1", true), ("x2", true), ("o1", true)]);
+        assert_eq!(names(&t.order), ["o2", "x1", "x2", "o1"], "每条会话在导航列表里只出现一次");
+    }
+
+    #[test]
+    fn navigation_order_never_has_duplicates_in_project_view() {
+        for (x_collapsed, y_collapsed) in [(false, false), (false, true), (true, false), (true, true)] {
+            let t = build(Case {
+                project_view: true,
+                top: vec![g("pinned", &["p1"]), g("opened", &["o1", "o2"])],
+                projects: vec![proj("x", x_collapsed, &["x1", "o1", "p1"]), proj("y", y_collapsed, &["y1", "o2"])],
+                ..Case::default()
+            });
+            let mut seen = t.order.clone();
+            seen.sort();
+            seen.dedup();
+            assert_eq!(seen.len(), t.order.len(), "x 折叠={x_collapsed} y 折叠={y_collapsed}：{:?}", names(&t.order));
+        }
+    }
+
+    /// 为什么要测：⌘L 要滚到「项目里那一行」。`item_of_row` 如果还返回第一次出现的顶部那份，用户看到的就还是「没展开目录」
+    #[test]
+    fn locating_prefers_the_project_copy() {
+        let t = build(Case { project_view: true, top: vec![g("opened", &["o1"])], projects: vec![proj("x", false, &["x1", "o1"])], ..Case::default() });
+        let ix = t.item_of_row(r("o1")).expect("o1 出现了");
+        let top_ix = t.items.iter().position(|i| matches!(i, Item::Session { row, .. } if *row == r("o1"))).unwrap();
+        assert!(ix > top_ix, "要认项目里那份（更靠下），不是顶部那份：{ix} vs {top_ix}");
+        assert_eq!(t.membership.get(&r("o1")), Some(&GroupRef::Project { key: "x".into(), has_active: false }), "归属是项目，展开 / 折叠才对得上它");
+    }
+
+    #[test]
+    fn collapsed_project_leaves_the_top_copy_as_the_only_one() {
+        let t = build(Case { project_view: true, top: vec![g("opened", &["o1"])], projects: vec![proj("x", true, &["x1", "o1"])], ..Case::default() });
+        assert_eq!(session_items(&t), [("o1", true)], "项目折叠着：只有顶部那份，它就是导航那份");
+        assert_eq!(t.item_of_row(r("o1")), Some(2));
+    }
+
+    #[test]
+    fn status_view_is_unchanged() {
+        let t = build(Case::default());
+        assert!(session_items(&t).iter().all(|(_, nav)| *nav), "状态视图里每条会话只有一份，都是导航的");
     }
 }

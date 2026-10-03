@@ -157,7 +157,8 @@ pub struct SidebarView {
     aside_bounds: std::rc::Rc<std::cell::Cell<gpui::Bounds<Pixels>>>,
     pending_focus_search: bool,
     /// ⌘L 之后等行真的布局出来再滚（最多重试几帧，同 TS 的 10 帧重试）
-    pending_reveal: Option<(String, u8)>,
+    /// (目标会话, 还能重试几帧, 目标是不是已归档)
+    pending_reveal: Option<(String, u8, bool)>,
     pending_focus_list: bool,
     _subs: Vec<Subscription>,
 }
@@ -277,8 +278,8 @@ impl SidebarView {
         self.project_keys.clear();
         self.project_active.clear();
         if project_view {
-            let rest: Vec<usize> = filtered.iter().copied().filter(|&i| !opened.contains_key(&list[i].session_id) && !pinned.contains(&list[i].session_id)).collect();
-            for pg in project_groups(list, &rest) {
+            // 项目组里列全部会话，包括已打开 / 置顶的（它们同时也在顶部组里，#259）：定位时才能展开它所在的项目目录
+            for pg in project_groups(list, &filtered) {
                 let key = pg.key();
                 self.project_keys.push(key.clone());
                 self.project_active.push((key.clone(), pg.has_active));
@@ -599,11 +600,16 @@ impl SidebarView {
     }
 
     /// 定位到指定会话（⌘L 传当前会话；通知中心跳转时会话不在任何标签里，传那条通知的会话）
+    ///
+    /// 清空搜索；「显示已归档」按目标决定（目标是已归档会话就打开，否则关掉）；展开它所在的项目组 / 状态组；滚到正中。
+    /// **提示只在知道结果之后才弹**（#259）：列表里没有这条会话 → 立刻说没找到；找到了 → 等行真的画出来（`apply_pending_reveal`）再说已定位
     pub fn reveal_session(&mut self, id: Option<String>, cx: &mut Context<Self>) {
         self.search.update(cx, |s, cx| s.set_text("", cx));
         self.query.clear();
-        if self.state.read(cx).prefs.sidebar.show_archived {
-            self.update_prefs(cx, |p| p.show_archived = false);
+        let target_archived = id.as_deref().and_then(|id| self.row_of(id, cx)).map(|row| self.state.read(cx).sessions[row].archived).unwrap_or(false);
+        let want_archived = groups::reveal_show_archived(target_archived);
+        if self.state.read(cx).prefs.sidebar.show_archived != want_archived {
+            self.update_prefs(cx, |p| p.show_archived = want_archived);
         }
         let Some(id) = id else {
             self.rebuild(cx);
@@ -611,42 +617,47 @@ impl SidebarView {
             return;
         };
         self.rebuild(cx);
-        if let Some(row) = self.row_of(&id, cx) {
-            match self.tree.membership.get(&row).cloned() {
-                Some(GroupRef::Project { key, has_active }) => {
-                    let set = self.state.read(cx).prefs.sidebar.proj_collapsed.clone();
-                    if let Some(next) = collapse::expand_project_for_reveal(&set, &key, has_active) {
-                        self.update_prefs(cx, |p| p.proj_collapsed = next);
-                    }
+        let Some(row) = self.row_of(&id, cx) else {
+            toast(groups::reveal_message(groups::RevealResult::NotInList).into(), crate::overlays::toast::REVEALED, cx);
+            cx.notify();
+            return;
+        };
+        match self.tree.membership.get(&row).cloned() {
+            Some(GroupRef::Project { key, has_active }) => {
+                let set = self.state.read(cx).prefs.sidebar.proj_collapsed.clone();
+                if let Some(next) = collapse::expand_project_for_reveal(&set, &key, has_active) {
+                    self.update_prefs(cx, |p| p.proj_collapsed = next);
                 }
-                Some(GroupRef::Status(gid)) if self.state.read(cx).prefs.sidebar.group_collapsed.contains(&gid) => {
-                    self.update_prefs(cx, |p| p.group_collapsed.retain(|x| *x != gid));
-                }
-                _ => {}
             }
+            Some(GroupRef::Status(gid)) if self.state.read(cx).prefs.sidebar.group_collapsed.contains(&gid) => {
+                self.update_prefs(cx, |p| p.group_collapsed.retain(|x| *x != gid));
+            }
+            _ => {}
         }
         self.selected = Some(id.clone());
-        self.pending_reveal = Some((id, 10));
+        self.pending_reveal = Some((id, 10, target_archived));
         self.pending_focus_list = true;
-        toast("已定位 session".into(), crate::overlays::toast::REVEALED, cx);
         cx.notify();
     }
 
-    /// render 里跑：把 ⌘L 的目标行滚到正中。行还没出现（侧栏刚展开、视口高还是 0）就下一帧再试
+    /// render 里跑：把 ⌘L 的目标行滚到正中，并**这时才**告诉用户结果。行还没出现（侧栏刚展开、视口高还是 0）就下一帧再试，
+    /// 试完还没有就说没能定位（以前这里静默放弃，提示却早就说了「已定位」）
     fn apply_pending_reveal(&mut self, cx: &mut Context<Self>) {
-        let Some((id, tries)) = self.pending_reveal.take() else { return };
+        let Some((id, tries, archived)) = self.pending_reveal.take() else { return };
         let ix = self.row_of(&id, cx).and_then(|r| self.tree.item_of_row(r));
         let vh = self.viewport_h();
         match ix {
             Some(ix) if vh > 0.0 => {
                 let y = tree::center_scroll_top(&self.tops, ix, vh);
                 self.set_scroll_top(y);
+                let result = if archived { groups::RevealResult::LocatedArchived } else { groups::RevealResult::Located };
+                toast(groups::reveal_message(result).into(), crate::overlays::toast::REVEALED, cx);
             }
             _ if tries > 0 => {
-                self.pending_reveal = Some((id, tries - 1));
+                self.pending_reveal = Some((id, tries - 1, archived));
                 cx.notify();
             }
-            _ => {}
+            _ => toast(groups::reveal_message(groups::RevealResult::NotShown).into(), crate::overlays::toast::REVEALED, cx),
         }
     }
 
@@ -781,6 +792,24 @@ impl SidebarView {
 
     pub fn debug_selected(&self) -> Option<String> {
         self.selected.clone()
+    }
+
+    /// 自检：直接定位某条会话（和通知中心跳转同一个入口）
+    pub fn debug_reveal(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.reveal_session(Some(id.to_string()), cx);
+    }
+
+    /// 自检：某条会话「所在的组现在是不是折叠的」和「这一行现在有没有画出来」。
+    /// 组折叠 = 项目组按 `collapse::is_project_collapsed`，状态组看 `group_collapsed`；找不到这条会话返回 (None, false)
+    pub fn debug_reveal_state(&self, id: &str, cx: &App) -> (Option<bool>, bool) {
+        let Some(row) = self.row_of(id, cx) else { return (None, false) };
+        let p = &self.state.read(cx).prefs.sidebar;
+        let collapsed = match self.tree.membership.get(&row) {
+            Some(GroupRef::Project { key, has_active }) => collapse::is_project_collapsed(&p.proj_collapsed, key, *has_active),
+            Some(GroupRef::Status(gid)) => p.group_collapsed.contains(gid),
+            _ => false,
+        };
+        (Some(collapsed), self.tree.item_of_row(row).is_some())
     }
 
     pub fn debug_list_focused(&self, window: &Window) -> bool {

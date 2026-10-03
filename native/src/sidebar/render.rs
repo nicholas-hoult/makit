@@ -66,7 +66,7 @@ impl SidebarView {
             Item::ProjectHeader { key, name, cwd, count, collapsed, has_active } => {
                 self.render_project_header(ix, key, name, cwd, count, collapsed, has_active, &theme, cx)
             }
-            Item::Session { row, show_status, .. } => self.render_session(ix, row, show_status, &theme, window, cx),
+            Item::Session { row, show_status, nav, .. } => self.render_session(ix, row, show_status, nav, &theme, window, cx),
         }
     }
 
@@ -219,7 +219,7 @@ impl SidebarView {
     /// `.tree-session`：两行（标题 + 元信息），padding 5 12 5 8、gap 6、圆角 4、左右 margin 4。
     /// `.focused`（当前打开的）= 15% accent 底 + 左侧 2px 竖条；`.selected`（键盘选中）= 1px accent 描边，两者正交。
     /// 描边只在列表有焦点（正在用键盘挑）时画：焦点回到终端后还挂着，就成了「两行同时高亮」（用户 2026-09-29）
-    fn render_session(&mut self, ix: usize, row: usize, show_status: bool, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_session(&mut self, ix: usize, row: usize, show_status: bool, nav: bool, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let s = self.state.read(cx);
         let Some(m) = s.sessions.get(row) else { return div().h(px(SESSION_H)).into_any_element() };
         let m = m.clone();
@@ -231,11 +231,14 @@ impl SidebarView {
         let compact = tree::compact_rows(show_logo, show_project, show_id, show_branch);
         let row_h = if compact { SESSION_H_COMPACT } else { SESSION_H };
         let focused = s.workspace.active_tab().and_then(|t| t.session_id.as_deref()) == Some(m.session_id.as_str());
-        let selected = self.selected.as_deref() == Some(m.session_id.as_str()) && self.list_focus.is_focused(window);
+        // 同一条会话在项目视图里出现两次时，选中框只亮导航那份（#259）
+        let selected = nav && self.selected.as_deref() == Some(m.session_id.as_str()) && self.list_focus.is_focused(window);
         let rs = meta_state(&m);
         let title = session_title(&m.display_name, &m.first_user_msg, &m.short_id);
         let project = super::groups::basename(if m.git_root.is_empty() { &m.cwd } else { &m.git_root });
         let sid = m.session_id.clone();
+        // 元素 id 要唯一：别名行（项目里另有一份时的顶部那份）加后缀，不然 hover / 点击状态会串线
+        let uid = if nav { sid.clone() } else { format!("{sid}~alias") };
         let (sid_click, sid_menu, sid_hover) = (sid.clone(), sid.clone(), sid.clone());
         let logo = crate::assets::tool_logo(&m.tool);
 
@@ -247,7 +250,7 @@ impl SidebarView {
                 RunState::Stopped => (t.fg_muted, 0.4),
             };
             let dot = div()
-                .id(SharedString::from(format!("st-{sid}")))
+                .id(SharedString::from(format!("st-{uid}")))
                 .w(px(12.))
                 .h(px(17.))
                 .flex_none()
@@ -292,7 +295,7 @@ impl SidebarView {
             // `.tree-session-time`：10px、定宽右列 26、右对齐；tooltip 是 mtime_display。可在「显示选项」里隐藏（#238）
             .when(show_time, |d| d.child(
                 div()
-                    .id(SharedString::from(format!("time-{sid}")))
+                    .id(SharedString::from(format!("time-{uid}")))
                     .flex_none()
                     .min_w(px(26.))
                     .flex()
@@ -341,7 +344,7 @@ impl SidebarView {
             });
 
         let li = div()
-            .id(SharedString::from(format!("row-{sid}")))
+            .id(SharedString::from(format!("row-{uid}")))
             .relative()
             .size_full()
             .flex()

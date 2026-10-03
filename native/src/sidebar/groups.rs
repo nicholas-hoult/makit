@@ -139,6 +139,35 @@ pub fn filter_sessions(list: &[SessionMeta], query: &str, show_archived: bool) -
     (0..list.len()).filter(|&i| (show_archived || !list[i].archived) && matches_query(&list[i], &q)).collect()
 }
 
+/// 定位（⌘L / 标签栏的定位按钮 / 通知跳转）的结果（#259）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RevealResult {
+    /// 找到了并滚过去了
+    Located,
+    /// 找到了，但它是已归档的会话——为了让它出现，把「显示已归档」打开了
+    LocatedArchived,
+    /// 会话列表里根本没有这条（还没写出第一条消息、或已被清理）
+    NotInList,
+    /// 在列表里但最终没能在侧栏里画出来
+    NotShown,
+}
+
+/// 定位前「显示已归档」该设成什么：目标是已归档的会话就必须打开，否则怎么都找不到它；
+/// 其它情况仍然是关掉（保持 ⌘L 原来「清掉搜索和归档，露出当前会话」的行为）
+pub fn reveal_show_archived(target_archived: bool) -> bool {
+    target_archived
+}
+
+/// 定位结果对用户说的话。**只有真的定位到了才说「已定位」**：以前不管找没找到都弹，用户看到「已定位」却什么都没发生
+pub fn reveal_message(r: RevealResult) -> &'static str {
+    match r {
+        RevealResult::Located => "已定位 session",
+        RevealResult::LocatedArchived => "已定位（这条会话已归档，已显示归档的会话）",
+        RevealResult::NotInList => "没有找到这条会话（可能还没有第一条消息，或已被清理）",
+        RevealResult::NotShown => "没能在侧栏里定位到这条会话",
+    }
+}
+
 /// 侧栏排序（`makit-tree-sort`）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SortKey {
@@ -661,5 +690,23 @@ pub(crate) mod tests {
             assert_eq!(SortKey::parse(k.as_str()), k);
         }
         assert_eq!(SortKey::parse("乱写"), SortKey::Recent);
+    }
+
+    /// 为什么要测（#259）：定位说「已定位」却什么都没发生，是用户最直接看到的「定位有问题」
+    #[test]
+    fn reveal_message_only_says_located_when_it_really_located() {
+        assert_eq!(reveal_message(RevealResult::Located), "已定位 session");
+        assert!(reveal_message(RevealResult::LocatedArchived).contains("已归档"), "要说清为什么多出了归档的会话");
+        for r in [RevealResult::NotInList, RevealResult::NotShown] {
+            let m = reveal_message(r);
+            assert!(!m.contains("已定位"), "没找到不能说已定位：{m}");
+            assert!(m.contains("没有找到") || m.contains("没能"), "{m}");
+        }
+    }
+
+    #[test]
+    fn archived_target_turns_show_archived_on() {
+        assert!(reveal_show_archived(true), "目标是已归档的：不打开就找不到它");
+        assert!(!reveal_show_archived(false), "别的情况照旧：关掉");
     }
 }

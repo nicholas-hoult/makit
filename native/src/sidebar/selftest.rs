@@ -239,6 +239,80 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
             failures.push("Esc 之后焦点还在侧栏".into());
         }
 
+        // ---- ⌘L 在项目视图里：把当前会话所在的项目组折叠起来再定位，必须展开它并让这一行出现（#259）----
+        if let Some(id) = active_sid.clone() {
+            for view in ["project", "status"] {
+                let _ = state.update(cx, |s, cx| s.update_prefs(cx, |p| {
+                    p.sidebar.view = view.into();
+                    p.sidebar.proj_collapsed.clear();
+                    p.sidebar.group_collapsed.clear();
+                }));
+                pause(300).await;
+                // 把所有组折叠（⌘⇧E：有折叠的就全展开，全展开着就全折叠；最多按两次）
+                for _ in 0..2 {
+                    if cx.read_entity(&sidebar, |v, cx| v.debug_reveal_state(&id, cx)).ok().map(|(c, _)| c) == Some(Some(true)) {
+                        break;
+                    }
+                    press(cx, "cmd-shift-e");
+                    pause(400).await;
+                }
+                let before = cx.read_entity(&sidebar, |v, cx| v.debug_reveal_state(&id, cx)).unwrap_or((None, false));
+                press(cx, "cmd-l");
+                pause(800).await;
+                let after = cx.read_entity(&sidebar, |v, cx| v.debug_reveal_state(&id, cx)).unwrap_or((None, false));
+                print(cx, &format!("⌘L {view} 视图"));
+                eprintln!("[selftest] ⌘L {view} 视图：定位前 (组折叠, 行可见)={before:?}，定位后 {after:?}");
+                if before.0 != Some(true) {
+                    failures.push(format!("⌘L {view} 视图：测试前提不成立，没能把当前会话所在的组折叠起来（{before:?}）"));
+                } else if after != (Some(false), true) {
+                    failures.push(format!("⌘L {view} 视图：定位后组没展开或行没出现（{after:?}）"));
+                }
+            }
+        }
+
+        // ---- 定位的两个边界（#259）：不存在的会话不能崩、不能乱改偏好；已归档的会话要能被定位到 ----
+        {
+            let _ = state.update(cx, |s, cx| s.update_prefs(cx, |p| {
+                p.sidebar.view = "status".into();
+                p.sidebar.show_archived = false;
+            }));
+            pause(300).await;
+            let before = cx.read_entity(&state, |s, _| s.prefs.sidebar.clone()).ok();
+            let _ = sidebar.update(cx, |v, cx| v.debug_reveal("不存在-的-会话", cx));
+            pause(500).await;
+            let after = cx.read_entity(&state, |s, _| s.prefs.sidebar.clone()).ok();
+            if before != after {
+                failures.push("定位一个不存在的会话改动了侧栏偏好".into());
+            }
+            // 拿一条会话标成已归档（只改内存里的列表，不写任何文件），再定位它
+            let victim = cx.read_entity(&state, |s, _| s.sessions.iter().find(|m| Some(&m.session_id) != active_sid.as_ref()).map(|m| m.session_id.clone())).ok().flatten();
+            if let Some(v) = victim {
+                let _ = state.update(cx, |s, cx| {
+                    if let Some(m) = s.sessions.iter_mut().find(|m| m.session_id == v) {
+                        m.archived = true;
+                    }
+                    s.sessions_changed(cx);
+                });
+                pause(400).await;
+                let _ = sidebar.update(cx, |v2, cx| v2.debug_reveal(&v, cx));
+                pause(800).await;
+                let show = cx.read_entity(&state, |s, _| s.prefs.sidebar.show_archived).unwrap_or(false);
+                let vis = cx.read_entity(&sidebar, |sv, cx| sv.debug_reveal_state(&v, cx)).unwrap_or((None, false));
+                eprintln!("[selftest] 定位已归档会话：show_archived={show}，(组折叠, 行可见)={vis:?}");
+                if !show || !vis.1 {
+                    failures.push(format!("定位已归档会话：没打开「显示已归档」或行没出现（show_archived={show}，{vis:?}）"));
+                }
+                let _ = state.update(cx, |s, cx| {
+                    if let Some(m) = s.sessions.iter_mut().find(|m| m.session_id == v) {
+                        m.archived = false;
+                    }
+                    s.update_prefs(cx, |p| p.sidebar.show_archived = false);
+                    s.sessions_changed(cx);
+                });
+                pause(300).await;
+            }
+        }
+
         // ---- #238 一键展开 / 折叠全部（⌘⇧E）：两种视图各按两次，第二次要和第一次相反 ----
         for view in ["status", "project"] {
             let _ = state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.view = view.into()));
