@@ -7,8 +7,12 @@
 //! 结构：纯逻辑（`redact`、`diagnostics`、`format_panic`、`log_dir_in`）都有测试；`init` 装 tracing 订阅者 + panic 钩子。
 //! 库代码一律用 `log::{info,warn,error}!`，tracing-subscriber 的 `tracing-log` 特性把它们接到同一个订阅者上（GPUI 等第三方的 `log` 输出也一并进来）。
 
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+
+use chrono::{Local, NaiveDate};
 
 /// 日志目录 `<home>/.claude/makit/logs`（和 perf.log 同一个数据目录，搬家时跟着 #249 走）
 pub fn log_dir_in(home: &Path) -> PathBuf {
@@ -72,6 +76,76 @@ const DEFAULT_FILTER: &str = "info,gpui=warn";
 /// 保留几天的日志文件
 const KEEP_DAYS: usize = 7;
 
+fn daily_file_name(date: NaiveDate) -> String {
+    format!("makit.{}.log", date.format("%Y-%m-%d"))
+}
+
+/// 要删掉的旧日志：只看 `makit.<日期>.log`，按日期（文件名字典序即日期序）保留最新的 `keep` 个
+fn expired_files(names: &[String], keep: usize) -> Vec<String> {
+    let mut logs: Vec<&String> = names.iter().filter(|n| n.starts_with("makit.") && n.ends_with(".log")).collect();
+    logs.sort();
+    let cut = logs.len().saturating_sub(keep);
+    logs[..cut].iter().map(|s| s.to_string()).collect()
+}
+
+type DayFile = Option<(NaiveDate, File)>;
+
+/// 按**本地**日期切文件的写入器：跨过本地午夜就换到新文件，并删掉超出保留天数的旧文件。
+/// 不用 tracing-appender 的 `DAILY`，它按 UTC 切，东八区 0–8 点的日志会落进前一天的文件
+pub struct LocalDailyFiles {
+    dir: PathBuf,
+    keep: usize,
+    current: Mutex<DayFile>,
+}
+
+impl LocalDailyFiles {
+    pub fn new(dir: PathBuf, keep: usize) -> Self {
+        Self { dir, keep, current: Mutex::new(None) }
+    }
+
+    fn writer_for(&self, today: NaiveDate) -> DailyWriter<'_> {
+        let mut guard = self.current.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.as_ref().map(|(d, _)| *d) != Some(today) {
+            *guard = OpenOptions::new().create(true).append(true).open(self.dir.join(daily_file_name(today))).ok().map(|f| (today, f));
+            self.prune();
+        }
+        DailyWriter(guard)
+    }
+
+    fn prune(&self) {
+        let names: Vec<String> = std::fs::read_dir(&self.dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        for old in expired_files(&names, self.keep) {
+            let _ = std::fs::remove_file(self.dir.join(old));
+        }
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LocalDailyFiles {
+    type Writer = DailyWriter<'a>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.writer_for(Local::now().date_naive())
+    }
+}
+
+pub struct DailyWriter<'a>(MutexGuard<'a, DayFile>);
+
+impl Write for DailyWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self.0.as_mut() {
+            Some((_, f)) => f.write_all(buf).map(|_| buf.len()),
+            None => Ok(buf.len()),
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self.0.as_mut() {
+            Some((_, f)) => f.flush(),
+            None => Ok(()),
+        }
+    }
+}
+
 fn macos_version() -> String {
     std::process::Command::new("sw_vers")
         .arg("-productVersion")
@@ -95,18 +169,13 @@ pub fn init() {
 
     let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
     let filter = EnvFilter::try_from_env("MAKIT_LOG").unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER));
+    let timer = fmt::time::ChronoLocal::rfc_3339();
     let file_layer = log_dir().and_then(|dir| {
         std::fs::create_dir_all(&dir).ok()?;
-        let appender = tracing_appender::rolling::Builder::new()
-            .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("makit")
-            .filename_suffix("log")
-            .max_log_files(KEEP_DAYS)
-            .build(&dir)
-            .ok()?;
-        Some(fmt::layer().with_ansi(false).with_writer(RedactMakeWriter { inner: appender, home: home.clone() }))
+        let files = LocalDailyFiles::new(dir, KEEP_DAYS);
+        Some(fmt::layer().with_ansi(false).with_timer(timer.clone()).with_writer(RedactMakeWriter { inner: files, home: home.clone() }))
     });
-    let stderr_layer = fmt::layer().with_ansi(false).with_writer(std::io::stderr);
+    let stderr_layer = fmt::layer().with_ansi(false).with_timer(timer).with_writer(std::io::stderr);
     let _ = tracing_subscriber::registry().with(filter).with(file_layer).with(stderr_layer).try_init();
 
     let previous = std::panic::take_hook();
@@ -233,5 +302,33 @@ mod tests {
         assert!(s.contains("~/.claude/makit/logs"), "日志目录脱敏：{s}");
         assert!(s.contains("INFO 启动") && s.contains("读 ~/.claude/x 失败"), "最近日志也脱敏：{s}");
         assert!(!s.contains("/Users/me"), "任何地方都不能出现家目录：{s}");
+    }
+
+    /// 为什么要测：按 UTC 切日，东八区每天 0–8 点的日志会写进「昨天」的文件
+    #[test]
+    fn daily_file_name_uses_the_given_local_date() {
+        let d = NaiveDate::from_ymd_opt(2026, 10, 4).unwrap();
+        assert_eq!(daily_file_name(d), "makit.2026-10-04.log");
+    }
+
+    #[test]
+    fn expired_files_keeps_the_newest_days_and_ignores_other_files() {
+        let names: Vec<String> = ["makit.2026-10-02.log", "perf.log", "makit.2026-10-04.log", "makit.2026-10-01.log", "makit.2026-10-03.log"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(expired_files(&names, 2), vec!["makit.2026-10-01.log", "makit.2026-10-02.log"]);
+        assert!(expired_files(&names, 10).is_empty());
+    }
+
+    #[test]
+    fn writer_switches_file_when_the_local_day_changes() {
+        let dir = std::env::temp_dir().join(format!("makit-log-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files = LocalDailyFiles::new(dir.clone(), 7);
+        let day1 = NaiveDate::from_ymd_opt(2026, 10, 3).unwrap();
+        let day2 = NaiveDate::from_ymd_opt(2026, 10, 4).unwrap();
+        files.writer_for(day1).write_all(b"first\n").unwrap();
+        files.writer_for(day2).write_all(b"second\n").unwrap();
+        assert_eq!(std::fs::read_to_string(dir.join("makit.2026-10-03.log")).unwrap(), "first\n");
+        assert_eq!(std::fs::read_to_string(dir.join("makit.2026-10-04.log")).unwrap(), "second\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
