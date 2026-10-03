@@ -5,6 +5,9 @@
 #   bash native/scripts/dev.sh --fake-home  # 用假 HOME（/tmp/mkdev）：不碰 ~/.claude，也不抢 hook，里面没有真会话
 #   bash native/scripts/dev.sh --release    # 优化构建（首次全量编译很慢，用来测性能）
 #   bash native/scripts/dev.sh --no-build   # 不编译，直接运行已经编好的二进制（可和别的参数一起用）。没编过会提示。
+#   bash native/scripts/dev.sh --fake-home --data=ok|empty|missing|unreadable
+#                                           # 在假 HOME 里造出会话目录的状态（#256 B1）：empty=目录在但空；missing=没有目录；
+#                                           # unreadable=目录在但 chmod 000（读不了）。给了 --data 但没给 --tools 时按真实检测走（不用 none 覆盖）
 #   bash native/scripts/dev.sh --fast       # 「快 debug」：自己的代码仍是 debug（增量编译快），依赖开优化（运行时接近 release）。
 #                                           # 日常开发推荐；第一次要把依赖按优化编一遍（约十分钟，之后共用缓存）
 #   bash native/scripts/dev.sh --fake-home --tools=none|claude|codex|both
@@ -38,12 +41,15 @@ profdir=debug
 fake_home=0
 tools=""
 no_build=0
+data=""
 for a in "$@"; do
     case "$a" in
         --fake-home) fake_home=1 ;;
         --release) profile=(--release); profdir=release ;;
         --fast) profile=(--profile devfast); profdir=devfast ;;
         --no-build) no_build=1 ;;
+        --data=ok|--data=empty|--data=missing|--data=unreadable) data="${a#--data=}" ;;
+        --data=*) echo "--data 的值要是 ok / empty / missing / unreadable（收到：${a#--data=}）" >&2; exit 2 ;;
         --tools=none|--tools=claude|--tools=codex|--tools=both) tools="${a#--tools=}" ;;
         --tools=*) echo "--tools 的值要是 none / claude / codex / both（收到：${a#--tools=}）" >&2; exit 2 ;;
         -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -67,10 +73,22 @@ if [[ $no_build == 1 && "${DEV_DRY_RUN:-}" != 1 && ! -x "$bin" ]]; then
     exit 1
 fi
 if [[ $fake_home == 1 ]]; then
-    export HOME="/tmp/mkdev"
+    export HOME="${DEV_FAKE_HOME:-/tmp/mkdev}"
     mkdir -p "${HOME}"
     # 假 HOME 默认当作「什么都没装」，这样首次打开的提示（#197）在 dev 里看得到；要看别的状态用 --tools=
-    tools="${tools:-none}"
+    # 给了 --data 就要看真实的目录检测，不能再用 MAKIT_TOOLS=none 盖掉（那个覆盖连目录状态一起抹了）
+    [[ -z "${data}" ]] && tools="${tools:-none}"
+    case "${data}" in
+        "") ;;
+        ok) mkdir -p "${HOME}/.claude/projects" "${HOME}/.codex/sessions"; chmod 755 "${HOME}/.claude/projects" "${HOME}/.codex/sessions" ;;
+        empty) mkdir -p "${HOME}/.claude/projects" "${HOME}/.codex/sessions"; chmod 755 "${HOME}/.claude/projects" "${HOME}/.codex/sessions"
+               find "${HOME}/.claude/projects" "${HOME}/.codex/sessions" -mindepth 1 -delete 2>/dev/null || true ;;
+        missing) for d in "${HOME}/.claude/projects" "${HOME}/.codex/sessions"; do [[ -d "$d" ]] && chmod 755 "$d"; rm -rf "$d"; done ;;
+        unreadable) mkdir -p "${HOME}/.claude/projects" "${HOME}/.codex/sessions"
+                    chmod 755 "${HOME}/.claude/projects" "${HOME}/.codex/sessions"; touch "${HOME}/.claude/projects/x" "${HOME}/.codex/sessions/x"
+                    chmod 000 "${HOME}/.claude/projects" "${HOME}/.codex/sessions"
+                    echo "→ 已把假 HOME 的会话目录设成不可读（chmod 000）；换别的 --data 值会先还原" ;;
+    esac
     echo "→ 假 HOME：${HOME}（不读 ~/.claude，里面没有真会话）"
 fi
 [[ -n "${tools}" ]] && export MAKIT_TOOLS="${tools}" && echo "→ 工具检测按 MAKIT_TOOLS=${tools} 算（不看真实 PATH）"
