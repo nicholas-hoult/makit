@@ -124,11 +124,19 @@ pub struct ThemePrefs {
     pub id: String,
     /// `makit-imported-themes`
     pub imported: Vec<ThemeSource>,
+    /// 用户有没有**主动选过**主题（#256 A6）。没选过就一直跟着系统外观；旧状态文件里没有这个字段，读出来按「选过」算（保持老用户现在的主题）
+    #[serde(default = "default_true")]
+    pub chosen: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for ThemePrefs {
+    /// 全新用户：没选过
     fn default() -> Self {
-        Self { id: crate::theme::builtin::DEFAULT_THEME_ID.into(), imported: Vec::new() }
+        Self { id: crate::theme::builtin::DEFAULT_THEME_ID.into(), imported: Vec::new(), chosen: false }
     }
 }
 
@@ -392,5 +400,17 @@ mod tests {
         // 往返
         let back: NativeState = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    /// 为什么要测（#256 A6）：老用户的状态文件里没有 `chosen`。读出来如果是 false，升级后他们选好的主题会被系统外观盖掉
+    #[test]
+    fn old_state_files_count_as_chosen_and_new_users_do_not() {
+        let old: NativeState = serde_json::from_str(r#"{"theme":{"id":"dracula"}}"#).unwrap();
+        assert!(old.theme.chosen, "旧文件：保持原主题");
+        assert_eq!(old.theme.id, "dracula");
+        assert!(!NativeState::default().theme.chosen, "全新用户：没选过，跟系统");
+        let fresh = NativeState::default();
+        let back: NativeState = serde_json::from_str(&serde_json::to_string(&fresh).unwrap()).unwrap();
+        assert!(!back.theme.chosen, "写出去再读回来不能丢成 true");
     }
 }

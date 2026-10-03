@@ -6,6 +6,7 @@
 //!
 //! 纯逻辑：`derive`（推导规则，和 TS 版逐项对齐测试）、`builtin`（25 套源色）、`itermcolors`（导入）。
 
+pub mod auto;
 pub mod builtin;
 pub mod derive;
 pub mod itermcolors;
