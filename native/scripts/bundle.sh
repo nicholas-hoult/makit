@@ -14,9 +14,18 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$root/native/bundle.conf"
 version="$(grep -m1 '^version' "$root/native/Cargo.toml" | cut -d'"' -f2)"
 
+# 编译目录：已经设了 CARGO_TARGET_DIR 就尊重它；否则 ①在 .worktrees/ 下的 worktree，或 ②主目录且有 .worktrees/.target-gpui，
+# 都用这个共享目录（避免每个 worktree 各编译一份；也避免「在主目录跑就用另一个目录、整套依赖从头编」）；都不是才用默认的 native/target
+if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
+    if [[ "$(basename "$(dirname "$root")")" == ".worktrees" ]]; then
+        export CARGO_TARGET_DIR="$(dirname "$root")/.target-gpui"
+    elif [[ -d "$root/.worktrees/.target-gpui" ]]; then
+        export CARGO_TARGET_DIR="$root/.worktrees/.target-gpui"
+    fi
+fi
+
 cargo build --release --manifest-path "$root/native/Cargo.toml"
 
-# 认 CARGO_TARGET_DIR（gpui-main 的 worktree 共用一个 target 目录）
 target="${CARGO_TARGET_DIR:-$root/native/target}"
 app="$target/release/bundle/$APP_NAME.app"
 # 整个删掉重建：留着旧的会让上一次的残留文件（改名前的图标、删掉的资源）混在里面，

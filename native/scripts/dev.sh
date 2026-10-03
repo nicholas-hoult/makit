@@ -4,6 +4,9 @@
 #   bash native/scripts/dev.sh              # 用真实 HOME：能看到你的会话，但会抢走正在运行的 makit 的 hook
 #   bash native/scripts/dev.sh --fake-home  # 用假 HOME（/tmp/mkdev）：不碰 ~/.claude，也不抢 hook，里面没有真会话
 #   bash native/scripts/dev.sh --release    # 优化构建（首次全量编译很慢，用来测性能）
+#   bash native/scripts/dev.sh --no-build   # 不编译，直接运行已经编好的二进制（可和别的参数一起用）。没编过会提示。
+#   bash native/scripts/dev.sh --fast       # 「快 debug」：自己的代码仍是 debug（增量编译快），依赖开优化（运行时接近 release）。
+#                                           # 日常开发推荐；第一次要把依赖按优化编一遍（约十分钟，之后共用缓存）
 #   bash native/scripts/dev.sh --fake-home --tools=none|claude|codex|both
 #                                           # 指定「本机装了哪些工具」（#197 空状态提示）。假 HOME 只隔离会话目录，
 #                                           # 命令检测仍读真实 PATH；不加这个参数时 --fake-home 默认是 none，能看到「还没有找到」那条
@@ -20,23 +23,31 @@ DEV_APP_NAME="makit-dev"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-# 放在 .worktrees/ 下的 worktree 共用同级的 .target-gpui（避免每个 worktree 各编译一份）；
-# 已经设了 CARGO_TARGET_DIR 就尊重它；普通克隆用默认的 native/target
-if [[ -z "${CARGO_TARGET_DIR:-}" && "$(basename "$(dirname "$root")")" == ".worktrees" ]]; then
-    export CARGO_TARGET_DIR="$(dirname "$root")/.target-gpui"
+# 编译目录：已经设了 CARGO_TARGET_DIR 就尊重它；否则 ①在 .worktrees/ 下的 worktree，或 ②主目录且有 .worktrees/.target-gpui，
+# 都用这个共享目录（避免每个 worktree 各编译一份；也避免「在主目录跑就用另一个目录、整套依赖从头编」）；都不是才用默认的 native/target
+if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
+    if [[ "$(basename "$(dirname "$root")")" == ".worktrees" ]]; then
+        export CARGO_TARGET_DIR="$(dirname "$root")/.target-gpui"
+    elif [[ -d "$root/.worktrees/.target-gpui" ]]; then
+        export CARGO_TARGET_DIR="$root/.worktrees/.target-gpui"
+    fi
 fi
 
 profile=()
+profdir=debug
 fake_home=0
 tools=""
+no_build=0
 for a in "$@"; do
     case "$a" in
         --fake-home) fake_home=1 ;;
-        --release) profile=(--release) ;;
+        --release) profile=(--release); profdir=release ;;
+        --fast) profile=(--profile devfast); profdir=devfast ;;
+        --no-build) no_build=1 ;;
         --tools=none|--tools=claude|--tools=codex|--tools=both) tools="${a#--tools=}" ;;
         --tools=*) echo "--tools 的值要是 none / claude / codex / both（收到：${a#--tools=}）" >&2; exit 2 ;;
         -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) echo "不认识的参数：${a}（可用：--fake-home / --release / --tools=none|claude|codex|both）" >&2; exit 2 ;;
+        *) echo "不认识的参数：${a}（可用：--fake-home / --release / --fast / --no-build / --tools=none|claude|codex|both）" >&2; exit 2 ;;
     esac
 done
 
@@ -48,9 +59,13 @@ export MAKIT_APP_NAME="${DEV_APP_NAME}"
 # macOS 自带 bash 3.2：空数组在 set -u 下展开会报 unbound，所以用 ${arr[@]+...} 的写法
 build=(cargo build ${profile[@]+"${profile[@]}"} --manifest-path "$root/native/Cargo.toml")
 echo "→ ${CARGO_TARGET_DIR:+CARGO_TARGET_DIR=$CARGO_TARGET_DIR }${build[*]}"
-[[ "${DEV_DRY_RUN:-}" == 1 ]] || "${build[@]}"
+[[ "${DEV_DRY_RUN:-}" == 1 || $no_build == 1 ]] || "${build[@]}"
 
-bin="${CARGO_TARGET_DIR:-$root/native/target}/$([[ ${#profile[@]} -gt 0 ]] && echo release || echo debug)/makit-native"
+bin="${CARGO_TARGET_DIR:-$root/native/target}/${profdir}/makit-native"
+if [[ $no_build == 1 && "${DEV_DRY_RUN:-}" != 1 && ! -x "$bin" ]]; then
+    echo "没有现成的二进制：${bin}（这个模式 / 这个编译目录还没编过）。去掉 --no-build 先编一次。" >&2
+    exit 1
+fi
 if [[ $fake_home == 1 ]]; then
     export HOME="/tmp/mkdev"
     mkdir -p "${HOME}"

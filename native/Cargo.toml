@@ -42,6 +42,16 @@ tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "env-filter", "std", "ansi", "tracing-log"] }
 
+# 开发用的「快 debug」（#258）：自己的 crate 仍是 debug（改一个文件增量编译快），依赖（GPUI、alacritty、字体、正则……）开优化，
+# 运行时的帧耗时接近 release；调试信息只留行号，二进制和链接都小很多。默认的 `dev` 和 `release` 不受影响。
+# 用法：`bash native/scripts/dev.sh --fast`。第一次要把依赖按 opt-level 2 全编一遍（约十分钟，之后各 worktree 共用缓存）
+[profile.devfast]
+inherits = "dev"
+debug = "line-tables-only"
+
+[profile.devfast.package."*"]
+opt-level = 2
+
 [profile.release]
 # 原型阶段要反复编 release 做测量，开增量编译省时间
 incremental = true
