@@ -70,8 +70,25 @@ pub fn detect_in(home: &Path, path_env: &str) -> ToolPresence {
     }
 }
 
-/// 用真实的 HOME 和 PATH 检测
+/// 调试 / 开发用：`MAKIT_TOOLS=none|claude|codex|both` 直接指定检测结果，不看真实的 PATH 和目录。
+/// 为什么要有：dev 的假 HOME 只隔离了会话目录，命令检测仍读开发机真实的 PATH，永远看不到「没装」那种提示。
+/// 认不出的值返回 None（按真实检测走），不报错
+pub fn parse_override(value: &str) -> Option<ToolPresence> {
+    let on = |claude, codex| Some(ToolPresence { claude_bin: claude, codex_bin: codex, claude_data: false, codex_data: false });
+    match value.trim().to_ascii_lowercase().as_str() {
+        "none" => on(false, false),
+        "claude" => on(true, false),
+        "codex" => on(false, true),
+        "both" => on(true, true),
+        _ => None,
+    }
+}
+
+/// 用真实的 HOME 和 PATH 检测（设了 `MAKIT_TOOLS` 就用它指定的结果）
 pub fn detect() -> ToolPresence {
+    if let Some(p) = std::env::var("MAKIT_TOOLS").ok().and_then(|v| parse_override(&v)) {
+        return p;
+    }
     match dirs::home_dir() {
         Some(h) => detect_in(&h, &format!("{}:{SYSTEM_BIN_DIRS}", std::env::var("PATH").unwrap_or_default())),
         None => ToolPresence::default(),
@@ -145,5 +162,18 @@ mod tests {
         let h = temp_home("dir");
         fs::create_dir_all(h.join(".local/bin/claude")).unwrap(); // 目录，不是可执行文件
         assert!(!detect_in(&h, "").claude_bin);
+    }
+
+    /// 为什么要测：覆盖开关写错，dev 里想看的提示就出不来，又得怀疑是不是提示本身坏了
+    #[test]
+    fn override_presets() {
+        let on = |c, x| ToolPresence { claude_bin: c, codex_bin: x, claude_data: false, codex_data: false };
+        assert_eq!(parse_override("none"), Some(on(false, false)));
+        assert_eq!(parse_override("claude"), Some(on(true, false)));
+        assert_eq!(parse_override("codex"), Some(on(false, true)));
+        assert_eq!(parse_override("both"), Some(on(true, true)));
+        assert_eq!(parse_override(" BOTH "), Some(on(true, true)), "忽略大小写和空白");
+        assert_eq!(parse_override("乱写"), None, "认不出就按真实检测走");
+        assert_eq!(parse_override(""), None);
     }
 }

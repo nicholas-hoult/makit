@@ -4,6 +4,9 @@
 #   bash native/scripts/dev.sh              # 用真实 HOME：能看到你的会话，但会抢走正在运行的 makit 的 hook
 #   bash native/scripts/dev.sh --fake-home  # 用假 HOME（/tmp/mkdev）：不碰 ~/.claude，也不抢 hook，里面没有真会话
 #   bash native/scripts/dev.sh --release    # 优化构建（首次全量编译很慢，用来测性能）
+#   bash native/scripts/dev.sh --fake-home --tools=none|claude|codex|both
+#                                           # 指定「本机装了哪些工具」（#197 空状态提示）。假 HOME 只隔离会话目录，
+#                                           # 命令检测仍读真实 PATH；不加这个参数时 --fake-home 默认是 none，能看到「还没有找到」那条
 #
 # 注意：
 # - 裸二进制没有 app 身份，系统横幅发不出来（只记通知中心 + Dock 角标）；要测横幅用 bundle.sh 打的 .app
@@ -25,12 +28,15 @@ fi
 
 profile=()
 fake_home=0
+tools=""
 for a in "$@"; do
     case "$a" in
         --fake-home) fake_home=1 ;;
         --release) profile=(--release) ;;
-        -h|--help) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) echo "不认识的参数：${a}（可用：--fake-home / --release）" >&2; exit 2 ;;
+        --tools=none|--tools=claude|--tools=codex|--tools=both) tools="${a#--tools=}" ;;
+        --tools=*) echo "--tools 的值要是 none / claude / codex / both（收到：${a#--tools=}）" >&2; exit 2 ;;
+        -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
+        *) echo "不认识的参数：${a}（可用：--fake-home / --release / --tools=none|claude|codex|both）" >&2; exit 2 ;;
     esac
 done
 
@@ -48,8 +54,11 @@ bin="${CARGO_TARGET_DIR:-$root/native/target}/$([[ ${#profile[@]} -gt 0 ]] && ec
 if [[ $fake_home == 1 ]]; then
     export HOME="/tmp/mkdev"
     mkdir -p "${HOME}"
+    # 假 HOME 默认当作「什么都没装」，这样首次打开的提示（#197）在 dev 里看得到；要看别的状态用 --tools=
+    tools="${tools:-none}"
     echo "→ 假 HOME：${HOME}（不读 ~/.claude，里面没有真会话）"
 fi
+[[ -n "${tools}" ]] && export MAKIT_TOOLS="${tools}" && echo "→ 工具检测按 MAKIT_TOOLS=${tools} 算（不看真实 PATH）"
 echo "→ ${bin}"
 [[ "${DEV_DRY_RUN:-}" == 1 ]] && exit 0
 exec "$bin"
