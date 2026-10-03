@@ -37,6 +37,20 @@ pub struct NativeState {
     pub notifications: Vec<serde_json::Value>,
     /// 从哪个 localStorage 文件导入过（只导一次；None = 没导过 / 没找到）
     pub imported_from: Option<String>,
+    /// 上次退出 / 失去焦点时的窗口位置和大小（#256 A7）。None = 还没记过，按屏幕大小给默认；还原时一律用 `window_placement::fit_window` 校正
+    pub window: Option<SavedWindow>,
+}
+
+/// 保存的窗口位置和大小（逻辑像素，坐标是全局的：外接屏在主屏左边时 x 为负，合法）。
+/// `maximized` 时 x/y/w/h 是「还原大小」。全屏不保存（回到普通窗口，见 TRD #256 §5.3）
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct SavedWindow {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    #[serde(default)]
+    pub maximized: bool,
 }
 
 impl Default for NativeState {
@@ -53,6 +67,7 @@ impl Default for NativeState {
             notify: NotifyPrefs::default(),
             notifications: Vec::new(),
             imported_from: None,
+            window: None,
         }
     }
 }
@@ -412,5 +427,18 @@ mod tests {
         let fresh = NativeState::default();
         let back: NativeState = serde_json::from_str(&serde_json::to_string(&fresh).unwrap()).unwrap();
         assert!(!back.theme.chosen, "写出去再读回来不能丢成 true");
+    }
+
+    /// 为什么要测（#256 A7）：加了 `window` 字段后，老状态文件（没有它）必须照常加载；保存的窗口要能原样往返
+    #[test]
+    fn window_field_is_optional_and_round_trips() {
+        let old: NativeState = serde_json::from_str(r#"{"theme":{"id":"nord","chosen":true}}"#).unwrap();
+        assert_eq!(old.window, None, "旧文件：没记过窗口");
+        let mut s = NativeState::default();
+        s.window = Some(SavedWindow { x: -1700.0, y: 100.0, w: 1200.0, h: 800.0, maximized: true });
+        let back: NativeState = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.window, s.window, "负坐标、最大化标志都不能丢");
+        let no_flag: NativeState = serde_json::from_str(r#"{"window":{"x":1,"y":2,"w":900,"h":600}}"#).unwrap();
+        assert!(!no_flag.window.unwrap().maximized, "没有 maximized 字段按 false");
     }
 }

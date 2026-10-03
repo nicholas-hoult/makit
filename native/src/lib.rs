@@ -34,6 +34,7 @@ pub mod selftest;
 pub mod sidebar;
 pub mod state;
 pub mod tooltip;
+pub mod window_placement;
 pub mod terminal;
 pub mod theme;
 pub mod transcript_view;
