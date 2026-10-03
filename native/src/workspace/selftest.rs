@@ -52,6 +52,18 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, ws: Entity<Works
         let hint = cx.read_entity(&state, |s, _| super::empty_hint::empty_hint(&s.tools, s.sessions.len(), s.loaded, "⌘T")).ok().flatten();
         check(hint.as_ref().is_some_and(|h| h.title.contains("还没有找到")), &format!("空工作区 + 无会话 + 没装工具：欢迎卡有「还没有找到」提示（实际 {:?}）", hint.map(|h| h.title)));
 
+        // 1.1 欢迎卡「查看全部快捷键」折叠（#256 A4）：新用户默认折叠，点一下展开，再点一下收起
+        let expanded_0 = cx.read_entity(&ws, |v, _| v.debug_shortcuts_expanded()).unwrap_or(true);
+        check(!expanded_0, &format!("新用户（有提示卡）默认折叠快捷键表（实际 expanded={expanded_0}）"));
+        let _ = ws.update(cx, |v, cx| v.debug_toggle_shortcuts(cx));
+        pause(300).await;
+        let expanded_1 = cx.read_entity(&ws, |v, _| v.debug_shortcuts_expanded()).unwrap_or(false);
+        check(expanded_1, &format!("点一下「查看全部快捷键」后展开（实际 expanded={expanded_1}）"));
+        let _ = ws.update(cx, |v, cx| v.debug_toggle_shortcuts(cx));
+        pause(300).await;
+        let expanded_2 = cx.read_entity(&ws, |v, _| v.debug_shortcuts_expanded()).unwrap_or(true);
+        check(!expanded_2, &format!("再点一下收起（实际 expanded={expanded_2}）"));
+
         // 2. pane 右键菜单（欢迎卡上）
         let cid = cx.read_entity(&state, |s, _| s.workspace.state.active_container_id.clone()).unwrap_or_default();
         let n = cx.update(|cx| ws.update(cx, |v, cx| v.menu_items(&MenuTarget::Pane { cid: cid.clone() }, cx).len())).unwrap_or(0);

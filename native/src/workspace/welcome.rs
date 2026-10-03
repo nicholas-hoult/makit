@@ -5,7 +5,7 @@
 //! 说明文字沿用 Tauri 版欢迎卡的措辞（比表里的 desc 更口语，且按「轴」分组在教规则），不从表里取。
 //! 分组、顺序、键帽的拆法（修饰键和方向键分两个键帽）照搬 TS 版。
 
-use gpui::{div, prelude::*, px, AnyElement, FontWeight};
+use gpui::{div, prelude::*, px, AnyElement, ClickEvent, FontWeight, Window};
 
 use crate::theme::Theme;
 
@@ -18,6 +18,17 @@ pub const TAGLINE: &str = "Claude Code · Codex 会话管理 · 工作区终端"
 /// 不写「只读」——恢复搬走了目录的会话时会在 `~/.claude/projects` 里建软链，点了才装的 hook 会写 `settings.json`；
 /// 也不写「不联网」——用户明确不要（#200 的版本检查之后可能联网）
 pub const TRUST_NOTE: &str = "makit 在本机读取你的会话记录（~/.claude、~/.codex），不会上传；自己的设置存在 ~/.claude/makit。";
+
+/// 新用户的「3 步开始」（#256 A4）：欢迎卡信息量太大——没有会话时一屏 4 组 20 多条快捷键会把新用户淹没。
+/// 没有会话时换成这 3 步，完整快捷键表折叠在「查看全部快捷键」后面；已经有会话（只是关掉了这个 pane 的标签）时
+/// 不折叠，直接显示完整表——这是熟手在用的路径，不该被「新手引导」挡住
+pub const STEPS: &[&str] = &["在终端里运行 claude 或 codex，开始第一个会话", "会话自动出现在左侧侧栏", "点它可以随时恢复对话"];
+
+/// 没有会话时要不要显示完整快捷键表：默认折叠（`expanded == false`）；用户点过「查看全部快捷键」才展开。
+/// 已经有会话时（`has_hint == false`，#197 的 `empty_hint` 判定）不折叠，`expanded` 不起作用
+pub fn show_full_shortcuts(has_hint: bool, expanded: bool) -> bool {
+    !has_hint || expanded
+}
 
 /// 一行左边的键帽怎么排
 #[derive(Clone, Copy, Debug)]
@@ -143,8 +154,14 @@ pub fn keycaps(keys: Keys) -> Vec<Option<String>> {
     }
 }
 
-/// 画欢迎卡（App.css `.container-empty` / `.welcome-*` 的数值）
-pub fn render_welcome(t: &Theme, hint: Option<super::empty_hint::EmptyHint>) -> AnyElement {
+/// 画欢迎卡（App.css `.container-empty` / `.welcome-*` 的数值）。
+/// `shortcuts_expanded` / `on_toggle_shortcuts`：新用户（`hint` 有值）默认折叠完整快捷键表，点「查看全部快捷键」才展开（#256 A4）
+pub fn render_welcome(
+    t: &Theme,
+    hint: Option<super::empty_hint::EmptyHint>,
+    shortcuts_expanded: bool,
+    on_toggle_shortcuts: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
+) -> AnyElement {
     let kbd = |text: String| {
         div()
             .flex_none()
@@ -160,6 +177,8 @@ pub fn render_welcome(t: &Theme, hint: Option<super::empty_hint::EmptyHint>) -> 
             .text_color(t.fg)
             .child(text)
     };
+    let has_hint = hint.is_some();
+    let show_full = show_full_shortcuts(has_hint, shortcuts_expanded);
     let groups: Vec<AnyElement> = GROUPS
         .iter()
         .map(|g| {
@@ -231,6 +250,39 @@ pub fn render_welcome(t: &Theme, hint: Option<super::empty_hint::EmptyHint>) -> 
                         .text_center()
                         .child("点侧栏 session 卡片恢复对话；点项目 worktree 起新会话；⌘ 点击为纯 shell"),
                 )
+                .when(has_hint, |d| {
+                    // 新用户「3 步开始」（#256 A4）：取代一屏 20 多条快捷键
+                    d.child(
+                        div()
+                            .mt(px(16.0))
+                            .flex()
+                            .flex_col()
+                            .gap(px(8.0))
+                            .children(STEPS.iter().enumerate().map(|(i, step)| {
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(10.0))
+                                    .text_size(px(13.0))
+                                    .text_color(t.fg_muted)
+                                    .child(
+                                        div()
+                                            .flex_none()
+                                            .size(px(20.0))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded(px(10.0))
+                                            .bg(t.bg_soft)
+                                            .text_size(px(11.0))
+                                            .text_color(t.var("--accent-text"))
+                                            .child((i + 1).to_string()),
+                                    )
+                                    .child(*step)
+                                    .into_any_element()
+                            })),
+                    )
+                })
                 .when_some(hint, |d, h| {
                     // 没有会话时的提示（#197）：醒目但不抢戏——accent 色细边的卡片，标题 + 说明 + 检测结果
                     d.child(
@@ -252,7 +304,21 @@ pub fn render_welcome(t: &Theme, hint: Option<super::empty_hint::EmptyHint>) -> 
                             .child(div().mt(px(2.0)).text_size(px(11.0)).text_color(t.fg_subtle).child(h.status)),
                     )
                 })
-                .child(div().mt(px(24.0)).w_full().flex().flex_wrap().gap_x(px(24.0)).gap_y(px(16.0)).children(groups))
+                .when(has_hint, |d| {
+                    d.child(
+                        div()
+                            .id("toggle-shortcuts")
+                            .mt(px(16.0))
+                            .text_size(px(12.0))
+                            .text_color(t.var("--accent-text"))
+                            .cursor_pointer()
+                            .on_click(on_toggle_shortcuts)
+                            .child(if show_full { "收起快捷键" } else { "查看全部快捷键" }),
+                    )
+                })
+                .when(show_full, |d| {
+                    d.child(div().mt(px(24.0)).w_full().flex().flex_wrap().gap_x(px(24.0)).gap_y(px(16.0)).children(groups))
+                })
                 // 信任说明：最下面一行小字，不抢戏（#256 A5）
                 .child(div().mt(px(20.0)).text_size(px(11.0)).text_color(t.fg_subtle).text_center().child(TRUST_NOTE)),
         )
@@ -318,5 +384,25 @@ mod tests {
         for never in ["只读", "联网"] {
             assert!(!TRUST_NOTE.contains(never), "不能出现「{never}」：{TRUST_NOTE}");
         }
+    }
+
+    // ---- A4：新用户「3 步开始」/ 完整快捷键表折叠（#256）----
+
+    /// 为什么要测：没有会话时如果还是直接显示完整表，新用户会被 20 多条快捷键淹没；
+    /// 已经有会话时如果被当成新用户折叠掉，熟手每次关标签都要多点一下才能看到快捷键
+    #[test]
+    fn full_shortcuts_only_show_when_no_hint_or_user_expanded() {
+        assert!(!show_full_shortcuts(true, false), "新用户、没点展开：折叠");
+        assert!(show_full_shortcuts(true, true), "新用户点了「查看全部快捷键」：展开");
+        assert!(show_full_shortcuts(false, false), "已经有会话：不折叠，不管 expanded");
+        assert!(show_full_shortcuts(false, true), "已经有会话 + 碰巧 expanded=true：仍然显示");
+    }
+
+    #[test]
+    fn three_steps_mention_the_two_tools_and_the_sidebar() {
+        let all = STEPS.join("");
+        assert_eq!(STEPS.len(), 3, "就是「3 步」，多一步少一步都要改标题措辞");
+        assert!(all.contains("claude") && all.contains("codex"), "{all}");
+        assert!(all.contains("侧栏") || all.contains("左侧"), "要呼应「会话自动出现在左侧」：{all}");
     }
 }

@@ -124,6 +124,8 @@ pub struct WorkspaceView {
     recover_pickers: HashMap<String, (Entity<crate::overlays::recover::RecoverPicker>, Subscription)>,
     /// 可重排视图（#231）：每个「绑定了会话」的标签一个，开关关掉 / 会话解绑时拆掉
     hybrids: HashMap<String, Entity<crate::transcript_view::hybrid::HybridView>>,
+    /// 欢迎卡「查看全部快捷键」有没有被点开过（#256 A4）。不持久化：每次重开都从折叠开始，对新用户更合适
+    shortcuts_expanded: bool,
 }
 
 impl WorkspaceView {
@@ -145,6 +147,7 @@ impl WorkspaceView {
             pane_bounds: Rc::default(),
             recover_pickers: HashMap::new(),
             hybrids: HashMap::new(),
+            shortcuts_expanded: false,
             size: Rc::new(Cell::new(Size { width: px(1000.0), height: px(600.0) })),
             split_drag: None,
             hover_split: None,
@@ -227,6 +230,17 @@ impl WorkspaceView {
     }
 
     /// 自检用：这个标签的恢复选择器 (选项数, 选中项, 忙)
+    /// 自检：欢迎卡「查看全部快捷键」的折叠状态（#256 A4）
+    pub fn debug_shortcuts_expanded(&self) -> bool {
+        self.shortcuts_expanded
+    }
+
+    /// 自检：点一下「查看全部快捷键」/「收起快捷键」
+    pub fn debug_toggle_shortcuts(&mut self, cx: &mut Context<Self>) {
+        self.shortcuts_expanded = !self.shortcuts_expanded;
+        cx.notify();
+    }
+
     pub fn debug_recover(&self, tab_id: &str, cx: &App) -> Option<(usize, usize, bool)> {
         self.recover_pickers.get(tab_id).map(|(p, _)| p.read(cx).debug_state())
     }
@@ -998,7 +1012,12 @@ impl WorkspaceView {
                 let s = self.state.read(cx);
                 empty_hint::empty_hint(&s.tools, s.sessions.len(), s.loaded, &welcome::key_label("cmd-t"))
             };
-            welcome::render_welcome(theme, hint)
+            let expanded = self.shortcuts_expanded;
+            let on_toggle = cx.listener(|this, _: &ClickEvent, _window, cx| {
+                this.shortcuts_expanded = !this.shortcuts_expanded;
+                cx.notify();
+            });
+            welcome::render_welcome(theme, hint, expanded, on_toggle)
         } else {
             self.sync_hybrid(&c.active_tab_id, cx);
             match (self.hybrids.get(&c.active_tab_id), self.terminals.get(&c.active_tab_id)) {
