@@ -6,6 +6,7 @@
 //! - `MAKIT_NATIVE_SELFTEST=sidebar`：侧栏（B 包）的按键 / 分组 / 性能自检，见 `sidebar/selftest.rs`。
 //! - `MAKIT_NATIVE_SELFTEST=workspace`：C 工作区包的自检，见 `workspace/selftest.rs`。
 //! - `MAKIT_NATIVE_SELFTEST=logging`：日志（#254）端到端——写带家目录路径的日志、子线程里真 panic，再读日志文件检查落盘 / 脱敏 / panic 记录。
+//! - `MAKIT_NATIVE_SELFTEST=window`：窗口位置 / 大小（#256 A7）——打印打开后的窗口位置和大小；`MAKIT_SELFTEST_RESIZE=WxH` 再改一次大小，然后正常退出（走保存逻辑）。
 //! - `MAKIT_NATIVE_SELFTEST=restore`：启动后打印恢复出来的布局摘要，退出（配合上一步验证布局能保存 / 恢复）。
 //!
 //! 配合 `MAKIT_NATIVE_FORCE_DRAW=1`（锁屏时逼 GPUI 每帧画）和 `MAKIT_NATIVE_DUMP=<文件>`（终端网格导出）。
@@ -68,6 +69,36 @@ fn logging_selftest() -> Vec<String> {
 }
 
 pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
+    if mode == "window" {
+        cx.spawn(async move |cx| {
+            cx.background_executor().timer(Duration::from_millis(1200)).await;
+            let report = |label: &str, cx: &mut gpui::AsyncApp| {
+                let _ = handle.update(cx, |_, window, _| {
+                    let b = window.bounds();
+                    eprintln!(
+                        "[selftest] window {label} x={:.0} y={:.0} w={:.0} h={:.0} maximized={}",
+                        f32::from(b.origin.x),
+                        f32::from(b.origin.y),
+                        f32::from(b.size.width),
+                        f32::from(b.size.height),
+                        matches!(window.window_bounds(), gpui::WindowBounds::Maximized(_))
+                    );
+                });
+            };
+            report("打开后", cx);
+            if let Some((w, h)) = std::env::var("MAKIT_SELFTEST_RESIZE").ok().and_then(|v| {
+                let (w, h) = v.split_once('x')?;
+                Some((w.parse::<f32>().ok()?, h.parse::<f32>().ok()?))
+            }) {
+                let _ = handle.update(cx, |_, window, _| window.resize(gpui::size(gpui::px(w), gpui::px(h))));
+                cx.background_executor().timer(Duration::from_millis(600)).await;
+                report("改大小后", cx);
+            }
+            let _ = cx.update(|cx| cx.quit());
+        })
+        .detach();
+        return;
+    }
     if mode == "logging" {
         let fails = logging_selftest();
         if fails.is_empty() {

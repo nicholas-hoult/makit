@@ -11,6 +11,9 @@
 #   bash native/scripts/dev.sh --fake-home --first-run [--appearance=light|dark]
 #                                           # 模拟「全新用户第一次启动」：删掉假 HOME 的状态文件（主题 / 窗口 / 布局都回到初始），
 #                                           # --appearance 覆盖系统外观（#256 A6：没主动选过主题就跟系统）。不带 --first-run 时状态保留
+#   bash native/scripts/dev.sh --fake-home --first-run --display=1280x800
+#                                           # 覆盖显示器列表（#256 A7）：`1280x800` 或多块 `2560x1440,1920x1080@-1920,0`（@x,y 是这块屏左上角坐标），
+#                                           # 不用真换屏 / 拔线就能看小屏默认大小、外接屏拔掉后窗口去哪
 #   bash native/scripts/dev.sh --fast       # 「快 debug」：自己的代码仍是 debug（增量编译快），依赖开优化（运行时接近 release）。
 #                                           # 日常开发推荐；第一次要把依赖按优化编一遍（约十分钟，之后共用缓存）
 #   bash native/scripts/dev.sh --fake-home --tools=none|claude|codex|both
@@ -46,6 +49,7 @@ tools=""
 no_build=0
 data=""
 first_run=0
+display=""
 appearance=""
 for a in "$@"; do
     case "$a" in
@@ -54,6 +58,10 @@ for a in "$@"; do
         --fast) profile=(--profile devfast); profdir=devfast ;;
         --no-build) no_build=1 ;;
         --first-run) first_run=1 ;;
+        --display=*)
+            display="${a#--display=}"
+            item='[0-9]+[xX][0-9]+(@-?[0-9]+,-?[0-9]+)?'
+            [[ "$display" =~ ^${item}(,${item})*$ ]] || { echo "--display 的格式是 1280x800 或 2560x1440,1920x1080@-1920,0（收到：${display}）" >&2; exit 2; } ;;
         --appearance=light|--appearance=dark) appearance="${a#--appearance=}" ;;
         --appearance=*) echo "--appearance 的值要是 light / dark（收到：${a#--appearance=}）" >&2; exit 2 ;;
         --data=ok|--data=empty|--data=missing|--data=unreadable) data="${a#--data=}" ;;
@@ -61,7 +69,7 @@ for a in "$@"; do
         --tools=none|--tools=claude|--tools=codex|--tools=both) tools="${a#--tools=}" ;;
         --tools=*) echo "--tools 的值要是 none / claude / codex / both（收到：${a#--tools=}）" >&2; exit 2 ;;
         -h|--help) awk 'NR>1 && /^#/ {print; next} NR>1 {exit}' "${BASH_SOURCE[0]}"; exit 0 ;;
-        *) echo "不认识的参数：${a}（可用：--fake-home / --first-run / --appearance= / --data= / --release / --fast / --no-build / --tools=）" >&2; exit 2 ;;
+        *) echo "不认识的参数：${a}（可用：--fake-home / --first-run / --display= / --appearance= / --data= / --release / --fast / --no-build / --tools=）" >&2; exit 2 ;;
     esac
 done
 
@@ -103,6 +111,7 @@ if [[ $fake_home == 1 ]]; then
     esac
     echo "→ 假 HOME：${HOME}（不读 ~/.claude，里面没有真会话）"
 fi
+[[ -n "${display}" ]] && export MAKIT_DISPLAY="${display}" && echo "→ 显示器按 MAKIT_DISPLAY=${display} 算（不看真实显示器）"
 [[ -n "${appearance}" ]] && export MAKIT_APPEARANCE="${appearance}" && echo "→ 系统外观按 MAKIT_APPEARANCE=${appearance} 算（不看真实系统设置）"
 [[ -n "${tools}" ]] && export MAKIT_TOOLS="${tools}" && echo "→ 工具检测按 MAKIT_TOOLS=${tools} 算（不看真实 PATH）"
 echo "→ ${bin}"

@@ -265,6 +265,42 @@ fn wire_notify_settings(cx: &mut App) {
 }
 
 /// 应用入口（main.rs 只调这个）
+/// 当前的显示器列表（主屏在最前）。`MAKIT_DISPLAY=1280x800` 可覆盖，dev 里不用真换屏
+fn display_rects(cx: &App) -> Vec<crate::window_placement::Rect> {
+    if let Some(v) = std::env::var("MAKIT_DISPLAY").ok().and_then(|v| crate::window_placement::parse_displays(&v)) {
+        return v;
+    }
+    let primary = cx.primary_display().map(|d| d.id());
+    let mut displays = cx.displays();
+    displays.sort_by_key(|d| Some(d.id()) != primary); // false 排前面：主屏第一
+    displays
+        .iter()
+        .map(|d| {
+            let b = d.bounds();
+            crate::window_placement::Rect { x: f32::from(b.origin.x), y: f32::from(b.origin.y), w: f32::from(b.size.width), h: f32::from(b.size.height) }
+        })
+        .collect()
+}
+
+/// 把窗口现在的位置和大小存进偏好（没变就不写）。全屏只存还原大小，不记全屏本身（TRD #256 §5.3）
+fn save_window(state: &Entity<AppState>, window: &Window, cx: &mut App) {
+    let (b, maximized) = match window.window_bounds() {
+        WindowBounds::Windowed(b) => (b, false),
+        WindowBounds::Maximized(b) => (b, true),
+        WindowBounds::Fullscreen(b) => (b, false),
+    };
+    let saved = crate::persist::state::SavedWindow {
+        x: f32::from(b.origin.x),
+        y: f32::from(b.origin.y),
+        w: f32::from(b.size.width),
+        h: f32::from(b.size.height),
+        maximized,
+    };
+    if state.read(cx).prefs.window != Some(saved) {
+        state.update(cx, |s, cx| s.update_prefs(cx, |p| p.window = Some(saved)));
+    }
+}
+
 pub fn run() {
     crate::logging::init();
     perf::mark("main 开始");
@@ -277,6 +313,7 @@ pub fn run() {
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
             log::warn!(target: "font", "加载内置字体失败：{e}");
         }
+        let window_prefs = prefs.window;
         // 没主动选过主题就按系统外观选（#256 A6）
         let startup_dark = crate::theme::auto::system_is_dark(cx);
         let startup_theme = crate::theme::auto::effective_theme_id(prefs.theme.chosen, &prefs.theme.id, startup_dark);
@@ -289,12 +326,16 @@ pub fn run() {
         wire_notify_settings(cx);
         actions::bind_all(cx);
 
-        let bounds = Bounds::centered(None, size(px(1400.0), px(900.0)), cx);
+        // 窗口位置和大小（#256 A7）：没记过就按屏幕大小给默认（小屏上收缩），记过就按**当前**显示器校正后还原
+        let placement = crate::window_placement::fit_window(window_prefs.as_ref(), &display_rects(cx));
+        let r = placement.rect;
+        let bounds = Bounds { origin: gpui::point(px(r.x), px(r.y)), size: size(px(r.w), px(r.h)) };
+        log::info!(target: "window", "窗口：{:.0}×{:.0} @ ({:.0}, {:.0}){}", r.w, r.h, r.x, r.y, if placement.maximized { "，最大化" } else { "" });
         let root_state = state.clone();
         let handle = cx
             .open_window(
                 WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_bounds: Some(if placement.maximized { WindowBounds::Maximized(bounds) } else { WindowBounds::Windowed(bounds) }),
                     // C 工作区：透明标题栏（= Tauri 的 titleBarStyle Overlay + hiddenTitle），标题栏由 workspace::titlebar 自绘
                     titlebar: Some(TitlebarOptions { title: Some(SharedString::from(app_name())), appears_transparent: true, ..Default::default() }),
                     window_min_size: Some(size(px(900.0), px(560.0))),
@@ -306,6 +347,18 @@ pub fn run() {
             )
             .expect("窗口创建失败");
         perf::mark("窗口创建");
+        // 窗口失去焦点时记一下位置和大小（#256 A7）。GPUI 没有公开的「移动 / 缩放」监听，所以用失去焦点 + 退出两个时机
+        {
+            let window_state = state.clone();
+            let _ = handle.update(cx, |_, window, cx| {
+                cx.observe_window_activation(window, move |_, window, cx| {
+                    if !window.is_window_active() {
+                        save_window(&window_state, window, cx);
+                    }
+                })
+                .detach();
+            });
+        }
         // 系统切深色 / 浅色时，没主动选过主题的用户跟着变；选过的不动（#256 A6）
         {
             let theme_state = state.clone();
@@ -323,7 +376,10 @@ pub fn run() {
 
         // 退出前把防抖中的状态写掉
         let quit_state = state.clone();
+        let quit_handle = handle;
         cx.on_app_quit(move |cx| {
+            // 先记窗口位置再落盘：Cmd-Q 前没有失去焦点，只靠这一下
+            let _ = quit_handle.update(cx, |_, window, cx| save_window(&quit_state, window, cx));
             quit_state.read(cx).flush();
             async {}
         })
