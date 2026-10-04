@@ -521,6 +521,13 @@ impl Render for SettingsView {
                                     )
                                     .child(hint("日志按天保存在 ~/.claude/makit/logs，只留最近 7 天；记的是启动、失败和关键操作，不含对话内容和终端输出，路径里的用户名已替换成 ~，但项目目录名仍可能出现，贴出去前请自己看一眼。")),
                             )
+                            // 关于（#199）：提 issue 时要报版本号
+                            .child(
+                                section()
+                                    .child(label("关于"))
+                                    .child(div().text_size(px(12.0)).text_color(theme.fg).child(concat!("makit ", env!("CARGO_PKG_VERSION"))))
+                                    .child(hint("提 issue 请附上这个版本号和 macOS 版本；出问题时用上面「诊断」里的按钮复制诊断信息。")),
+                            )
                             // 对话视图（#231）
                             .child(
                                 section()
