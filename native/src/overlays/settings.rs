@@ -3,7 +3,7 @@
 //! 不迁的：「列表显示 → 顶部需要操作区域」开关（`makit-show-attention`，没有任何地方读，#224 死开关）。
 //! 系统通知的授权状态 / 请求授权 / 测试通知归 E 通知包：它调 `set_notify_hooks` 接进来，没接之前显示「读取中…」。
 
-use crate::tr;
+use crate::{tr, ts};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -16,7 +16,6 @@ use super::shortcuts::{shortcut_groups, ShortcutRow};
 use super::style::*;
 use super::MenuItem;
 use crate::actions::{keymap, overlays as act};
-use rust_i18n::t;
 use crate::state::AppState;
 use crate::theme::derive::{is_light, ThemeSource};
 use crate::theme::{builtin::builtin_themes, itermcolors::import_itermcolors, ActiveTheme, Theme};
@@ -181,7 +180,7 @@ impl SettingsView {
             let Ok(Ok(Some(paths))) = rx.await else { return };
             let Some(path): Option<PathBuf> = paths.into_iter().next() else { return };
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let result = std::fs::read_to_string(&path).map_err(|e| t!("settings.theme.read_failed", error = e).to_string()).and_then(|xml| import_itermcolors(&name, &xml));
+            let result = std::fs::read_to_string(&path).map_err(|e| ts!("settings.theme.read_failed", error = e)).and_then(|xml| import_itermcolors(&name, &xml));
             let _ = cx.update_window(handle, |_, window, cx| match result {
                 Ok(t) => {
                     let list = upsert_imported(&state.read(cx).prefs.theme.imported, t.clone());
@@ -246,7 +245,7 @@ impl SettingsView {
                 .map(|(id, label)| {
                     let (state, id) = (state.clone(), id.to_string());
                     let checked = id == cur;
-                    MenuItem::action(t!(*label).to_string(), move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.hover_mode = id.clone()))).checked(checked)
+                    MenuItem::action(ts!(*label), move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.hover_mode = id.clone()))).checked(checked)
                 })
                 .collect()
         });
@@ -273,9 +272,9 @@ impl SettingsView {
 /// Menu / select label for a language preference (the two languages are named in themselves, so they stay readable after a wrong switch).
 fn language_name(pref: &str) -> String {
     match pref {
-        crate::i18n::PREF_ZH => t!("settings.language.zh").to_string(),
-        crate::i18n::PREF_EN => t!("settings.language.en").to_string(),
-        _ => t!("settings.language.system").to_string(),
+        crate::i18n::PREF_ZH => ts!("settings.language.zh"),
+        crate::i18n::PREF_EN => ts!("settings.language.en"),
+        _ => ts!("settings.language.system"),
     }
 }
 
@@ -334,11 +333,11 @@ impl Render for SettingsView {
         };
         let effective_id = crate::theme::auto::effective_theme_id(prefs.theme.chosen, &prefs.theme.id, crate::theme::auto::system_is_dark(cx));
         let theme_name = Theme::by_id(effective_id, &prefs.theme.imported).source.name;
-        let theme_name = if prefs.theme.chosen { theme_name } else { t!("settings.theme.follow_system", name = theme_name).to_string() };
+        let theme_name = if prefs.theme.chosen { theme_name } else { ts!("settings.theme.follow_system", name = theme_name) };
         let swatches = (0..8).map(|i| div().flex_1().min_w_0().h(px(14.0)).rounded(px(2.0)).bg(theme.ansi[i]).border_1().border_color(theme.border));
         let icons = pane_icons_for(&prefs.pane_icons);
         let icon_name = PANE_ICON_SETS.iter().find(|s| s.id == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).name;
-        let hover_name = t!(HOVER_MODES.iter().find(|m| m.0 == prefs.sidebar.hover_mode).unwrap_or(&HOVER_MODES[0]).1).to_string();
+        let hover_name = ts!(HOVER_MODES.iter().find(|m| m.0 == prefs.sidebar.hover_mode).unwrap_or(&HOVER_MODES[0]).1);
         let hooks = cx.try_global::<NotifyHooks>().cloned();
         let permission = hooks.as_ref().and_then(|h| (h.permission)(cx));
         let accent_text = theme.var("--accent-text");
@@ -424,9 +423,9 @@ impl Render for SettingsView {
                             // Language (#71)
                             .child(
                                 section()
-                                    .child(label(&t!("settings.language.title")))
+                                    .child(label(&tr!("settings.language.title")))
                                     .child(select_box(&theme, "language-select", language_name(&prefs.language)).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_language_menu(ev, window, cx))))
-                                    .child(hint(&t!("settings.language.hint"))),
+                                    .child(hint(&tr!("settings.language.hint"))),
                             )
                             // 外观主题
                             .child(

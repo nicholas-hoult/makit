@@ -9,13 +9,31 @@
 
 use std::collections::BTreeSet;
 
-/// Translate a key into a `SharedString` ready for `.child(..)` / labels; takes the same arguments as `t!`
-/// (`tr!("settings.title")`, `tr!("sidebar.count", n = 3)`).
+/// Translate a key into a `String`; takes the same arguments as `t!` (`ts!("sidebar.count", n = 3)`,
+/// `ts!(key_variable)`, `ts!("x", locale = "en")`). Always go through `ts!` / `tr!` instead of `t!` directly:
+/// they make sure the locale is initialised (Chinese) even where `app::run` never ran, e.g. in unit tests.
+#[macro_export]
+macro_rules! ts {
+    ($($args:tt)*) => {{
+        $crate::i18n::ensure_init();
+        rust_i18n::t!($($args)*).into_owned()
+    }};
+}
+
+/// Same as `ts!` but a `SharedString`, ready for `.child(..)` and element labels.
 #[macro_export]
 macro_rules! tr {
     ($($args:tt)*) => {
-        gpui::SharedString::from(rust_i18n::t!($($args)*).into_owned())
+        gpui::SharedString::from($crate::ts!($($args)*))
     };
+}
+
+static INIT: std::sync::Once = std::sync::Once::new();
+
+/// Make Chinese the locale if nothing has chosen one yet (rust-i18n's own default would be English).
+/// `apply` marks the locale as chosen, so this never overrides the user's preference.
+pub fn ensure_init() {
+    INIT.call_once(|| rust_i18n::set_locale("zh"));
 }
 
 /// Preference values stored in `NativeState.language`.
@@ -47,6 +65,7 @@ pub fn resolve(pref: &str, system_languages: &[String]) -> &'static str {
 /// Switch the process-wide locale to the given preference. Self-tests (`MAKIT_NATIVE_SELFTEST`) assert on
 /// Chinese text, so they always run in Chinese whatever the preference or system language is.
 pub fn apply(pref: &str) {
+    INIT.call_once(|| {});
     let locale = if std::env::var_os("MAKIT_NATIVE_SELFTEST").is_some() {
         "zh"
     } else {
@@ -166,7 +185,7 @@ mod tests {
                         let before = &src[..i];
                         let name_len = before.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').count();
                         let name = &before[before.len() - name_len..];
-                        if name != "t" && name != "tr" {
+                        if name != "t" && name != "tr" && name != "ts" {
                             continue;
                         }
                         let after = &src[i + 3..];
