@@ -152,13 +152,14 @@ Codex 这条路还没在真机上全面验证，0.1 当它是**已知限制**而
 
 一个未签名的、要读 `~/.claude` 的 app，你有权知道它具体干什么。全部如下：
 
-**读取（只读）**
+**读取**
 
-- `~/.claude/projects/`、`~/.claude/sessions/` — 扫描已有会话，用来生成列表和状态
+- `~/.claude/projects/`、`~/.claude/sessions/`、`~/.codex/sessions/` — 扫描已有会话，用来生成列表和状态
 
 **写入**
 
-- `~/.claude/makit/` — makit 自己的数据：归档记录、图标缓存、hook 通信用的 socket。删掉它不会影响你的会话
+- `~/.claude/makit/` — makit 自己的数据：设置、归档记录、图标缓存、日志（`logs/`，只留最近 7 天，不含对话内容）、hook 通信用的 socket。删掉它不会影响你的会话
+- `~/.claude/projects/` — **只有你对「启动目录已被删除 / 改名」的 Claude Code 会话点了恢复**，makit 才会在这里建一个符号链接，让 Claude Code 在原来的位置找到那段对话；其余时候不写
 - `~/.claude/settings.json` — **只有你点了「安装 hook」按钮才会写**。不装 hook，makit 一个字都不会改它
 
 **网络**
@@ -206,6 +207,8 @@ bash native/scripts/bundle.sh
 ```
 
 环境要求：macOS、Rust stable。
+
+> 仓库里的 `src-tauri/` 和 `src/` 是 0.1 之前的旧版（Tauri + React），已经冻结、不再维护，现在的应用在 `native/` 和 `core/` 里。
 
 跑测试：
 
