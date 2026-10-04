@@ -43,9 +43,15 @@ pub fn save_to(path: &Path, state: &NativeState) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let json = serde_json::to_vec_pretty(state).map_err(std::io::Error::other)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json)?;
-    std::fs::rename(&tmp, path)
+    // The temp name carries the pid and a sequence number: several makit instances (packaged + dev) share this
+    // file, and with one fixed temp name the second rename fails with "No such file or directory".
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_extension(format!("json.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let result = std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// 启动时读状态：文件在、且比 Tauri 版的 localStorage 新就用它；否则从 localStorage 导入，然后立刻写盘。
@@ -179,7 +185,26 @@ mod tests {
         saver.save(s);
         saver.flush();
         assert_eq!(load_from(&p).unwrap().pinned_sessions, ["flushed"], "flush 立刻写");
-        assert!(!p.with_extension("json.tmp").exists(), "临时文件不留");
+        assert!(std::fs::read_dir(p.parent().unwrap()).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".tmp")), "临时文件不留");
+    }
+
+    /// Several instances (or threads) saving the same state file at once must not fail on a shared temp file.
+    #[test]
+    fn concurrent_saves_to_the_same_file_all_succeed() {
+        let dir = std::env::temp_dir().join(format!("makit-state-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("native-state.json");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || (0..100).map(|_| save_to(&path, &NativeState::default())).filter_map(Result::err).map(|e| e.to_string()).collect::<Vec<_>>())
+            })
+            .collect();
+        let errors: Vec<String> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+        assert!(errors.is_empty(), "concurrent saves failed: {:?}", &errors[..errors.len().min(3)]);
+        let leftovers = std::fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).count();
+        assert_eq!(leftovers, 0, "temp files must not be left behind");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

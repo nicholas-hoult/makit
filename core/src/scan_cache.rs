@@ -135,10 +135,16 @@ pub fn save_scan_cache_to(path: &Path) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    // 先写临时文件再改名：写到一半被杀也不会留下半个文件
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    // 先写临时文件再改名：写到一半被杀也不会留下半个文件。
+    // 临时文件名带进程号和序号：同一台机器上可能有几个 makit 实例（打包版 + dev）、同一进程也可能有几个线程同时存，
+    // 共用一个临时文件的话第一个改名之后第二个就找不到文件了（日志里的「写盘失败: No such file or directory」）
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = path.with_extension(format!("json.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let result = fs::write(&tmp, json).and_then(|_| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]
@@ -209,6 +215,33 @@ pub fn scan_session_file(path: &Path) -> Option<ScanState> {
 /// （本机最大 43MB）重新解析一遍，0.2–0.4s CPU。现在记住读到的字节位置，只读追加部分。
 /// 错了在 UI 上：侧栏的消息数 / 首末条消息 / 标题和 ⌘R 全量刷新后的不一致，
 /// 或者 claude 正写到一半的那行被吞掉、被数两次。
+#[cfg(test)]
+mod save_race_tests {
+    use super::*;
+
+    /// Why this test exists: two makit instances (or two threads) saving at once used to share one
+    /// `scan-cache.json.tmp`; the first rename moved it away and the second failed with "No such file or
+    /// directory", which showed up in the log as a "scan_cache: write failed" warning.
+    #[test]
+    fn concurrent_saves_to_the_same_file_all_succeed() {
+        let dir = std::env::temp_dir().join(format!("makit-scan-race-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("scan-cache.json");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || (0..100).map(|_| save_scan_cache_to(&path)).filter_map(Result::err).collect::<Vec<_>>())
+            })
+            .collect();
+        let errors: Vec<String> = handles.into_iter().flat_map(|h| h.join().unwrap()).collect();
+        assert!(errors.is_empty(), "concurrent saves failed: {:?}", &errors[..errors.len().min(3)]);
+        assert!(path.exists());
+        let leftovers = fs::read_dir(&dir).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".tmp")).count();
+        assert_eq!(leftovers, 0, "temp files must not be left behind");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(test)]
 mod incremental_scan_tests {
     use super::*;
