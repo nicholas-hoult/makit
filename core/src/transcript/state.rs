@@ -1,9 +1,9 @@
-//! 解析状态机：逐行喂，攒出全部 Item，再按「当前分支」算出可见的那些（规则见 TRD §11.4）。
+//! Parsing state machine: fed line by line, it accumulates all Items, then computes the visible ones from the "current branch" (rules in TRD section 11.4).
 //!
-//! 为什么「全部 Item」和「可见」分开：
-//! - 回退（rewind）会在文件里留下废分支，要按 `parentUuid` 链算出当前分支
-//! - 但 tool_result 要按 id 挂回 tool_use，不能看它自己在不在链上（并行工具调用的结果不在最终链上）
-//! - 压缩之后 `parentUuid` 断了，靠 `logicalParentUuid` 接回压缩之前
+//! Why "all Items" and "visible" are kept separate:
+//! - A rewind leaves a dead branch in the file, so the current branch must be computed by following the `parentUuid` chain
+//! - But a tool_result must attach back to its tool_use by id, regardless of whether it is on the chain itself (results of parallel tool calls are not on the final chain)
+//! - After compaction `parentUuid` is broken, so `logicalParentUuid` reconnects to what came before the compaction
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -12,20 +12,20 @@ use serde_json::Value;
 use super::model::{Item, ItemKind, Tool};
 use super::{claude, codex};
 
-/// 一条带 uuid 的记录（不管有没有产出 Item，都要留着：它可能是别的记录的父）
+/// A record with a uuid (kept whether or not it produced an Item: it may be another record's parent)
 pub(super) struct Rec {
     pub parent: Option<String>,
     pub logical_parent: Option<String>,
-    /// user / assistant 的对话记录（可以当叶子；其余的 system 等只在父在链上时才可见）
+    /// A user / assistant conversation record (can be a leaf; others such as system are visible only when their parent is on the chain)
     pub conv: bool,
-    /// assistant 记录所属的 API 回复（`message.id`）。一条回复会拆成多个块（并行工具调用……），后来的块的父指针
-    /// 可以跳过其中一个兄弟；这些块是同一条回复，不是被放弃的分支
+    /// The API reply this assistant record belongs to (`message.id`). One reply is split into several blocks (parallel tool calls...), and a later block's parent pointer
+    /// may skip one of its siblings; these blocks are the same reply, not abandoned branches
     pub msg: Option<String>,
 }
 
 pub(super) struct Entry {
     pub item: Item,
-    /// 这个 Item 来自哪条记录（`recs` 的键：uuid）；codex 没有链，为 None
+    /// Which record this Item came from (key of `recs`: the uuid); None for codex, which has no chain
     pub rec: Option<String>,
 }
 
@@ -33,7 +33,7 @@ pub struct State {
     pub(super) tool: Tool,
     pub(super) all: Vec<Entry>,
     pub(super) recs: HashMap<String, Rec>,
-    /// call_id → `all` 里的下标
+    /// call_id -> index into `all`
     pub(super) calls: HashMap<String, usize>,
     pub(super) leaf: Option<String>,
     pub(super) unknown: BTreeMap<String, usize>,
@@ -59,7 +59,7 @@ impl State {
         }
     }
 
-    /// 喂一行（不含换行）。返回这一行让哪些已有的 ToolCall 更新了结果（`all` 里的下标）
+    /// Feed one line (without the newline). Returns which existing ToolCalls had their results updated by this line (indices into `all`)
     pub fn feed_line(&mut self, line: &str) -> Vec<usize> {
         self.lines += 1;
         let line = line.trim();
@@ -89,10 +89,10 @@ impl State {
         *self.unknown.entry(what).or_default() += 1;
     }
 
-    /// 按当前分支重算可见集合
+    /// Recompute the visible set from the current branch
     pub fn recompute_visible(&mut self) {
         let active = self.active_chain();
-        // 活动链上出现过的回复：同一条回复的其余块也可见
+        // Replies seen on the active chain: the other blocks of the same reply are visible too
         let active_msgs: HashSet<&str> = active.iter().filter_map(|u| self.recs.get(*u)?.msg.as_deref()).collect();
         self.visible = self
             .all
@@ -103,7 +103,7 @@ impl State {
                 (_, Some(uuid)) => match self.recs.get(uuid) {
                     None => true,
                     Some(r) if r.conv => active.contains(uuid.as_str()) || r.msg.as_deref().is_some_and(|m| active_msgs.contains(m)),
-                    // system 等：顺着父往上找到最近的一条对话记录，它在链上才可见
+                    // system etc.: walk up the parents to the nearest conversation record; visible only if it is on the chain
                     Some(_) => self.anchor_active(uuid, &active),
                 },
             })
@@ -111,8 +111,8 @@ impl State {
             .collect();
     }
 
-    /// 非对话记录（system 等）：往上找最近的对话记录祖先，它在当前分支上就可见；一路没有对话祖先（比如开头的 system）也可见。
-    /// 不能只看直接的父：一串 system 记录可以互相挂着（turn_duration → 别的 system），它们都算挂在同一条对话记录下面
+    /// Non-conversation records (system etc.): walk up to the nearest conversation-record ancestor; visible if it is on the current branch; also visible if there is no conversation ancestor all the way up (e.g. a leading system record).
+    /// Looking only at the direct parent is not enough: a series of system records can hang off each other (turn_duration -> another system), and they all count as hanging under the same conversation record
     fn anchor_active(&self, uuid: &str, active: &HashSet<&str>) -> bool {
         let mut cur = uuid;
         for _ in 0..64 {
@@ -128,13 +128,13 @@ impl State {
         true
     }
 
-    /// 从最后一条对话记录往上走：`parentUuid`，为空时改走 `logicalParentUuid`（压缩之后）
+    /// Walk up from the last conversation record: `parentUuid`, or `logicalParentUuid` when it is empty (after compaction)
     fn active_chain(&self) -> HashSet<&str> {
         let mut set = HashSet::new();
         let mut cur = self.leaf.as_deref();
         while let Some(uuid) = cur {
             if !set.insert(uuid) {
-                break; // 防环
+                break; // cycle guard
             }
             cur = self.recs.get(uuid).and_then(|r| r.parent.as_deref().or(r.logical_parent.as_deref()));
         }
@@ -149,12 +149,12 @@ impl State {
         &self.all[self.visible[i]].item
     }
 
-    /// 可见列表里第 i 项在 `all` 里的下标
+    /// Index into `all` of the i-th item of the visible list
     pub fn visible_index(&self, i: usize) -> usize {
         self.visible[i]
     }
 
-    /// `all` 里的下标在可见列表里的位置（不可见返回 None）
+    /// Position in the visible list of an index into `all` (None if not visible)
     pub fn visible_pos(&self, all_ix: usize) -> Option<usize> {
         self.visible.binary_search(&all_ix).ok()
     }
@@ -167,7 +167,7 @@ impl State {
         self.invalid_lines
     }
 
-    /// 给 ToolCall 挂结果；返回是否真的挂上了
+    /// Attach a result to a ToolCall; returns whether it really attached
     pub(super) fn attach_result(&mut self, call_id: &str, result: super::model::ToolResult) -> Option<usize> {
         let ix = *self.calls.get(call_id)?;
         if let ItemKind::ToolCall { result: slot, .. } = &mut self.all[ix].item.kind {

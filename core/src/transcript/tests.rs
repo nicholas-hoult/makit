@@ -1,7 +1,7 @@
-//! 对话模型的测试（#231 第 1 期，方案见 TRD §11.6）。
+//! Tests for the conversation model (#231 phase 1, plan in TRD section 11.6).
 //!
-//! 为什么要测：这里解析错了，界面上就是「对话缺一段 / 多一段 / 工具结果挂错地方 / 回退后的旧对话冒出来 /
-//! 同一句话出现两遍」。夹具都是**按真实文件的结构手写的、文本全是占位**的记录（不含任何真实内容）。
+//! Why test this: if parsing is wrong, the screen shows "a stretch of conversation missing / extra, tool results attached to the wrong place, an old conversation from before a rewind popping up /
+//! the same sentence appearing twice". The fixtures are records **hand-written following the structure of real files, with placeholder text throughout** (no real content at all).
 
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::*;
 
-// ───────────── 造记录 ─────────────
+// ------------- building records -------------
 
 fn line(v: Value) -> String {
     v.to_string()
@@ -110,12 +110,12 @@ fn plain_question_and_answer() {
 fn non_conversation_records_are_skipped_and_unknown_types_are_counted() {
     let mut s = State::new(Tool::Claude);
     let lines = vec![
-        // 没有 uuid 的元数据，认识的：不算未知
+        // metadata without a uuid, recognized: does not count as unknown
         line(json!({"type": "queue-operation", "operation": "enqueue"})),
         line(json!({"type": "mode", "mode": "auto"})),
         line(json!({"type": "custom-title", "customTitle": "x"})),
         line(json!({"type": "file-history-snapshot"})),
-        // 要跳过的对话记录
+        // conversation record to skip
         with(base("user", "m1", None), json!({"isMeta": true, "message": {"role": "user", "content": "<local-command-caveat>Caveat: x</local-command-caveat>"}})),
         with(base("user", "sc1", Some("m1")), json!({"isSidechain": true, "message": {"role": "user", "content": "子代理内部的话"}})),
         with(base("user", "cs1", Some("m1")), json!({"isCompactSummary": true, "message": {"role": "user", "content": "This session is being continued…"}})),
@@ -123,7 +123,7 @@ fn non_conversation_records_are_skipped_and_unknown_types_are_counted() {
         with(base("progress", "pg1", Some("m1")), json!({"data": {"type": "bash_progress"}})),
         sys("h1", Some("m1"), "stop_hook_summary", json!({"hookCount": 1})),
         user_str("u1", Some("m1"), "真问题"),
-        // 完全不认识的类型（有 uuid）：跳过并计数
+        // completely unrecognized type (with a uuid): skipped and counted
         with(base("brand-new-thing", "n1", Some("u1")), json!({})),
     ];
     for l in &lines {
@@ -139,7 +139,7 @@ fn non_conversation_records_are_skipped_and_unknown_types_are_counted() {
 
 #[test]
 fn parallel_tool_calls_keep_results_even_though_they_are_off_the_active_chain() {
-    // 一次回复里两个并行工具调用：a3.parent=a2；r1.parent=a2（不在最终链上）、r2.parent=a3
+    // two parallel tool calls in one reply: a3.parent=a2; r1.parent=a2 (not on the final chain), r2.parent=a3
     let items = claude(&[
         user_str("u1", None, "问题"),
         asst("a1", Some("u1"), "m1", json!({"type": "thinking", "thinking": "先看看"})),
@@ -164,8 +164,8 @@ fn parallel_tool_calls_keep_results_even_though_they_are_off_the_active_chain() 
 
 #[test]
 fn parallel_tool_results_arriving_one_by_one_never_reset_the_view() {
-    // 实时读：a2 / a3 是并行的两个工具调用，r1（a2 的结果）先到、r2（a3 的结果）后到。
-    // r1 到的时候叶子不能退回 a2 —— 否则 a3 暂时从可见链里消失，读取器报 reset，界面整体重建（「刷一下」）
+    // Live reading: a2 / a3 are two parallel tool calls; r1 (a2's result) arrives first, r2 (a3's result) later.
+    // When r1 arrives the leaf must not move back to a2 -- otherwise a3 temporarily vanishes from the visible chain, the reader reports reset, and the view is rebuilt entirely (a visible flash)
     use std::io::Write;
     let path = std::env::temp_dir().join(format!("mk-live-{}.jsonl", std::process::id()));
     std::fs::write(&path, "").unwrap();
@@ -204,8 +204,8 @@ fn tool_result_arriving_last_does_not_hide_the_parallel_sibling() {
 
 #[test]
 fn later_block_of_the_same_response_skipping_a_sibling_keeps_the_sibling_visible() {
-    // 真实文件里的形状：同一条回复（m1）拆成 a2 / a3 / a4 三个块；a4 的父是 r1（a2 的结果），跳过了 a3。
-    // a3 属于同一条回复，不是被放弃的分支，必须一直可见，读取器也不该 reset
+    // Shape in a real file: the same reply (m1) is split into three blocks a2 / a3 / a4; a4's parent is r1 (a2's result), skipping a3.
+    // a3 belongs to the same reply and is not an abandoned branch, so it must stay visible throughout, and the reader must not reset either
     use std::io::Write;
     let path = std::env::temp_dir().join(format!("mk-live2-{}.jsonl", std::process::id()));
     std::fs::write(&path, "").unwrap();
@@ -268,7 +268,7 @@ fn one_api_message_split_over_lines_keeps_order_and_unique_ids() {
     ]);
     let ids: Vec<_> = items.iter().map(|i| i.id.as_str()).collect();
     assert_eq!(ids, vec!["u1", "a1", "a2", "a3"]);
-    // 一条记录里有多个块时，后面的 id 带 #n
+    // when one record has several blocks, later ids carry #n
     let items = claude(&[with(
         base("assistant", "x1", None),
         json!({"message": {"id": "m", "role": "assistant", "content": [text_block("一"), text_block("二"), tool_use("t", "Bash", json!({}))]}}),
@@ -349,7 +349,7 @@ fn compaction_keeps_the_history_before_it_via_logical_parent() {
     let items = claude(&[
         user_str("u1", None, "压缩前的问题"),
         asst("a1", Some("u1"), "m1", text_block("压缩前的回答")),
-        // 压缩边界：parentUuid 为空，靠 logicalParentUuid 接回去
+        // compaction boundary: parentUuid is empty, reconnect via logicalParentUuid
         with(base("system", "c1", None), json!({"subtype": "compact_boundary", "content": "Conversation compacted", "logicalParentUuid": "a1", "compactMetadata": {"trigger": "manual", "preTokens": 100}})),
         with(base("user", "cs", Some("c1")), json!({"isCompactSummary": true, "message": {"role": "user", "content": "摘要…"}})),
         user_str("u2", Some("cs"), "压缩后的问题"),
@@ -369,8 +369,8 @@ fn compaction_keeps_the_history_before_it_via_logical_parent() {
 
 #[test]
 fn compaction_whose_logical_parent_points_forward_falls_back_to_the_previous_message() {
-    // 真实文件里 22 个压缩边界有 5 个的 logicalParentUuid 指向**边界之后**才出现的记录（att1，它自己的祖先链又经过边界）
-    // → 按它走会成环、压缩之前的对话全丢。这时改接「文件里在它前面的最后一条对话记录」
+    // In a real file, 5 of 22 compaction boundaries have a logicalParentUuid pointing at a record that appears **after the boundary** (att1, whose own ancestor chain passes through the boundary)
+    // -> following it would form a cycle and lose the whole pre-compaction conversation. In that case re-attach to "the last conversation record before it in the file"
     let items = claude(&[
         user_str("u1", None, "压缩前的问题"),
         asst("a1", Some("u1"), "m1", text_block("压缩前的回答")),
@@ -394,7 +394,7 @@ fn compaction_whose_logical_parent_points_forward_falls_back_to_the_previous_mes
 
 #[test]
 fn rewind_hides_the_abandoned_branch() {
-    // u2 是旧的问法，回退之后改问 u3（两者的 parent 都是 a1）
+    // u2 is the old question; after the rewind, u3 is asked instead (both have a1 as parent)
     let items = claude(&[
         user_str("u1", None, "开头"),
         asst("a1", Some("u1"), "m1", text_block("回答一")),
@@ -412,7 +412,7 @@ fn rewind_hides_the_abandoned_branch() {
 
 #[test]
 fn long_tool_output_is_truncated_on_a_char_boundary() {
-    let big = "汉".repeat(10_000); // 30000 字节
+    let big = "汉".repeat(10_000); // 30000 bytes
     let items = claude(&[user_str("u1", None, "q"), asst("a1", Some("u1"), "m", tool_use("t", "Bash", json!({}))), tool_result("r", Some("a1"), "t", json!(big), false)]);
     let ItemKind::ToolCall { result: Some(r), .. } = &items[1].kind else { panic!() };
     assert!(r.truncated);
@@ -456,8 +456,8 @@ fn codex(lines: &[String]) -> Vec<Item> {
 
 #[test]
 fn codex_basic_conversation_dedups_the_two_generations_of_records() {
-    // 真实 0.40 文件里：response_item 的消息和 item_completed 的消息是同一批事件的两份，文本完全一致，
-    // 顺序有时是「R 然后 E」（用户）有时是「E 然后隔着 reasoning 再 R」（助手）
+    // In a real 0.40 file: the response_item message and the item_completed message are two copies of the same batch of events, with identical text,
+    // and the order is sometimes "R then E" (user) and sometimes "E then R after a reasoning item" (assistant)
     let items = codex(&[
         cx("session_meta", json!({"session_id": "s", "cwd": "/w", "cli_version": "0.40.0"})),
         cx_user("<environment_context>\n  <cwd>/w</cwd>\n</environment_context>"),
@@ -480,14 +480,14 @@ fn codex_reasoning_with_summary_text_becomes_thinking() {
 
 #[test]
 fn codex_a_genuinely_repeated_message_is_not_swallowed() {
-    // 用户真的连发了两遍同样的话：R,E,R,E 四条记录 → 两条用户消息
+    // the user really sent the same message twice: four records R,E,R,E -> two user messages
     let items = codex(&[cx_user("再试一次"), cx_done("UserMessage", "再试一次"), cx_user("再试一次"), cx_done("UserMessage", "再试一次")]);
     assert_eq!(kinds(&items), vec![ItemKind::User("再试一次".into()), ItemKind::User("再试一次".into())]);
 }
 
 #[test]
 fn codex_only_one_generation_present_still_works() {
-    // 假设以后的版本只剩 item_completed（或只剩 response_item）：都要能显示
+    // suppose a later version has only item_completed (or only response_item): both must be displayable
     let only_e = codex(&[cx_done("UserMessage", "问"), cx_done("AgentMessage", "答")]);
     assert_eq!(kinds(&only_e), vec![ItemKind::User("问".into()), ItemKind::Assistant("答".into())]);
     let only_r = codex(&[cx_user("问"), cx_asst("答")]);
@@ -549,12 +549,12 @@ fn codex_aborted_turn_and_ignored_records() {
 
 #[test]
 fn codex_user_message_event_is_a_user_message() {
-    // 少数文件只有 event_msg.user_message
+    // a few files have only event_msg.user_message
     let items = codex(&[cx("event_msg", json!({"type": "user_message", "message": "只有事件", "kind": "plain"}))]);
     assert_eq!(kinds(&items), vec![ItemKind::User("只有事件".into())]);
 }
 
-// ───────────── 增量读取器 ─────────────
+// ------------- incremental reader -------------
 
 use std::fs;
 use std::io::Write;
@@ -584,7 +584,7 @@ fn joined(lines: &[String]) -> String {
 fn sample_session() -> Vec<String> {
     vec![
         line(json!({"type": "ai-title", "aiTitle": "标题"})),
-        // 先有一支被回退掉的旧问法（和 u1 同一个父：根）
+        // first an old question that was rewound away (same parent as u1: the root)
         user_str("u0", None, "被回退的旧问法"),
         asst("a0", Some("u0"), "m0", text_block("被回退的旧回答")),
         user_str("u1", None, "问题一：中文也要能被切在中间"),
@@ -638,16 +638,16 @@ fn appended_range_and_updates_are_reported() {
     let mut r = TranscriptReader::new(p.clone(), Tool::Claude);
     let c = r.poll().unwrap();
     assert_eq!((c.appended, c.updated.clone(), c.reset), (0..2, vec![], false));
-    // 结果晚到：更新前面的 ToolCall（下标 1），不是新增
+    // the result arrives late: update the earlier ToolCall (index 1), not a new addition
     append(&p, joined(&[tool_result("r1", Some("a1"), "t1", json!("输出"), false)]).as_bytes());
     let c = r.poll().unwrap();
     assert_eq!((c.appended, c.updated, c.reset), (2..2, vec![1], false));
     assert!(call("Bash", Some("输出"))(&r.item(1).kind));
-    // 再来一条新回答：只新增
+    // then a new answer: append only
     append(&p, joined(&[asst("a2", Some("r1"), "m2", text_block("完"))]).as_bytes());
     let c = r.poll().unwrap();
     assert_eq!((c.appended, c.updated, c.reset), (2..3, vec![], false));
-    // 什么都没变
+    // nothing changed
     let c = r.poll().unwrap();
     assert_eq!((c.appended, c.updated, c.reset), (3..3, vec![], false));
     let _ = fs::remove_file(&p);
@@ -701,10 +701,10 @@ fn codex_reader_works_too() {
     let _ = fs::remove_file(&p);
 }
 
-// ───────────── 真实文件冒烟（手动跑：cargo test -p makit-core --release -- --ignored --nocapture real_files）─────────────
+// ------------- smoke test on real files (run manually: cargo test -p makit-core --release -- --ignored --nocapture real_files) -------------
 
-/// 扫本机全部 claude / codex 会话文件：不 panic、每个非空文件都产出 Item、汇总未知记录类型和耗时。
-/// 这是升级 claude / codex 之后最该先跑的一条：格式变了它会先报未知类型。
+/// Scan all claude / codex session files on this machine: no panic, every non-empty file yields Items, and summarize unknown record types and timing.
+/// This is the first thing to run after upgrading claude / codex: if the format changed, it reports unknown types first.
 #[test]
 #[ignore]
 fn real_files_parse_without_panics() {
@@ -738,7 +738,7 @@ fn real_files_parse_without_panics() {
                 calls_with_result += result.is_some() as usize;
             }
         }
-        // 只有 session_meta + 注入的环境上下文的 codex 会话（刚开就关）确实是空的（几百字节）；大文件解析出 0 个才是问题
+        // A codex session that has only session_meta + injected environment context (opened and closed right away) is indeed empty (a few hundred bytes); only a large file parsing to 0 Items is a problem
         if r.is_empty() && size > 4096 {
             empty += 1;
             eprintln!("空：{}", path.display());
@@ -779,8 +779,8 @@ fn glob_files(dir: &std::path::Path, depth: usize) -> Vec<PathBuf> {
     out
 }
 
-/// 取证（#231）：把真实会话文件一行一行「写」进临时文件，每写一行 poll 一次，数 reset / 追加 / 更新的次数。
-/// 实时打开的详情面板一 reset 列表就整体重建 → 界面上「刷一下」
+/// Forensics (#231): "write" a real session file into a temp file line by line, poll after each line, and count resets / appends / updates.
+/// With a live-open detail panel, every reset rebuilds the whole list -> a visible flash on screen
 #[test]
 #[ignore]
 fn live_replay_counts_resets() {
@@ -811,7 +811,7 @@ fn live_replay_counts_resets() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// 取证（#231）：冷读一个真实文件要多久，之后每次「有新内容」的 poll 要多久
+/// Forensics (#231): how long a cold read of one real file takes, and how long each later "new content" poll takes
 #[test]
 #[ignore]
 fn cold_and_steady_poll_timing() {

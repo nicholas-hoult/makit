@@ -9,17 +9,17 @@ use chrono::TimeZone;
 use crate::running::RunningInfo;
 use crate::sessions::{get_git_root, humanize_duration, ConversationMessage, SessionMeta};
 
-/// 「这条会话属于哪个 AI 工具」—— **为统一 claude / codex 两条路预留的抽象，目前只接了一半。**
+/// "Which AI tool does this session belong to" -- **an abstraction reserved for unifying the claude / codex paths; so far only half wired up.**
 ///
-/// 现在实际在用的只有 `sessions_dir()`，而且只有 `Codex` 那一支（lib.rs 扫 codex 会话时）。
-/// claude 的两件事都还各走各的路：
-///   - 目录：`~/.claude/projects` 在 lib.rs 里硬编码；
-///   - 恢复命令：在前端 `src/workspace-types.ts` 的 `resumeCmd` 里拼。
-/// 所以 `Claude` 这个变体从没被构造过，`all()` / `name()` / `spawn_cmd()` 也没有调用点，
-/// 编译器如实报了 dead_code。这里挂 `#[allow(dead_code)]` 而不是删：它们是把上面两条路
-/// 收进来时要用的形状，删了下次还得原样写一遍。
+/// Currently only `sessions_dir()` is actually used, and only its `Codex` branch (lib.rs when scanning codex sessions).
+/// Both claude concerns still go their own way:
+///   - directory: `~/.claude/projects` is hardcoded in lib.rs;
+///   - resume command: assembled in the frontend's `resumeCmd` in `src/workspace-types.ts`.
+/// So the `Claude` variant has never been constructed, and `all()` / `name()` / `spawn_cmd()` have no call sites either,
+/// and the compiler rightly reports dead_code. `#[allow(dead_code)]` is attached here rather than deleting them: they are the shapes needed when folding the two paths above in,
+/// and deleting them would mean writing them again as-is.
 ///
-/// 把这个抽象做完的 todo 记在 docs/任务进度.md 待做里。
+/// Finishing this abstraction is tracked as a to-do in the project's task list.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AiTool {
@@ -41,8 +41,8 @@ impl AiTool {
         }
     }
 
-    /// 这个抽象里唯一有调用点的方法（lib.rs 扫 codex 会话时用 `Codex` 那一支）。
-    /// 故意不挂 allow：它要是哪天也没人调了，我想收到警告。
+    /// The only method in this abstraction with a call site (lib.rs uses its `Codex` branch when scanning codex sessions).
+    /// Deliberately no allow: if nobody calls it someday either, a warning is wanted.
     pub fn sessions_dir(&self) -> Option<PathBuf> {
         let home = dirs::home_dir()?;
         match self {
@@ -51,9 +51,9 @@ impl AiTool {
         }
     }
 
-    /// 原来的签名多带一个 `cwd`，函数体里从没用过 —— 命令行里确实不需要它：
-    /// 工作目录是起 pty 时设的，不是拼进 `claude -r <id>` 的。多余的参数删掉，
-    /// 免得以后按它去实现。
+    /// The original signature took an extra `cwd` that the body never used -- the command line really does not need it:
+    /// the working directory is set when the pty is started, not spliced into `claude -r <id>`. The superfluous parameter was removed,
+    /// so nobody implements against it later.
     #[allow(dead_code)]
     pub fn spawn_cmd(&self, session_id: Option<&str>) -> String {
         match self {
@@ -67,7 +67,7 @@ impl AiTool {
     }
 }
 
-// 递归收集 Codex sessions 目录下所有 .jsonl 文件（按年/月/日分层）
+// Recursively collect all .jsonl files under the Codex sessions directory (layered by year/month/day)
 pub fn collect_codex_files(dir: &Path) -> Vec<(PathBuf, i64)> {
     let mut files = Vec::new();
     collect_recursive(dir, &mut files);
@@ -100,7 +100,7 @@ fn collect_recursive(dir: &Path, out: &mut Vec<(PathBuf, i64)>) {
     }
 }
 
-// 解析单个 Codex JSONL 文件 → SessionMeta
+// Parse a single Codex JSONL file -> SessionMeta
 pub fn parse_codex_session(
     path: &Path,
     mtime: i64,
@@ -162,12 +162,12 @@ pub fn parse_codex_session(
                 if role != "user" {
                     continue;
                 }
-                // 提取文本内容
+                // extract the text content
                 let text = payload
                     .pointer("/content/0/text")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                // 跳过 environment_context 注入消息
+                // skip injected environment_context messages
                 if text.trim_start().starts_with("<environment_context>") {
                     continue;
                 }
@@ -186,13 +186,13 @@ pub fn parse_codex_session(
     }
 
     if session_id.is_empty() {
-        // fallback: 从文件名提取 UUID（rollout-{ts}-{uuid}.jsonl）
+        // fallback: extract the UUID from the file name (rollout-{ts}-{uuid}.jsonl)
         let stem = path.file_stem()?.to_string_lossy().to_string();
-        // 取最后一段（uuid 部分）
+        // take the last segment (the uuid part)
         if let Some(uuid) = stem.split('-').rev().take(5).collect::<Vec<_>>().into_iter().rev().next() {
-            let _ = uuid; // 实际上需要重组
+            let _ = uuid; // actually needs reassembly
         }
-        // 简单处理：取 stem 最后 36 字符作为 id（UUID 标准长度）
+        // simple handling: take the last 36 characters of the stem as the id (the standard UUID length)
         let s = stem.len();
         if s >= 36 {
             session_id = stem[s - 36..].to_string();
@@ -204,10 +204,10 @@ pub fn parse_codex_session(
 
     let short_id = session_id.chars().take(8).collect::<String>();
 
-    // git_root: 使用 git_cache 查询
+    // git_root: look up via git_cache
     let git_root = get_git_root(&cwd, git_cache).unwrap_or_default();
 
-    // 运行状态：纯进程检测，Codex 无 JSONL status 字段
+    // running state: pure process detection, Codex has no JSONL status field
     let ri = running_info.get(&session_id);
     let running = ri.is_some();let status = ri.map(|r| r.status.clone()).unwrap_or_else(|| "idle".into());
     let waiting_for = ri.map(|r| r.waiting_for.clone()).unwrap_or_default();
@@ -257,11 +257,11 @@ pub fn parse_codex_session(
     })
 }
 
-/// 按会话 id 在 Codex 会话目录里找文件（#209）。
+/// Find the file in the Codex session directory by session id (#209).
 ///
-/// 常规情况下 Codex 的文件名末尾就是会话 id（`rollout-<时间>-<id>.jsonl`），先按文件名找；
-/// 找不到再逐个读第一条 `session_meta` 比对 —— 和扫描时 `parse_codex_session` 认 id 的方式一致，
-/// 两边认出来的 id 必须是同一个，否则列表里有、点开详情却找不到。
+/// Normally a Codex file name ends with the session id (`rollout-<time>-<id>.jsonl`), so look up by file name first;
+/// if not found, read each file's first `session_meta` and compare -- this matches how `parse_codex_session` recognizes the id during scanning,
+/// and both sides must recognize the same id, otherwise a session is in the list but cannot be found when its details are opened.
 pub fn find_codex_session_file(dir: &Path, session_id: &str) -> Option<PathBuf> {
     let files = collect_codex_files(dir);
     if let Some((p, _)) = files.iter().find(|(p, _)| {
@@ -283,13 +283,13 @@ pub fn find_codex_session_file(dir: &Path, session_id: &str) -> Option<PathBuf> 
     None
 }
 
-/// 把一个 Codex 会话文件解析成详情页要的消息列表（#209），输出和 Claude 那边同一个结构。
+/// Parse a Codex session file into the message list the detail page needs (#209), output in the same structure as on the Claude side.
 ///
-/// - 用户发言：`response_item` / `message` / `user` 的 `input_text`；开头是 `<environment_context>`
-///   或 `<user_instructions>` 的是 Codex 自己注入的上下文，不是用户说的话，跳过
-/// - 助手回复：`response_item` / `message` / `assistant` 的 `output_text`
-/// - 工具调用：`response_item` / `function_call` 的 `name`。挂到紧邻的助手消息上；前面不是助手消息就单开一条
-/// - cwd / 分支：只在开头的 `session_meta` 里有一份，填到每条消息上（和 Claude 那边字段对齐）
+/// - User speech: the `input_text` of `response_item` / `message` / `user`; ones starting with `<environment_context>`
+///   or `<user_instructions>` are context injected by Codex itself, not what the user said, and are skipped
+/// - Assistant reply: the `output_text` of `response_item` / `message` / `assistant`
+/// - Tool call: the `name` of `response_item` / `function_call`. Attached to the immediately preceding assistant message; if what precedes is not an assistant message, it gets its own entry
+/// - cwd / branch: present only once in the leading `session_meta`, filled into every message (aligned with the fields on the Claude side)
 pub fn parse_codex_messages<R: BufRead>(reader: R) -> Vec<ConversationMessage> {
     let mut out: Vec<ConversationMessage> = Vec::new();
     let (mut cwd, mut branch) = (String::new(), String::new());
@@ -363,12 +363,12 @@ pub fn parse_codex_messages<R: BufRead>(reader: R) -> Vec<ConversationMessage> {
     out
 }
 
-/// Codex 会话详情的解析（#209）。
+/// Parsing of Codex session details (#209).
 ///
-/// 为什么单独测：详情接口原来只在 `~/.claude/projects/` 里找，Codex 会话一点开就是「找不到 session」——
-/// 0.1 在 README 里写了支持 Codex，用户一点就撞。Codex 的 jsonl 和 Claude 完全是两套格式，
-/// 这里错了在 UI 上的样子是：详情空白、把 `<environment_context>` 这种注入内容当成用户发言显示、
-/// 或者工具调用丢了。测试数据是编的，字段名照本机真实文件（2026-09-24 核对）。
+/// Why it is tested separately: the detail interface used to look only in `~/.claude/projects/`, so opening a Codex session always gave "session not found" --
+/// 0.1's README claimed Codex support, and users hit this on the first click. Codex's jsonl is a completely different format from Claude's,
+/// and what goes wrong on screen here: a blank detail page, injected content such as `<environment_context>` shown as user speech,
+/// or lost tool calls. The test data is made up, with field names following real files (checked 2026-09-24).
 #[cfg(test)]
 mod codex_detail_tests {
     use super::*;
@@ -413,9 +413,9 @@ not json at all
         let _ = fs::remove_dir_all(&dir);
         let day = dir.join("2026/09/24");
         fs::create_dir_all(&day).unwrap();
-        // ① 文件名里带 id（Codex 的常规命名）
+        // (1) the file name contains the id (Codex's normal naming)
         fs::write(day.join("rollout-2026-09-24T01-00-00-11111111-2222-3333-4444-555555555555.jsonl"), SAMPLE).unwrap();
-        // ② 文件名不带 id，只能读 session_meta 才认得出
+        // (2) the file name has no id; it can only be recognized by reading session_meta
         fs::write(day.join("renamed.jsonl"),
             r#"{"timestamp":"t","type":"session_meta","payload":{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","cwd":"/x"}}"#).unwrap();
         let a = find_codex_session_file(&dir, "11111111-2222-3333-4444-555555555555");

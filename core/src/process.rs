@@ -1,4 +1,4 @@
-//! 进程表、进程环境变量、后代进程收集，以及关 tab 时的杀进程（进程树 + 环境变量标记）。
+//! Process table, process environment variables, descendant collection, and killing processes when a tab closes (process tree + environment variable marker).
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,11 +13,11 @@ pub struct ProcessInfo {
 
 #[cfg(unix)]
 pub fn get_env_var_of_pid(pid: u32, var_name: &str) -> Option<String> {
-    // flag 只能是 `-Eww`：macOS 的 ps 里 `-e` 是 `-A` 的同义词（显示所有进程），
-    // 显示环境变量的是大写 `-E`；`-x`（把无控制终端的进程并进来）更不能加 ——
-    // BSD ps 的选择条件是 OR，加一个就把 `-p` 淹掉，返回整张进程表。
-    // 两者叠在一起的老写法 `-xeww` 是"756 行、零个环境变量"，恒定返回 None。
-    // `-ww` 保留：不加会按终端宽度截断，环境变量正好在末尾，最先被切掉。
+    // The flags can only be `-Eww`: in macOS's ps, `-e` is a synonym of `-A` (show all processes),
+    // and what shows environment variables is the uppercase `-E`; `-x` (which pulls in processes with no controlling terminal) must not be added either --
+    // BSD ps selection conditions are OR'ed, so adding one drowns out `-p` and returns the whole process table.
+    // The old spelling `-xeww`, with both stacked, gave "756 lines, zero environment variables" and always returned None.
+    // `-ww` stays: without it output is truncated to the terminal width, and environment variables sit at the end, so they get cut first.
     let output = Command::new("ps")
         .args(["-p", &pid.to_string(), "-Eww", "-o", "command="])
         .output()
@@ -31,7 +31,7 @@ pub fn get_env_var_of_pid(pid: u32, var_name: &str) -> Option<String> {
         if let Some(val) = part.strip_prefix(&marker) {return Some(val.to_string());
         }
     }
-    // 也检查用空格分隔的情况
+    // also handle the space-separated case
     if let Some(pos) = text.find(&marker) {
         let after = &text[pos + marker.len()..];
         let val = after.split_whitespace().next().unwrap_or("");
@@ -47,8 +47,8 @@ pub fn get_env_var_of_pid(_pid: u32, _var_name: &str) -> Option<String> {
     None
 }
 
-/// pid → (ppid, 进程名)。macOS 走 libproc（#216）：ps 要读全部进程的完整参数，0.3s；
-/// 这里只取 pid / ppid / 进程名，几毫秒。完整命令行由 `full_command` 只给要输出的进程读。
+/// pid -> (ppid, process name). On macOS this goes through libproc (#216): ps has to read the full arguments of every process, 0.3s;
+/// here only pid / ppid / process name are taken, a few milliseconds. The full command line is read by `full_command` only for the processes to be output.
 #[cfg(target_os = "macos")]
 pub fn collect_process_table() -> HashMap<u32, (u32, String)> {
     use std::ffi::{c_void, CStr};
@@ -57,7 +57,7 @@ pub fn collect_process_table() -> HashMap<u32, (u32, String)> {
     if n <= 0 {
         return table;
     }
-    // 两次调用之间可能有新进程，多留一些余量
+    // New processes may appear between the two calls, so leave some slack
     let mut pids = vec![0 as libc::pid_t; n as usize + 64];
     let bytes = (pids.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
     let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr() as *mut c_void, bytes) };
@@ -74,7 +74,7 @@ pub fn collect_process_table() -> HashMap<u32, (u32, String)> {
             libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut c_void, size)
         };
         if got != size {
-            continue; // 进程刚退出，或没权限
+            continue; // the process just exited, or no permission
         }
         let name = unsafe { CStr::from_ptr(info.pbi_comm.as_ptr()) }.to_string_lossy().into_owned();
         table.insert(pid as u32, (info.pbi_ppid, name));
@@ -82,14 +82,14 @@ pub fn collect_process_table() -> HashMap<u32, (u32, String)> {
     table
 }
 
-/// 完整命令行（和 `ps -o command=` 一样：参数用空格连起来）。读不到（进程已退出、
-/// 别的用户的进程）就退回进程名，ps 在这种情况下也是只显示进程名。
+/// The full command line (like `ps -o command=`: arguments joined with spaces). If it cannot be read (the process has exited,
+/// another user's process), fall back to the process name; ps likewise shows only the process name in that case.
 #[cfg(target_os = "macos")]
 pub fn full_command(pid: u32, fallback: &str) -> String {
     process_args(pid).unwrap_or_else(|| fallback.to_string())
 }
 
-/// KERN_PROCARGS2 的布局：argc(i32) | 可执行文件路径 \0 | 若干 \0 填充 | argv[0..argc] 各以 \0 结尾 | 环境变量…
+/// Layout of KERN_PROCARGS2: argc(i32) | executable path \0 | several \0 padding | argv[0..argc] each ending in \0 | environment variables...
 #[cfg(target_os = "macos")]
 pub fn process_args(pid: u32) -> Option<String> {
     let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
@@ -113,7 +113,7 @@ pub fn process_args(pid: u32) -> Option<String> {
     let buf = &buf[..size];
     let argc = i32::from_ne_bytes(buf[..4].try_into().ok()?);
     let mut rest = &buf[4..];
-    // 跳过可执行文件路径和它后面的 \0 填充
+    // skip the executable path and the \0 padding after it
     let path_end = rest.iter().position(|&b| b == 0)?;
     rest = &rest[path_end..];
     let first_arg = rest.iter().position(|&b| b != 0)?;
@@ -131,7 +131,7 @@ pub fn process_args(pid: u32) -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 pub fn full_command(_pid: u32, cmd: &str) -> String {
-    cmd.to_string() // ps 版的进程表里本来就是完整命令行
+    cmd.to_string() // the ps-based process table already holds the full command line
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -162,8 +162,8 @@ pub fn collect_process_table() -> HashMap<u32, (u32, String)> {
     table
 }
 
-// 扫 PPID=1 的孤儿进程，检查 env 里是否有 MAKIT_SESSION_ID=<session_id>
-// 返回 (session_id, ProcessInfo) 列表
+// Scan orphan processes with PPID=1 and check whether the env contains MAKIT_SESSION_ID=<session_id>
+// Returns a list of (session_id, ProcessInfo)
 pub fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String, ProcessInfo)> {
     let orphans: Vec<u32> = table
         .iter()
@@ -171,7 +171,7 @@ pub fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String
             *ppid == 1 && {
                 let exe = cmd.split_whitespace().next().unwrap_or("");
                 let base = exe.rsplit('/').next().unwrap_or(exe);
-                // 只扫服务类进程（避免对所有 393 个孤儿跑 ps eww）
+                // Scan only service-type processes (avoid running ps eww for all 393 orphans)
                 ["java", "python", "python3", "node", "go", "gradle", "mvn", "ruby", "cargo"]
                     .iter()
                     .any(|k| base == *k)
@@ -182,7 +182,7 @@ pub fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String
     if orphans.is_empty() {
         return Vec::new();
     }
-    // 批量 ps eww 拿环境变量
+    // batch ps eww to get the environment variables
     let pid_args: Vec<String> = orphans.iter().map(|p| p.to_string()).collect();
     let out = match Command::new("ps")
         .arg("eww")
@@ -196,7 +196,7 @@ pub fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String
     let text = String::from_utf8_lossy(&out.stdout);
     let mut result = Vec::new();
     for line in text.lines().skip(1) {
-        // 从 env 部分提取 MAKIT_SESSION_ID=xxx
+        // extract MAKIT_SESSION_ID=xxx from the env part
         if let Some(pos) = line.find("MAKIT_SESSION_ID=") {
             let after = &line[pos + 15..];
             let session_id = after.split(|c: char| c.is_whitespace() || c == '\0')
@@ -206,7 +206,7 @@ pub fn collect_orphan_by_env(table: &HashMap<u32, (u32, String)>) -> Vec<(String
             if session_id.is_empty() {
                 continue;
             }
-            // 从行首提取 PID
+            // extract the PID from the start of the line
             let pid: u32 = match line.trim_start().split_whitespace().next().and_then(|s| s.parse().ok()) {
                 Some(v) => v,
                 None => continue,
@@ -250,10 +250,10 @@ pub fn descendants_of(root: u32, table: &HashMap<u32, (u32, String)>) -> Vec<Pro
     out
 }
 
-/// #216：进程表以前靠 `ps -eo pid=,ppid=,command=`，macOS 的 ps 要读全部 ~700 个进程的
-/// 完整参数，0.3s（启动时抢 CPU 能到 0.55s），是缓存落盘后启动路径上最大的一块。
-/// 改成 libproc 只取 pid / ppid / 进程名，完整命令行只给最后要输出的那几个进程读。
-/// 错了在 UI 上：运行中会话的「子进程」列表缺项、命令行只剩进程名，或孤儿服务进程找不回来。
+/// #216: the process table used to rely on `ps -eo pid=,ppid=,command=`; macOS's ps has to read the full arguments of all ~700 processes,
+/// 0.3s (up to 0.55s when competing for CPU at startup), the biggest piece of the startup path once the cache is persisted.
+/// Changed to libproc taking only pid / ppid / process name, with the full command line read only for the few processes finally output.
+/// What goes wrong on screen if this breaks: the "child processes" list of a running session has missing entries, command lines show only the process name, or orphan service processes cannot be found again.
 #[cfg(all(test, target_os = "macos"))]
 mod process_table_tests {
     use super::*;
@@ -271,7 +271,7 @@ mod process_table_tests {
                 if *p == ppid { same += 1; }
             }
         }
-        // 两次取样之间会有进程生灭，所以按比例判；pid / ppid 本身不会变
+        // processes appear and die between the two samples, so judge by proportion; pid / ppid themselves do not change
         assert!(both > 50, "原生进程表几乎是空的：只对上 {both} 个");
         assert_eq!(same, both, "同一个 pid 的父进程应该完全一致");
     }
@@ -293,27 +293,27 @@ mod process_table_tests {
 #[cfg(test)]
 #[cfg(unix)]
 mod env_of_pid_tests {
-    /// 回归：`get_env_var_of_pid` 必须真的读到**指定那个 pid** 的环境变量。
+    /// Regression: `get_env_var_of_pid` must really read the environment variables of **the specified pid**.
     ///
-    /// 原来的实现是 `ps -p PID -xeww -o command=`，两个 flag 都错了：
-    /// macOS 的 `ps` 里 `-e` 是 `-A` 的同义词（"显示所有进程"），显示环境变量的是
-    /// **大写 `-E`**；而 `-x` 又会把没有控制终端的进程（全部 daemon）并进来 ——
-    /// BSD ps 的选择条件是 OR 而不是 AND，所以 `-p` 被彻底淹没。实测这条命令返回
-    /// 756 行整张进程表、且一个环境变量都没有，函数于是恒定返回 None。
+    /// The original implementation was `ps -p PID -xeww -o command=`, and both flags were wrong:
+    /// in macOS's `ps`, `-e` is a synonym of `-A` ("show all processes"), and what shows environment variables is
+    /// **uppercase `-E`**; and `-x` pulls in processes with no controlling terminal (all daemons) --
+    /// BSD ps selection conditions are OR rather than AND, so `-p` was completely drowned out. Measured: this command returned
+    /// the whole 756-line process table with not a single environment variable, so the function always returned None.
     ///
-    /// 后果不是"偶尔取不到"而是"永远取不到"：`pty_id` 恒为空串 → App.tsx 里
-    /// `sessions.filter(s => s.running && s.pty_id)` 全被空串的 falsy 过滤掉 →
-    /// 在新建 shell 里手敲 claude 的那个 tab 永远绑不上 session，标题一直停在
-    /// "新会话"（⌘R 也救不回来，全量 load 走的是同一条命令）。
+    /// The consequence is not "occasionally unavailable" but "never available": `pty_id` is always an empty string -> in App.tsx
+    /// `sessions.filter(s => s.running && s.pty_id)` filters everything out because an empty string is falsy ->
+    /// the tab where claude was typed by hand in a new shell can never bind a session, and the title stays at
+    /// "New session" (a manual refresh cannot save it either; the full load goes through the same command).
     ///
-    /// 用自己的 pid 当被测对象：测试二进制是本项目的编译产物，不是 Apple 平台
-    /// 二进制，环境变量读得到（SIP 只挡 /bin/* 那类签名平台二进制）。
-    /// 拿 PATH 做**全等**比较而不是判非空 —— 只判非空的话，"从整张进程表里捞到
-    /// 别人的 PATH" 这种串台也能过。
-    /// 取样变量刻意挑"值里没有空白"的那一个：ps 输出里环境变量之间就是用空格
-    /// 分隔的，值本身含空格（比如 PATH 里有 `/Library/Application Support/...`）
-    /// 根本无法无歧义还原 —— 这是 ps 输出格式的固有限制，不是可修的 bug。
-    /// 唯一的调用方只读 MAKIT_PTY_ID，值形如 `t_ms5nflsm3a0g`，不受影响。
+    /// It uses its own pid as the subject: the test binary is a build artifact of this project, not an Apple platform
+    /// binary, so its environment variables can be read (SIP only blocks signed platform binaries like /bin/*).
+    /// PATH is compared for **equality** rather than non-emptiness -- with only a non-empty check, a mix-up such as "picking up
+    /// someone else's PATH from the whole process table" would also pass.
+    /// The sampled variable is deliberately one whose value has no whitespace: in the ps output environment variables are separated by spaces,
+    /// and a value that itself contains spaces (e.g. a PATH with `/Library/Application Support/...`)
+    /// cannot be restored unambiguously -- an inherent limit of the ps output format, not a fixable bug.
+    /// The only caller reads just MAKIT_PTY_ID, whose value looks like `t_ms5nflsm3a0g` and is unaffected.
     #[test]
     fn reads_env_of_the_requested_pid() {
         let me = std::process::id();
@@ -327,7 +327,7 @@ mod env_of_pid_tests {
             Some(expected),
             "没读到本进程的 {key}（要么 ps 没显示环境变量，要么串到了别的进程）"
         );
-        // 没设过的变量必须是 None，而不是从别处捞一个回来
+        // a variable that was never set must be None, not one picked up from elsewhere
         assert_eq!(
             super::get_env_var_of_pid(me, "MAKIT_DEFINITELY_UNSET_VAR_9f3a"),
             None
@@ -335,30 +335,30 @@ mod env_of_pid_tests {
     }
 }
 
-/// 按 pid 收口出来是为了能测（#142）——`kill_pty` 拿的是 portable-pty 的 `Child`，
-/// 测试里造不出来。关 tab 走的就是这两句。
+/// These are funneled out by pid so they can be tested (#142) -- `kill_pty` holds a portable-pty `Child`,
+/// which tests cannot construct. Closing a tab goes through exactly these two statements.
 #[cfg(unix)]
 pub fn kill_pty_by_pid(pid: u32, pty_id: &str) {
     kill_tree(pid);
     kill_by_env_marker(&[pty_id]);
 }
 
-/// 杀进程树：killpg 打主进程组 + `pgrep -P` 递归逐个杀后代。
-/// 覆盖 plain / nohup / setsid_child / nested 四种形态；reparent 到 1 的那两种够不着，
-/// 交给 `kill_by_env_marker`（#142 的矩阵测试把这条分界线钉住了）。
+/// Kill the process tree: killpg hits the main process group + `pgrep -P` recursively kills descendants one by one.
+/// It covers the four shapes plain / nohup / setsid_child / nested; the two that reparent to 1 are out of reach and
+/// are left to `kill_by_env_marker` (the matrix test of #142 pins down this dividing line).
 #[cfg(unix)]
 pub fn kill_tree(pid: u32) {
-    // 1) 先递归找所有后代进程（在发 signal 前收集，避免进程退出后丢失）
+    // 1) first recursively find all descendant processes (collected before sending signals, so they are not lost after processes exit)
     let descendants = find_descendants(pid);
 
     unsafe {
-        // 2) killpg 杀主进程组。
-        //    注意 `killpg` 的参数是 **pgid** 而不是 pid，这里能直接传 pid 是因为
-        //    portable-pty 给子 shell setsid 过，pid == pgid。这个前提在测试里显式立住。
+        // 2) killpg kills the main process group.
+        //    Note that `killpg` takes a **pgid**, not a pid; passing the pid directly works here because
+        //    portable-pty setsid's the child shell, so pid == pgid. This precondition is stated explicitly in the tests.
         libc::killpg(pid as libc::pid_t, libc::SIGHUP);
         libc::killpg(pid as libc::pid_t, libc::SIGKILL);
 
-        // 3) 逐个杀后代进程（覆盖 setsid 逃逸的）
+        // 3) kill descendants one by one (covers those that escaped via setsid)
         for dpid in &descendants {
             libc::kill(*dpid as libc::pid_t, libc::SIGKILL);
         }
@@ -368,7 +368,7 @@ pub fn kill_tree(pid: u32) {
 #[cfg(unix)]
 pub fn find_descendants(root_pid: u32) -> Vec<u32> {
     use std::process::Command;
-    // pgrep -P <pid> 找直接子进程，递归
+    // pgrep -P <pid> finds direct children, recursively
     let mut all = Vec::new();
     let mut stack = vec![root_pid];
     while let Some(pid) = stack.pop() {
@@ -386,31 +386,31 @@ pub fn find_descendants(root_pid: u32) -> Vec<u32> {
     all
 }
 
-/// 按 `MAKIT_PTY_ID` 环境变量杀掉逃逸进程 —— setsid / double-fork 之后 PPID=1、
-/// 进程组也跟我们脱钩的那些（#3）。这是它们唯一还认得出来的印记：环境变量是
-/// fork 时复制的，逃到哪都带着，而 PPID 链和进程组都已经断了。
+/// Kill escaped processes by the `MAKIT_PTY_ID` environment variable -- those that after setsid / double-fork have PPID=1
+/// and a process group detached from ours (#3). It is the only mark by which they can still be recognized: environment variables are
+/// copied at fork and carried everywhere, while the PPID chain and the process group are already broken.
 ///
-/// **默认真杀**。取证时设 `MAKIT_KILL_ESCAPED=0` 退回 dry-run（只打印不发信号），
-/// 和 `MAKIT_TIMING` 同一套做法，不用重新编译。
+/// **It really kills by default**. When gathering evidence, set `MAKIT_KILL_ESCAPED=0` to fall back to dry-run (print only, no signals),
+/// the same approach as `MAKIT_TIMING`, with no recompilation.
 ///
-/// 为什么敢默认杀：匹配的是整 token `MAKIT_PTY_ID=<这个 tab 的 id>`，id 是本进程
-/// 生成的、只可能出现在这个 tab 拉起来的进程上；别的 tab、别的 app、用户自己的进程
-/// 都不带。误伤面只有一种 —— 用户在这个 tab 里主动 nohup/setsid 出去、指望它活过关
-/// tab 的进程；这条取舍写在 #3 里（tab 的语义是一个 claude 会话，不是通用终端）。
+/// Why it is safe to kill by default: what is matched is the whole token `MAKIT_PTY_ID=<this tab's id>`; the id is generated by this process
+/// and can only appear on processes this tab launched; other tabs, other apps and the user's own processes
+/// never carry it. The only collateral case is a process the user deliberately nohup/setsid'ed out of this tab, expecting it to outlive closing the
+/// tab; this trade-off is recorded in #3 (a tab's semantics is one claude session, not a general-purpose terminal).
 ///
-/// 日志看法：dev 下直接打在 `pnpm tauri dev` 的终端里；release 的 .app 要从终端
-/// 起（`open` 出来的看不到 stderr）。
+/// Where to read the log: under dev it goes straight to the terminal running `pnpm tauri dev`; a release .app has to be
+/// launched from a terminal (stderr is not visible when started with `open`).
 #[cfg(unix)]
 pub fn kill_by_env_marker(pty_ids: &[&str]) {
     use std::process::Command;
     if pty_ids.is_empty() { return; }
     let my_pid = std::process::id();
-    // 只有显式写 0 才退回 dry-run；没设 = 真杀
+    // Only an explicit 0 falls back to dry-run; unset = really kill
     let dry_run = std::env::var("MAKIT_KILL_ESCAPED").map(|v| v == "0").unwrap_or(false);
-    // flag 必须是 `-xEww`：显示环境变量的是**大写 `-E`**，小写 `-e` 在 macOS 的 ps
-    // 里是 `-A` 的同义词（"显示所有进程"）。老写法 `-xeww` 于是拿到了一张不含任何
-    // 环境变量的全进程表，下面 `MAKIT_PTY_ID=` 的匹配永远为假 —— 这个兜底一直在空转。
-    // 这里 `-x` 是**故意**留的：要找的就是脱离了控制终端的逃逸进程。
+    // The flags must be `-xEww`: what shows environment variables is **uppercase `-E`**, and lowercase `-e` in macOS's ps
+    // is a synonym of `-A` ("show all processes"). The old spelling `-xeww` thus got a whole process table containing no
+    // environment variables, and the `MAKIT_PTY_ID=` match below was always false -- this fallback had been idling all along.
+    // `-x` is kept here **on purpose**: what we want to find is exactly the escaped processes detached from the controlling terminal.
     let output = match Command::new("ps").args(["-xEww", "-o", "pid,command"]).output() {
         Ok(o) if o.status.success() => o,
         _ => {
@@ -422,15 +422,15 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
     let text = String::from_utf8_lossy(&output.stdout);
     for line in text.lines() {
         let trimmed = line.trim();
-        // 解析 PID（行首数字）
+        // parse the PID (the digits at the start of the line)
         let pid: u32 = match trimmed.split_whitespace().next().unwrap_or("").parse() {
             Ok(p) => p,
             Err(_) => continue,
         };
         if pid == my_pid || pid <= 1 { continue; }
-        // 整 token 相等而不是 contains：`MAKIT_PTY_ID=t_abc` 会被 `contains` 判成
-        // 命中 `MAKIT_PTY_ID=t_abcdef`。当前 id 都是等长的所以撞不上，但这是一条
-        // 真杀的路径，不留这种"靠格式凑巧"的前提。
+        // whole-token equality rather than contains: `contains` would judge `MAKIT_PTY_ID=t_abc` as
+        // a hit on `MAKIT_PTY_ID=t_abcdef`. All current ids have equal length so they cannot collide, but this is
+        // a really-kills path, so no premise of the "works only because of the format" kind is left in.
         for tok in trimmed.split_whitespace() {
             if let Some(val) = tok.strip_prefix("MAKIT_PTY_ID=") {
                 if let Some(hit) = pty_ids.iter().find(|p| **p == val) {
@@ -441,8 +441,8 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
         }
     }
     if hits.is_empty() {
-        // 没命中只在 dev 里打一行 —— 关 tab 是每天几十次的路径，release 不该刷屏；
-        // 但"跑了但没找到"和"根本没跑"必须分得开，这个 bug 本身就是被后者掩盖了三个月。
+        // A miss prints one line only under dev -- closing a tab is a path hit dozens of times a day, and release should not flood the log;
+        // but "ran but found nothing" must be distinguishable from "did not run at all"; this very bug was masked by the latter for three months.
         log::debug!(target: "escaped-pty", "扫了 {} 个 pty id，没有逃逸进程", pty_ids.len());
         return;
     }
@@ -456,20 +456,20 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
     }
 }
 
-/// #142 子进程 kill 全场景验证。
+/// #142 verification of killing child processes in every scenario.
 ///
-/// 目的不是"测一个函数的返回值"，而是**量出 `kill_tree` 到底覆盖哪几种子进程形态**：
-/// 六种形态各造一个真进程，发真信号，再看谁还活着。关 tab 杀不干净这件事之前一直
-/// 靠猜（#3、#142），这里把它变成可复现的测量。
+/// The purpose is not to "test a function's return value" but to **measure which child-process shapes `kill_tree` actually covers**:
+/// build one real process for each of six shapes, send real signals, and see who is still alive. Whether closing a tab kills everything cleanly was
+/// previously a guess (#3, #142); here it becomes a reproducible measurement.
 ///
-/// 安全边界（这里在动真信号，一个写错的 pgid 能把用户正在跑的 claude 全带走）：
-///   1. 合成树的根用 `setsid()` 起 —— 它必须有**自己的进程组**，否则 `killpg` 打的
-///      就是 cargo test 自己所在的组，等于自杀。
-///   2. 发信号前显式断言 `pgid(root) == root` 且 `pgid(root) != pgid(self)` 且 `root > 1`；
-///      断言在 `kill_tree` 之前，不满足就先清理再 panic，绝不带着错的 pgid 往下走。
-///   3. 所有合成进程都带 `MAKIT_KILL_MATRIX=<nonce>` 环境变量，收尾按 nonce 兜底清扫，
-///      中途 panic 也不会在机器上留下一堆 sleep。
-/// 逐个 SIGKILL（前端「杀掉逃出进程组的子进程」按钮）。非 unix 上什么都不做。
+/// Safety boundaries (real signals are being sent here, and one wrong pgid could take down every claude the user is running):
+///   1. The root of the synthetic tree is started with `setsid()` -- it must have **its own process group**, otherwise `killpg` hits
+///      the group cargo test itself is in, which is suicide.
+///   2. Before sending signals, explicitly assert `pgid(root) == root`, `pgid(root) != pgid(self)` and `root > 1`;
+///      the assertions come before `kill_tree`; if unmet, clean up first and then panic, never proceeding with a wrong pgid.
+///   3. All synthetic processes carry the `MAKIT_KILL_MATRIX=<nonce>` environment variable, and cleanup sweeps by nonce as a safety net,
+///      so a panic midway does not leave a pile of sleeps on the machine.
+/// SIGKILL one by one (the frontend's "kill child processes that escaped the process group" button). Does nothing on non-unix.
 pub fn kill_pids(pids: &[u32]) {
     #[cfg(unix)]
     {
@@ -494,7 +494,7 @@ mod kill_matrix_tests {
 
     pub(super) const MARKER: &str = "MAKIT_KILL_MATRIX";
 
-    /// 六种形态：名字 + 它相对「killpg + pgrep -P 递归」这套机制处在什么位置。
+    /// Six shapes: the name + where each stands relative to the "killpg + `pgrep -P` recursion" mechanism.
     const SHAPES: [(&str, &str); 6] = [
         ("plain", "普通子进程：同进程组，killpg 直接覆盖"),
         ("nohup", "nohup：忽略 SIGHUP，同进程组，靠后面那发 SIGKILL"),
@@ -504,8 +504,8 @@ mod kill_matrix_tests {
         ("double_fork", "经典 double-fork daemon：PPID=1 + 新 session"),
     ];
 
-    /// 活着的 pid 集合。用 `ps` 的 state 而不是 `kill(pid, 0)`：被杀掉的子进程会先变成
-    /// 僵尸，`kill(pid, 0)` 对僵尸照样返回 0，会把"已经杀掉"误报成"还活着"。
+    /// The set of live pids. Uses the `ps` state rather than `kill(pid, 0)`: a killed child first becomes a
+    /// zombie, and `kill(pid, 0)` still returns 0 for a zombie, misreporting "already killed" as "still alive".
     pub(super) fn live_pids(pids: &[u32]) -> HashSet<u32> {
         let mut live = HashSet::new();
         if pids.is_empty() {
@@ -530,8 +530,8 @@ mod kill_matrix_tests {
         live
     }
 
-    /// 兜底清扫：按 nonce 环境变量找所有还活着的合成进程并 SIGKILL。返回清掉的 pid。
-    /// 这条路径不能依赖前面收集到的 pid —— 逃逸进程的 pid 有可能就是没记上的那个。
+    /// Safety-net sweep: find all still-alive synthetic processes by the nonce environment variable and SIGKILL them. Returns the pids cleared.
+    /// This path cannot depend on the pids collected earlier -- an escaped process's pid may be exactly the one not recorded.
     pub(super) fn sweep_by_nonce(nonce: &str) -> Vec<u32> {
         let my_pid = std::process::id();
         let out = match Command::new("ps").args(["-axEww", "-o", "pid=,command="]).output() {
@@ -569,16 +569,16 @@ mod kill_matrix_tests {
     }
 
     fn write_scripts(dir: &PathBuf) {
-        // 叶子进程刻意用 python3，不用 `sleep`。
+        // The leaf processes deliberately use python3, not `sleep`.
         //
-        // 因为 /bin/sleep 和 /bin/sh 都是 SIP 保护的平台二进制，macOS 不允许读它们的
-        // 环境变量：`ps -axEww` 对它们只输出命令行，环境变量整段是空的。实测
-        // （/bin/sleep ✗、/bin/sh ✗、/usr/bin/python3 ✓、node ✓）。而下面要验的正是
-        // 「环境变量兜底能不能看见逃逸进程」，用 sleep 当叶子会量出一个和真实场景
-        // 无关的假阴性 —— 真实场景里跑的是 node（claude），环境变量是可见的。
+        // Because /bin/sleep and /bin/sh are both SIP-protected platform binaries, macOS does not allow reading their
+        // environment variables: `ps -axEww` prints only the command line for them, and the environment variables part is entirely empty. Measured
+        // (/bin/sleep no, /bin/sh no, /usr/bin/python3 yes, node yes). And what is verified below is exactly
+        // "whether the environment variable safety net can see escaped processes"; using sleep as the leaf would measure a false negative
+        // unrelated to the real scenario -- in the real scenario what runs is node (claude), whose environment variables are visible.
         //
-        // 顺带记一笔：把 /bin/sleep 拷一份出来跑也不行，平台二进制的签名换了位置就
-        // 失效，exec 直接被内核拒掉。
+        // A side note: copying /bin/sleep out and running the copy does not work either; a platform binary's signature
+        // is invalidated once it is moved, and exec is rejected by the kernel outright.
         fs::write(
             dir.join("leaf.py"),
             "import os, sys, time\n\
@@ -597,7 +597,7 @@ mod kill_matrix_tests {
         )
         .unwrap();
 
-        // 根脚本：六种形态各起一个，然后 wait 住 —— root 必须活着，否则 killpg 的目标组就没了。
+        // Root script: start one of each of the six shapes, then wait -- root must stay alive, otherwise the killpg target group is gone.
         fs::write(
             dir.join("root.sh"),
             "L=\"$MK_D/leaf.py\"\n\
@@ -612,8 +612,8 @@ mod kill_matrix_tests {
         .unwrap();
     }
 
-    /// 等六个 pid 文件都写全。不等就发信号的话，⑤⑥ 可能还没 setsid 完，
-    /// 会把"没来得及逃"读成"没逃掉"—— 那是个假的绿灯。
+    /// Wait until all six pid files are fully written. If signals were sent without waiting, 5 and 6 might not have finished setsid yet,
+    /// and "did not get to escape" would be read as "failed to escape" -- a false green light.
     fn wait_for_pids(dir: &PathBuf) -> Vec<(&'static str, u32)> {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
@@ -640,9 +640,9 @@ mod kill_matrix_tests {
         }
     }
 
-    /// 一棵活着的六形态合成树。两个测试各造一棵，靠 `tag` 区分 —— nonce / 临时目录 /
-    /// `MAKIT_PTY_ID` 都带上它，否则 cargo 并发跑两个测试时，一个的兜底清扫会把另一个的
-    /// 进程扫掉，症状是随机绿/随机红。
+    /// A live six-shape synthetic tree. Each of the two tests builds one, distinguished by `tag` -- the nonce / temp directory /
+    /// `MAKIT_PTY_ID` all carry it, otherwise when cargo runs the two tests concurrently, one's safety-net sweep would sweep away the other's
+    /// processes, with the symptom of random green / random red.
     struct Matrix {
         root: std::process::Child,
         dir: PathBuf,
@@ -656,14 +656,14 @@ mod kill_matrix_tests {
             self.leaves.iter().map(|(_, p)| *p).collect()
         }
 
-        /// 哪些叶子还活着（名字 + pid）
+        /// Which leaves are still alive (name + pid)
         fn survivors(&self) -> Vec<(&'static str, u32)> {
             let live = live_pids(&self.pids());
             self.leaves.iter().filter(|(_, p)| live.contains(p)).cloned().collect()
         }
 
-        /// 收尾：按 nonce 兜底清扫 + 杀根 + 删临时目录。返回兜底清掉的 pid。
-        /// **必须跑在断言之前** —— 断言 panic 了也不能给机器留下一堆 python。
+        /// Cleanup: safety-net sweep by nonce + kill the root + delete the temp directory. Returns the pids the safety net cleared.
+        /// **Must run before the assertions** -- even if an assertion panics, no pile of python may be left on the machine.
         fn finish(mut self) -> Vec<u32> {
             let swept = sweep_by_nonce(&self.nonce);
             let _ = self.root.kill();
@@ -673,10 +673,10 @@ mod kill_matrix_tests {
         }
     }
 
-    /// 造一棵合成树并立住安全边界（这里在动真信号，一个写错的 pgid 能把用户正在跑的 claude 全带走）：
-    ///   1. 根用 `setsid()` 起 —— 必须有**自己的进程组**，否则 `killpg` 打的就是 cargo test 自己所在的组；
-    ///   2. 返回前断言 `pgid(root) == root` 且 `!= pgid(self)` 且 `root > 1`，不满足就先清理再 panic；
-    ///   3. 六个叶子都得先活着，否则后面的"死了"没有意义。
+    /// Build a synthetic tree and establish the safety boundaries (real signals are being sent here, and one wrong pgid could take down every claude the user is running):
+    ///   1. The root is started with `setsid()` -- it must have **its own process group**, otherwise `killpg` hits the group cargo test itself is in;
+    ///   2. Before returning, assert `pgid(root) == root` and `!= pgid(self)` and `root > 1`; if unmet, clean up first and then panic;
+    ///   3. All six leaves must be alive first, otherwise the later "dead" means nothing.
     fn spawn_matrix(tag: &str) -> Matrix {
         let nonce = format!("n{}x{}", std::process::id(), tag);
         let pty_id = format!("t_killmatrix_{}_{}", std::process::id(), tag);
@@ -689,7 +689,7 @@ mod kill_matrix_tests {
         cmd.arg(dir.join("root.sh"))
             .env("MK_D", &dir)
             .env(MARKER, &nonce)
-            // 真实 pty 起的进程都带这个（pty.rs 里 spawn 时设的），逃逸兜底就认它
+            // processes started by a real pty all carry this (set at spawn time in pty.rs), and the escape safety net recognizes it
             .env("MAKIT_PTY_ID", &pty_id)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -737,7 +737,7 @@ mod kill_matrix_tests {
         m
     }
 
-    /// 哪些还活着的合成进程能被 `ps` 的环境变量看见（兜底认得出来的那批）
+    /// Which live synthetic processes can be seen via `ps` environment variables (the batch the safety net can recognize)
     fn visible_by_env(nonce: &str, among: &[(&'static str, u32)]) -> Vec<u32> {
         let out = Command::new("ps").args(["-axEww", "-o", "pid=,command="]).output();
         let text = out.map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
@@ -749,11 +749,11 @@ mod kill_matrix_tests {
             .collect()
     }
 
-    /// 机制测量（#142）：单靠 `kill_tree`（killpg + `pgrep -P` 递归）能覆盖到哪几种形态。
+    /// Mechanism measurement (#142): which shapes `kill_tree` alone (killpg + `pgrep -P` recursion) can cover.
     ///
-    /// 这不是"该有的行为"，是**机制上限**：reparent 到 1 的两种必然逃掉。它存在的意义是
-    /// 钉住「哪四种是白纸黑字保证死的」，以及「逃掉的那两种至少还看得见」——
-    /// 看得见，兜底就有救（`kill_by_env_marker`）；看不见，#3 就彻底没抓手了。
+    /// This is not "desired behaviour" but the **mechanism's upper bound**: the two that reparent to 1 inevitably escape. It exists to
+    /// pin down "which four are guaranteed dead in black and white", and "the two that escape are at least still visible" --
+    /// if visible, the safety net can save it (`kill_by_env_marker`); if not, #3 would have nothing to hold on to at all.
     #[test]
     fn kill_tree_covers_all_child_shapes() {
         if !have_python3() {
@@ -763,10 +763,10 @@ mod kill_matrix_tests {
         let m = spawn_matrix("mech");
         let nonce = m.nonce.clone();
 
-        // ===== 被测行为 =====
+        // ===== behaviour under test =====
         super::kill_tree(m.root.id());
 
-        // 信号是异步的，给内核一点时间把进程收走
+        // signals are asynchronous; give the kernel a moment to reap the processes
         std::thread::sleep(Duration::from_millis(600));
         let survivors = m.survivors();
         let visible = visible_by_env(&nonce, &survivors);
@@ -800,10 +800,10 @@ mod kill_matrix_tests {
         }
     }
 
-    /// 关 tab 真正走的那条路（#3）：`kill_tree` + 按 `MAKIT_PTY_ID` 扫逃逸进程。
-    /// 契约比上面那条强一档 —— **六种全死**，一个都不许剩。
+    /// The path closing a tab really takes (#3): `kill_tree` + sweeping escaped processes by `MAKIT_PTY_ID`.
+    /// The contract is one notch stronger than the one above -- **all six die**, none may remain.
     ///
-    /// 这条是用户能看见的那件事：关掉 tab 之后，这个会话不能还在后台烧内存和 token。
+    /// This is what the user can see: after closing a tab, that session must not keep burning memory and tokens in the background.
     #[test]
     fn close_path_kills_every_child_shape() {
         if !have_python3() {
@@ -813,7 +813,7 @@ mod kill_matrix_tests {
         let m = spawn_matrix("close");
         let pty_id = m.pty_id.clone();
 
-        // ===== 被测行为：`pty_kill` 拿到 Child 之后干的就是这一句 =====
+        // ===== behaviour under test: what `pty_kill` does once it has the Child is exactly this one statement =====
         super::kill_pty_by_pid(m.root.id(), &pty_id);
 
         std::thread::sleep(Duration::from_millis(600));
@@ -830,16 +830,16 @@ mod kill_matrix_tests {
 }
 
 
-/// 真 pty 端到端（#3）：这条和 `kill_matrix_tests` 的区别是**没有任何模拟**——
-/// 用生产代码同一个 `portable_pty::native_pty_system()` 开一个真 pty，起真 shell，
-/// 在里面用 node（claude 就是 node）起一个 detached 孙进程后父进程立刻退出，
-/// 于是孙进程 reparent 到 1 —— 这就是用户关不掉的那个东西的真实形状。
+/// Real pty end to end (#3): the difference from `kill_matrix_tests` is that there is **no simulation at all** --
+/// it opens a real pty with the very same `portable_pty::native_pty_system()` as production code, starts a real shell,
+/// and inside it uses node (claude is node) to start a detached grandchild process, after which the parent exits immediately,
+/// so the grandchild reparents to 1 -- this is the real shape of the thing the user cannot close.
 ///
-/// 它验的是三件光靠合成树验不到的事：
-///   1. `killpg(pid)` 的前提成立：portable-pty 起的 shell 真的 `pid == pgid`；
-///   2. `MAKIT_PTY_ID` 真的一路继承到逃逸的孙进程（pty → shell → node → detached node）；
-///   3. node 进程的环境变量在 `ps -xEww` 里真的看得见 —— SIP 保护的平台二进制
-///      （/bin/sh、/bin/sleep）是看不见的，兜底认不出它们。claude 是 node，所以这条成立。
+/// It verifies three things a synthetic tree alone cannot:
+///   1. The precondition of `killpg(pid)` holds: the shell started by portable-pty really has `pid == pgid`;
+///   2. `MAKIT_PTY_ID` really is inherited all the way down to the escaped grandchild (pty -> shell -> node -> detached node);
+///   3. The node process's environment variables are really visible in `ps -xEww` -- SIP-protected platform binaries
+///      (/bin/sh, /bin/sleep) are not visible, and the safety net cannot recognize them. claude is node, so this holds.
 #[cfg(all(test, unix))]
 mod real_pty_close_tests {
     use super::kill_matrix_tests::{live_pids, sweep_by_nonce, MARKER};
@@ -852,7 +852,7 @@ mod real_pty_close_tests {
         Command::new("node").arg("-v").output().map(|o| o.status.success()).unwrap_or(false)
     }
 
-    /// 读一个进程的 (ppid, pgid)，进程没了返回 None
+    /// Read a process's (ppid, pgid); returns None if the process is gone
     fn ppid_pgid(pid: u32) -> Option<(u32, u32)> {
         let out = Command::new("ps").args(["-o", "ppid=,pgid=", "-p", &pid.to_string()]).output().ok()?;
         let text = String::from_utf8_lossy(&out.stdout);
@@ -873,7 +873,7 @@ mod real_pty_close_tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        // 父 node：起一个 detached（= setsid）孙进程，然后自己立刻退出 → 孙被 reparent 到 1
+        // parent node: start a detached (= setsid) grandchild process, then exit immediately -> the grandchild is reparented to 1
         fs::write(
             dir.join("escape.js"),
             "const { spawn } = require('child_process');\n\
@@ -885,7 +885,7 @@ mod real_pty_close_tests {
         )
         .unwrap();
 
-        // ===== 和 pty_spawn 走同一套：openpty + CommandBuilder + MAKIT_PTY_ID =====
+        // ===== same setup as pty_spawn: openpty + CommandBuilder + MAKIT_PTY_ID =====
         let pair = native_pty_system()
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .expect("openpty 失败");
@@ -895,12 +895,12 @@ mod real_pty_close_tests {
         cmd.cwd(&dir);
         cmd.env("MK_D", dir.to_string_lossy().to_string());
         cmd.env(MARKER, &nonce);
-        cmd.env("MAKIT_PTY_ID", &pty_id); // 生产代码 pty_spawn 里设的就是这一行
+        cmd.env("MAKIT_PTY_ID", &pty_id); // this is exactly the line production pty_spawn sets
         let mut child = pair.slave.spawn_command(cmd).expect("pty 里起 shell 失败");
         drop(pair.slave);
         let shell_pid = child.process_id().expect("拿不到 pty 子进程 pid");
 
-        // 等孙进程写下自己的 pid
+        // wait for the grandchild to write its own pid
         let deadline = Instant::now() + Duration::from_secs(20);
         let escaped_pid = loop {
             if let Ok(t) = fs::read_to_string(dir.join("escaped.pid")) {
@@ -917,7 +917,7 @@ mod real_pty_close_tests {
             std::thread::sleep(Duration::from_millis(100));
         };
 
-        // 前置测量：它是不是真的逃了，以及 killpg 的前提成不成立
+        // precondition measurement: did it really escape, and does killpg's precondition hold
         let shell_pgid = unsafe { libc::getpgid(shell_pid as libc::pid_t) };
         let escaped = ppid_pgid(escaped_pid);
         let visible = {
@@ -954,7 +954,7 @@ mod real_pty_close_tests {
             "[#3] 真 pty：shell pid={shell_pid} pgid={shell_pgid}；逃逸孙进程 pid={escaped_pid} ppid={ppid} pgid={pgid}，MAKIT_PTY_ID 可见"
         );
 
-        // ===== 被测行为：关这个 tab =====
+        // ===== behaviour under test: close this tab =====
         super::kill_pty_by_pid(shell_pid, &pty_id);
         let _ = child.kill();
         let _ = child.wait();

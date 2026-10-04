@@ -1,27 +1,27 @@
-//! 会话目录监听。
+//! Session directory watching.
 //!
-//! 不依赖任何 UI 框架：调用方传一个回调，Tauri 版在回调里 emit 事件给前端，
-//! GPUI 版在回调里把事件送进自己的通道。
+//! No UI framework dependency: the caller passes a callback. The Tauri version emits an event to the frontend inside it,
+//! and the GPUI version sends the event into its own channel.
 //!
-//! fs.watch 增量推送：
-//! - sessions/ 变化 → `RunningChanged`（只需重读运行状态，轻量）
-//! - projects/ 变化 → `SessionsChanged(路径)`，**载荷是变化的 jsonl 路径列表**。
-//!   这里以前发的是空载荷、注释写"低频，只在新 session 创建时触发"，但 projects/ 是
-//!   递归监听：每追加一条消息都会触发。前端因此只能把它接成空函数，新建会话要 ⌘R
-//!   才出现（#168）。带上路径之后前端可以只解析这几个文件（list_sessions_by_paths）。
+//! Incremental push from fs.watch:
+//! - a change in sessions/ -> `RunningChanged` (only the running state needs re-reading; lightweight)
+//! - a change in projects/ -> `SessionsChanged(paths)`; **the payload is the list of changed jsonl paths**.
+//!   This used to be sent with an empty payload, with a comment saying "low frequency, only fires when a new session is created", but projects/ is
+//!   watched recursively: it fires on every appended message. The frontend could therefore only wire it to a no-op, and a new session did not
+//!   show up until a manual refresh (#168). With the paths attached, the frontend can parse just those files (list_sessions_by_paths).
 
 use std::path::Path;
 
-/// 一批（500ms 防抖）文件变化归纳出来的事件。
+/// The events derived from one batch (500ms debounce) of file changes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchEvent {
-    /// `~/.claude/sessions/` 有变化：运行状态 / 改名，调用方重读 `list_running_sessions`
+    /// Something changed under `~/.claude/sessions/`: running state / rename; the caller re-reads `list_running_sessions`
     RunningChanged,
-    /// 这些 jsonl 有变化（已排序去重）：调用方用 `list_sessions_by_paths` 增量解析
+    /// These jsonl files changed (sorted and deduplicated): the caller parses them incrementally with `list_sessions_by_paths`
     SessionsChanged(Vec<String>),
 }
 
-/// 把一批变化的路径归纳成事件。同一批里两种都有时，`RunningChanged` 在前（和原来 emit 的顺序一致）。
+/// Condense a batch of changed paths into events. When both kinds are present in one batch, `RunningChanged` comes first (matching the original emit order).
 pub fn classify<'a>(paths: impl IntoIterator<Item = &'a Path>, sessions_dir: &Path) -> Vec<WatchEvent> {
     let mut has_session_event = false;
     let mut changed_jsonl: Vec<String> = Vec::new();
@@ -29,17 +29,17 @@ pub fn classify<'a>(paths: impl IntoIterator<Item = &'a Path>, sessions_dir: &Pa
         if path.starts_with(sessions_dir) {
             has_session_event = true;
         } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            // 只报 jsonl：目录创建、锁文件之类的事件对前端没有信息量。
-            // 新 session 一定会连带写出自己的 jsonl，不会漏。
+            // Report only jsonl: directory creation, lock files and the like carry no information for the frontend.
+            // A new session always writes its own jsonl as well, so nothing is missed.
             changed_jsonl.push(path.to_string_lossy().into_owned());
         }
     }
     let mut out = Vec::new();
-    // sessions/ 变化 = running 状态更新（轻量：前端只刷 running 状态）
+    // a change in sessions/ = running state update (lightweight: the frontend only refreshes running state)
     if has_session_event {
         out.push(WatchEvent::RunningChanged);
     }
-    // projects/ 变化 = 某个 session 的内容变了（新建 / 新消息 / 改名）
+    // a change in projects/ = some session's content changed (created / new message / renamed)
     if !changed_jsonl.is_empty() {
         changed_jsonl.sort();
         changed_jsonl.dedup();
@@ -48,9 +48,9 @@ pub fn classify<'a>(paths: impl IntoIterator<Item = &'a Path>, sessions_dir: &Pa
     out
 }
 
-/// 起一个后台线程监听 `~/.claude/sessions`（非递归）、`~/.claude/projects`（递归）、
-/// `~/.codex/sessions`（递归，存在时）。500ms 防抖，每批变化按 `classify` 归纳后逐个回调。
-/// 线程跟进程同寿，没有停止接口（两边都只在启动时调一次）。
+/// Start a background thread that watches `~/.claude/sessions` (non-recursive), `~/.claude/projects` (recursive),
+/// and `~/.codex/sessions` (recursive, when it exists). 500ms debounce; each batch of changes is condensed by `classify` and the callback is invoked per event.
+/// The thread lives as long as the process and has no stop interface (both sides call this only once at startup).
 pub fn start(on_event: impl Fn(WatchEvent) + Send + 'static) {
     use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
     use std::time::Duration;
@@ -85,9 +85,9 @@ pub fn start(on_event: impl Fn(WatchEvent) + Send + 'static) {
     });
 }
 
-/// 回调式改造（#226）之后，「一批变化 → 发什么」这段判断从 emit 里拆了出来，Tauri 和 GPUI 共用。
-/// 错了在 UI 上：侧栏运行状态不刷新（RunningChanged 丢了），或新消息 / 新会话要 ⌘R 才出现
-/// （jsonl 路径没报上去），或每条消息都触发一次全量重扫（非 jsonl 的噪声也报了上去）。
+/// After the callback-style refactor (#226), the "a batch of changes -> what to send" decision was split out of emit and is shared by Tauri and GPUI.
+/// What goes wrong on screen if this breaks: the sidebar running state does not refresh (RunningChanged lost), or new messages / new sessions
+/// only appear after a manual refresh (jsonl paths not reported), or every message triggers a full rescan (non-jsonl noise was reported too).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,7 +123,7 @@ mod tests {
         let sessions = PathBuf::from("/Users/me/.claude/sessions");
         let paths = [PathBuf::from("/Users/me/.claude/projects/-a")];
         assert!(classify(paths.iter().map(|p| p.as_path()), &sessions).is_empty());
-        // 只有 sessions/ 下的变化：只报运行状态（sessions/ 下的 .jsonl 也不当会话内容）
+        // Only changes under sessions/: report running state only (a .jsonl under sessions/ is not treated as session content either)
         let paths = [PathBuf::from("/Users/me/.claude/sessions/9.jsonl")];
         assert_eq!(classify(paths.iter().map(|p| p.as_path()), &sessions), vec![WatchEvent::RunningChanged]);
     }

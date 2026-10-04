@@ -1,32 +1,32 @@
-//! PTY 输出合并（#222）。
+//! PTY output coalescing (#222).
 //!
-//! macOS 的 PTY 在程序逐行写的时候，读端一次只拿到几十字节：`seq 1 300000`（2.3MB）
-//! 实测平均每次 24–36 字节、7.8 万次读。以前每读一次就 emit 一个 Tauri 事件，7.8 万个
-//! 事件把 WebView 主线程挤满，9 秒里只画出 3 帧 —— 用户看到的「开始输出卡一下」其实是
-//! 整段输出期间界面冻住。
+//! On macOS, when a program writes line by line, the PTY read side gets only a few dozen bytes at a time: for `seq 1 300000` (2.3MB)
+//! the measured average was 24-36 bytes per read, 78,000 reads. It used to emit one Tauri event per read, and 78,000
+//! events flooded the WebView main thread: only 3 frames were drawn in 9 seconds. What the user saw as "a hitch when output starts" was really
+//! the UI being frozen for the whole duration of the output.
 //!
-//! 策略（节流，带前沿）：
-//! - 空闲后来的第一块**立刻**发 —— 打字回显不加任何延迟
-//! - 之后连续输出时，距上次发送不足 `interval` 就先攒着，到点一起发
-//! - 攒够 `max_bytes` 立刻发，不等到点（控制单个事件大小）
-//! - 只发完整的 UTF-8 字符，被切断的字节留到下一次（中文 3 字节可能跨两次读）
+//! Strategy (throttling with a leading edge):
+//! - The first chunk after idle is sent **immediately**: typing echo gets no added delay
+//! - During continuous output afterwards, if less than `interval` has passed since the last send, accumulate and send everything when due
+//! - Once `max_bytes` is accumulated, send at once without waiting for the deadline (bounds the size of a single event)
+//! - Send only complete UTF-8 characters; a cut-off byte sequence is kept for the next time (a 3-byte Chinese character may span two reads)
 
 use std::time::{Duration, Instant};
 
 pub const EMIT_INTERVAL: Duration = Duration::from_millis(8);
 pub const MAX_BATCH_BYTES: usize = 256 * 1024;
-/// 在途事件上限（#229）：× MAX_BATCH_BYTES 就是最坏积压量，1MB 以内 xterm 半秒处理完
+/// In-flight event limit (#229): times MAX_BATCH_BYTES this is the worst-case backlog; under 1MB xterm handles it within half a second
 pub const MAX_INFLIGHT: usize = 4;
-/// 这么久收不到确认就放行，防止前端卡死 / 丢消息时终端永远不出字
+/// If no acknowledgement arrives for this long, let sending proceed, so the terminal never stays blank forever when the frontend hangs / loses messages
 pub const ACK_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, PartialEq)]
 pub enum Next {
-    /// 现在就发
+    /// Send now
     EmitNow,
-    /// 等到这个时刻再发（期间继续收）
+    /// Wait until this moment before sending (keep receiving meanwhile)
     WaitUntil(Instant),
-    /// 没有可发的完整字符，等下一块数据
+    /// Nothing complete to send; wait for the next chunk of data
     Idle,
 }
 
@@ -46,7 +46,7 @@ impl Batcher {
         self.pending.extend_from_slice(bytes);
     }
 
-    /// 已经收到的字节里，完整 UTF-8 字符的长度
+    /// Length of the complete UTF-8 characters within the bytes received so far
     fn emittable(&self) -> usize {
         match std::str::from_utf8(&self.pending) {
             Ok(_) => self.pending.len(),
@@ -68,7 +68,7 @@ impl Batcher {
         }
     }
 
-    /// 取出能发的部分（完整字符），记下发送时刻；被切断的尾巴留着
+    /// Take out the part that can be sent (complete characters) and record the send time; a cut-off tail is kept
     pub fn take(&mut self, now: Instant) -> String {
         let ready = self.emittable();
         if ready == 0 {
@@ -77,24 +77,24 @@ impl Batcher {
         let rest = self.pending.split_off(ready);
         let bytes = std::mem::replace(&mut self.pending, rest);
         self.last_emit = Some(now);
-        // emittable 已经验证过这段是完整的 UTF-8
+        // emittable has already verified that this segment is complete UTF-8
         String::from_utf8(bytes).unwrap_or_default()
     }
 
-    /// 结束时把剩下的全部交出去（残缺字节按替换字符处理，不丢）
+    /// At the end, hand over everything remaining (an incomplete byte sequence is handled as a replacement character, not dropped)
     pub fn finish(&mut self) -> String {
         let bytes = std::mem::take(&mut self.pending);
         String::from_utf8_lossy(&bytes).into_owned()
     }
 }
 
-/// 已发给前端、前端还没确认处理完的事件数（#229 背压）。
+/// Number of events sent to the frontend that the frontend has not yet acknowledged as processed (#229 backpressure).
 ///
-/// 以前发送端不管前端有没有消费：`yes` 刷屏时事件在 WebView 主线程上无限积压，
-/// 30 秒内存涨到 3.3GB，Ctrl-C 的 pty_write 排队 124 秒。现在在途事件到上限就停发；
-/// 发送端一停，读→发之间的有界通道很快就满，读线程阻塞，PTY 缓冲区满后程序自己被卡住。
-/// 前端在 `terminal.write` 回调里 `pty_ack`。长时间收不到确认（前端卡死 / 丢消息）就放行，
-/// 宁可多发一点也不能把终端永远卡死。
+/// The sender used to ignore whether the frontend was consuming: while `yes` flooded the screen, events piled up without limit on the WebView main thread,
+/// memory grew to 3.3GB in 30 seconds, and Ctrl-C's pty_write queued for 124 seconds. Now sending stops once in-flight events reach the limit;
+/// once the sender stops, the bounded channel between read and send fills up quickly, the read thread blocks, and after the PTY buffer fills the program itself is stalled.
+/// The frontend calls `pty_ack` in the `terminal.write` callback. If no acknowledgement arrives for a long time (frontend hung / messages lost), sending proceeds:
+/// better to over-send a little than to hang the terminal forever.
 pub struct Inflight {
     count: usize,
     max: usize,
@@ -106,7 +106,7 @@ impl Inflight {
     pub fn new(max: usize, timeout: Duration) -> Self {
         Self { count: 0, max, timeout, stalled_since: None }
     }
-    /// 现在能不能再发一个
+    /// Whether another one can be sent now
     pub fn can_emit(&mut self, now: Instant) -> bool {
         if self.count < self.max {
             self.stalled_since = None;
@@ -114,7 +114,7 @@ impl Inflight {
         }
         let since = *self.stalled_since.get_or_insert(now);
         if now.duration_since(since) >= self.timeout {
-            // 等太久了：多半是前端卡死或确认丢了，清零放行
+            // waited too long: most likely the frontend hung or an acknowledgement was lost; reset to zero and proceed
             self.count = 0;
             self.stalled_since = None;
             return true;
@@ -129,8 +129,8 @@ impl Inflight {
     }
 }
 
-/// 发不发、什么时候发出了错，界面上的样子是：打字有延迟（前沿没做好）、刷屏又冻住
-/// （合并没生效）、中文变乱码或丢字（UTF-8 切断处理错）。
+/// What goes wrong on screen if whether / when to send is wrong: typing has latency (leading edge broken), flooding freezes again
+/// (coalescing ineffective), Chinese text turns to garbage or drops characters (UTF-8 split handled wrong).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,7 +177,7 @@ mod tests {
     fn split_utf8_char_waits_for_its_tail() {
         let t0 = Instant::now();
         let mut b = Batcher::new(ms(8), 1 << 20);
-        let zh = "中".as_bytes(); // 3 字节
+        let zh = "中".as_bytes(); // 3 bytes
         b.push(&zh[..2]);
         assert_eq!(b.next(t0), Next::Idle, "只有半个字，没有可发的");
         b.push(&zh[2..]);

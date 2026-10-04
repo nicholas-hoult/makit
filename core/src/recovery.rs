@@ -1,4 +1,4 @@
-//! 会话启动目录被删 / 搬走之后的恢复（#173）：存储键编码、symlink、重建或指到新位置。
+//! Recovery after a session's start directory is deleted / moved (#173): storage-key encoding, symlinks, rebuild or point to a new location.
 
 use serde::Serialize;
 use std::fs;
@@ -6,15 +6,15 @@ use std::path::Path;
 
 use crate::paths::projects_dir;
 
-/// claude 的存储键：把 cwd 逐字符编码成 `~/.claude/projects/` 下的目录名。
+/// claude's storage key: encodes the cwd character by character into the directory name under `~/.claude/projects/`.
 ///
-/// **先 canonicalize 再编码**。claude 是拿自己进程的 cwd 算这个键的，而进程 cwd 永远是
-/// 解析过软链的实路径（macOS 上 `/var` = `/private/var`、`/tmp` = `/private/tmp`）。
-/// 不解析就会算出一个 claude 永远不会用的键 —— 建 symlink 会建到错的地方，「恢复会话」
-/// 静默失效（实测踩过，见 `session_recovery_tests`）。
+/// **canonicalize first, then encode**. claude computes this key from its own process's cwd, and a process cwd is always
+/// the real path with symlinks resolved (on macOS `/var` = `/private/var`, `/tmp` = `/private/tmp`).
+/// Without resolving, the computed key is one claude will never use -- the symlink gets created in the wrong place and "resume session"
+/// silently fails (hit in practice, see `session_recovery_tests`).
 ///
-/// 路径不存在时 canonicalize 失败，退回原样编码。这正是「原目录已被删」的场合，而那种
-/// 场合退回原样是对的：jsonl 里记的 cwd 本身就是 claude 当年写下的实路径。
+/// When the path does not exist canonicalize fails and we fall back to encoding it as-is. That is exactly the "original directory was deleted" case, and
+/// falling back as-is is right there: the cwd recorded in the jsonl is itself the real path claude wrote back then.
 pub fn encode_project_path(path: &str) -> String {
     let resolved = std::fs::canonicalize(path)
         .map(|p| p.to_string_lossy().into_owned())
@@ -43,7 +43,7 @@ pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: S
     }
     #[cfg(unix)]
     {
-        // 目标目录不存在 → symlink 整个目录；已存在 → symlink 单个文件
+        // target directory missing -> symlink the whole directory; already exists -> symlink the single file
         if !target_dir.exists() {
             let source_dir = dir.join(&storage_folder);
             std::os::unix::fs::symlink(&source_dir, &target_dir)
@@ -58,24 +58,24 @@ pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: S
 
 #[derive(Serialize, Debug)]
 pub struct RecoveredSession {
-    /// 恢复之后该用哪个 cwd 去 resume
+    /// Which cwd to use when resuming after recovery
     pub cwd: String,
-    /// 到底动了什么（要能对用户交代清楚，不能只说"成功"）
+    /// What exactly was changed (we must be able to explain it clearly to the user, not just say "success")
     pub detail: String,
 }
 
-/// 启动目录被删之后恢复会话。`projects_root` 可注入，测试才不会写进真的 `~/.claude`。
+/// Recover the session after the start directory was deleted. `projects_root` is injectable so tests do not write into the real `~/.claude`.
 ///
-/// 本质：会话数据一个字节都没丢，丢的只是**一把钥匙**。`claude -r <id>` 只会去
-/// `projects/<encode(realpath(cwd))>/<id>.jsonl` 找，目录被删就意味着你再也算不出
-/// 那个键。所以两个动作都只做一件事 —— **让钥匙对上**：
+/// In essence: not a byte of session data was lost, only **a key**. `claude -r <id>` only looks at
+/// `projects/<encode(realpath(cwd))>/<id>.jsonl`, and once the directory is deleted you can no longer compute
+/// that key. So both actions do just one thing -- **make the key match**:
 ///
-/// - `recreate`：把原目录建回来（空的）。键本来就是按原路径算的，建回来就自然对上，
-///   `projects/` 一个字节都不用碰。代码没了，但会话能接着聊。
-/// - `relink`：代码搬家了，指到新目录。在新键下放一个指向原 transcript 的
-///   **文件级** symlink。不用目录级：那会把老项目下所有会话一并暴露到新键下。
+/// - `recreate`: rebuild the original directory (empty). The key was computed from the original path in the first place, so rebuilding it matches naturally,
+///   and `projects/` is not touched at all. The code is gone, but the session can continue the conversation.
+/// - `relink`: the code moved, point to the new directory. Under the new key, place a
+///   **file-level** symlink to the original transcript. Not directory-level: that would expose every session of the old project under the new key.
 ///
-/// 两种模式都**绝不拷贝** jsonl —— 拷贝会产出同一个 session id 的两份分叉。
+/// Neither mode **ever copies** the jsonl -- copying would produce two diverging copies of the same session id.
 pub fn recover_session_cwd_in(
     projects_root: &Path,
     mode: &str,
@@ -86,10 +86,10 @@ pub fn recover_session_cwd_in(
 ) -> Result<RecoveredSession, String> {
     match mode {
         "recreate" => {
-            // 只补**最后一级**，父目录必须已经存在。用 `create_dir_all` 会把缺失的父目录
-            // 全部造出来，而「一整棵父树都没了」通常不是「删了一个项目目录」，是外置盘
-            // 没挂载 / 整个上级被搬走。那种情况下在挂载点上造一个真目录后果很实：
-            // 那块盘之后会被 macOS 挂成「X 1」，而且这事没有任何提示。
+            // Only create the **last level**; the parent directory must already exist. `create_dir_all` would create all
+            // missing parents, and "a whole parent tree is gone" is usually not "one project directory was deleted" but an external drive
+            // not being mounted / the whole parent being moved away. In that case, creating a real directory at the mount point has real consequences:
+            // the drive would later be mounted by macOS as "X 1", with no warning at all.
             let parent = Path::new(original_cwd).parent();
             match parent {
                 Some(p) if !p.as_os_str().is_empty() && !p.is_dir() => {
@@ -111,10 +111,10 @@ pub fn recover_session_cwd_in(
             if !Path::new(target_cwd).is_dir() {
                 return Err(format!("目标目录不存在: {}", target_cwd));
             }
-            // codex 的会话按**日期**分层存在 `~/.codex/sessions/年/月/日/` 下，**不是 cwd 键**
-            // （`ai_provider.rs` 里 codex 的 `storage_folder` 恒为空串就是这个意思）。
-            // 也就是说 codex 根本没有这把钥匙可丢 —— `codex resume <id>` 在任何目录都能找到会话。
-            // 所以这里没有键要修，「指到新位置」就只是换个工作目录，一个 symlink 都不该建。
+            // codex sessions are stored layered by **date** under `~/.codex/sessions/year/month/day/`, **not by cwd key**
+            // (that is what codex's `storage_folder` being always an empty string in `ai_provider.rs` means).
+            // In other words codex has no such key to lose -- `codex resume <id>` finds the session from any directory.
+            // So there is no key to fix here, and "point to new location" is just switching the working directory; not a single symlink should be created.
             if storage_folder.is_empty() {
                 return Ok(RecoveredSession {
                     cwd: target_cwd.to_string(),
@@ -123,7 +123,7 @@ pub fn recover_session_cwd_in(
             }
             let session_file = format!("{}.jsonl", session_id);
             let source = projects_root.join(storage_folder).join(&session_file);
-            // 先确认源在，再动手 —— 否则会留下一个悬空 symlink，比报错更难查
+            // Confirm the source exists first, then act -- otherwise a dangling symlink is left behind, which is harder to track down than an error
             if !source.exists() {
                 return Err(format!("找不到会话记录: {}/{}", storage_folder, session_file));
             }
@@ -135,7 +135,7 @@ pub fn recover_session_cwd_in(
                 });
             }
             let target_dir = projects_root.join(&key);
-            // 真目录 + 里面放文件级 symlink，不建目录级 symlink
+            // a real directory + file-level symlinks inside it, no directory-level symlink
             fs::create_dir_all(&target_dir).map_err(|e| format!("创建目录失败: {}", e))?;
             let target_file = target_dir.join(&session_file);
             if !target_file.exists() {
@@ -152,10 +152,10 @@ pub fn recover_session_cwd_in(
     }
 }
 
-/// 目录还在不在。刻意**不做**成 `SessionMeta.cwd_exists`：`list_sessions` 里每次 stat
-/// 本机实测约 0.7ms、300 多个文件合计约 0.5s，已经是现存的性能痛点（#144），
-/// 每个会话再加一次 stat 是往已知热路径上加钱。而这个信息只有「用户点开会话的那一刻」
-/// 才用得到，那时候一次 stat 就够。
+/// Whether the directory still exists. Deliberately **not** made into `SessionMeta.cwd_exists`: each stat in `list_sessions`
+/// was measured locally at about 0.7ms, about 0.5s in total across 300+ files, already an existing performance pain point (#144),
+/// and adding one more stat per session means adding cost to a known hot path. This information is only needed at "the moment the user opens a session",
+/// when a single stat is enough.
 pub fn dir_exists(path: String) -> bool {
     !path.is_empty() && Path::new(&path).is_dir()
 }
@@ -171,31 +171,31 @@ pub fn recover_session_cwd(
     recover_session_cwd_in(&root, &mode, &session_id, &original_cwd, &target_cwd, &storage_folder)
 }
 
-/// #173「会话启动目录被删了怎么恢复」。
+/// #173 "how to recover when a session's start directory was deleted".
 ///
-/// 本质：会话数据一个字节都没丢，丢的只是**一把钥匙**。`claude -r <id>` 找会话的唯一
-/// 方式是去 `~/.claude/projects/<encode(realpath(cwd))>/<id>.jsonl` 里找 —— 目录被删、
-/// 你在别处启动，算出来的键就不一样，claude 报「No conversation found」，而 transcript
-/// 还老老实实躺在原存储目录里。所以「恢复会话」= **让钥匙对上**，不是找回数据；任何
-/// 拷贝 jsonl 的做法都会产出同一个 session id 的两份分叉，方向就是错的。
+/// In essence: not a byte of session data was lost, only **a key**. The only way `claude -r <id>` finds a session
+/// is to look in `~/.claude/projects/<encode(realpath(cwd))>/<id>.jsonl` -- when the directory is deleted
+/// and you launch elsewhere, the computed key differs, claude reports "No conversation found", while the transcript
+/// still lies faithfully in the original storage directory. So "resume session" = **make the key match**, not recover data; any
+/// approach that copies the jsonl produces two diverging copies of the same session id, and is the wrong direction.
 ///
-/// 实测（隔离沙箱，`CLAUDE_CONFIG_DIR` 指向临时目录，没碰真实 `~/.claude`）：
-///   - 真 id、键不匹配 → `No conversation found with session ID`
-///   - 同一个 id，**全新的空目录** + transcript 放在该目录的编码键下 → 找到了
-///     （报错变成「Provide a prompt to continue」）
-/// 也就是说**原目录完全不需要存在**，任何一个存在的目录都行。
+/// Measured (isolated sandbox, `CLAUDE_CONFIG_DIR` pointing at a temp directory, the real `~/.claude` untouched):
+///   - real id, key mismatch -> `No conversation found with session ID`
+///   - the same id, **a brand-new empty directory** + the transcript placed under that directory's encoded key -> found
+///     (the error becomes "Provide a prompt to continue")
+/// That is, the **original directory need not exist at all**; any existing directory will do.
 #[cfg(test)]
 mod session_recovery_tests {
-    /// 回归：编码存储键前**必须先 canonicalize**。
+    /// Regression: the storage key **must be canonicalized before encoding**.
     ///
-    /// claude 是拿自己进程的 cwd 算这个键的，而进程 cwd 永远是解析过软链的实路径 ——
-    /// macOS 上 `/var` 就是 `/private/var` 的软链，`/tmp` 是 `/private/tmp`。不 canonicalize
-    /// 就会给含软链的路径算出一个 claude 永远不会用的键，symlink 建在错的地方，
-    /// 「恢复」静默失效。
+    /// claude computes this key from its own process's cwd, and a process cwd is always the real path with symlinks resolved --
+    /// on macOS `/var` is a symlink to `/private/var` and `/tmp` to `/private/tmp`. Without canonicalizing,
+    /// a path containing symlinks gets a key claude will never use, the symlink is created in the wrong place,
+    /// and "resume" silently fails.
     ///
-    /// 这个坑是实测踩出来的：第一次做恢复实验时手工造的键用的是 `/var/folders/…`，
-    /// claude 算的是 `/private/var/folders/…`，于是明明 transcript 就在那儿也报
-    /// 「No conversation found」，白跑一轮才发现不是机制不对、是键算错了。
+    /// This pitfall was found by experiment: the first time the recovery experiment was run, the hand-made key used `/var/folders/...`,
+    /// while claude computes `/private/var/folders/...`, so even though the transcript was right there it still reported
+    /// "No conversation found"; a whole round was wasted before discovering the mechanism was fine and the key was miscomputed.
     #[test]
     fn encode_canonicalizes_before_encoding() {
         let raw = std::env::temp_dir().join(format!("makit-enc-{}", std::process::id()));
@@ -204,7 +204,7 @@ mod session_recovery_tests {
         let raw_str = raw.to_string_lossy().into_owned();
         let canonical = std::fs::canonicalize(&raw).unwrap().to_string_lossy().into_owned();
 
-        // 前提：本机的临时目录确实经过软链，否则这条测试什么都没测到
+        // Precondition: the temp directory here really goes through a symlink, otherwise this test tests nothing
         assert_ne!(
             raw_str, canonical,
             "本机 temp_dir 不含软链（{raw_str}），这条测试在这台机器上无效，需换一个含软链的路径"
@@ -219,9 +219,9 @@ mod session_recovery_tests {
         let _ = std::fs::remove_dir_all(&raw);
     }
 
-    /// 路径不存在时 canonicalize 会失败，此时必须退回逐字符编码原样 —— 而这恰恰是
-    /// 「原目录已被删」的场合。这种场合下退回原样是**正确**的：jsonl 里记的 cwd 本身
-    /// 就是 claude 当年写下的实路径，不需要也无法再解析。
+    /// When the path does not exist canonicalize fails, and we must fall back to encoding character by character as-is -- which is exactly
+    /// the "original directory was deleted" case. Falling back as-is is **correct** there: the cwd recorded in the jsonl is itself
+    /// the real path claude wrote back then, and need not (and cannot) be resolved again.
     #[test]
     fn encode_falls_back_to_raw_when_path_is_gone() {
         assert_eq!(
@@ -232,14 +232,14 @@ mod session_recovery_tests {
 
     const SID: &str = "4110cea1-8771-4e89-b521-b93f5a677c5a";
 
-    /// 造一个假的 `projects/` 根 + 一个装着 transcript 的存储目录。
-    /// 绝不碰真实 `~/.claude`：所有恢复逻辑都收口成 `*_in(projects_root, …)`，
-    /// 就是为了让测试能指到别处。
+    /// Build a fake `projects/` root + a storage directory holding the transcript.
+    /// Never touch the real `~/.claude`: all recovery logic is funneled into `*_in(projects_root, ...)`,
+    /// precisely so tests can point elsewhere.
     fn sandbox(tag: &str) -> (std::path::PathBuf, String) {
         let root = std::env::temp_dir().join(format!("makit-recover-{}-{}", tag, std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let projects = root.join("projects");
-        // 原 cwd 刻意放在 root 下面并且**不创建**：模拟「启动目录已被删」
+        // The original cwd is deliberately placed under root and **not created**: simulates "the start directory was deleted"
         let original_cwd = root.join("gone-project").to_string_lossy().into_owned();
         let storage = super::encode_project_path(&original_cwd);
         std::fs::create_dir_all(projects.join(&storage)).unwrap();
@@ -251,9 +251,9 @@ mod session_recovery_tests {
         (root, original_cwd)
     }
 
-    /// 动作 A「重建原目录」：键本来就是按原路径算的，把空目录建回来钥匙立刻对上。
-    /// 关键断言是**一个 symlink 都不许建** —— 这是三条恢复路径里唯一完全不碰
-    /// claude 数据目录的一条，它的价值就在这儿。
+    /// Action A "rebuild the original directory": the key was computed from the original path, so building the empty directory back makes the key match immediately.
+    /// The key assertion is that **not a single symlink may be created** -- of the three recovery paths this is the only one that does not touch
+    /// claude's data directory at all, and its value lies exactly there.
     #[test]
     fn recreate_matches_the_key_without_touching_claude_dir() {
         let (root, original_cwd) = sandbox("recreate");
@@ -269,9 +269,9 @@ mod session_recovery_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 动作 B「指到新位置」：代码搬家了，要在新目录里继续。
-    /// 用**文件级** symlink 而不是目录级：目录级会把老项目下所有会话一并暴露到新键下，
-    /// 而且 `list_sessions` 的枚举会踩上去。
+    /// Action B "point to new location": the code moved and the session must continue in the new directory.
+    /// Use a **file-level** symlink rather than a directory-level one: a directory-level one would expose every session of the old project under the new key,
+    /// and the enumeration in `list_sessions` would step on it.
     #[test]
     fn relink_makes_a_brand_new_dir_resumable() {
         let (root, original_cwd) = sandbox("relink");
@@ -285,7 +285,7 @@ mod session_recovery_tests {
             .unwrap();
 
         assert_eq!(r.cwd, new_dir_s);
-        // 实测过的不变量：transcript 只要在「新 cwd 的编码键」下可达，claude 就能找到
+        // Verified invariant: as long as the transcript is reachable under "the new cwd's encoded key", claude can find it
         let key = super::encode_project_path(&new_dir_s);
         let landed = projects.join(&key).join(format!("{SID}.jsonl"));
         assert!(landed.exists(), "新键下必须能看到 transcript");
@@ -301,7 +301,7 @@ mod session_recovery_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 两条拒绝路径：宁可报错，也不留一个悬空 symlink 或者假装成功。
+    /// Two refusal paths: better to report an error than to leave a dangling symlink or pretend to succeed.
     #[test]
     fn relink_refuses_bad_input() {
         let (root, original_cwd) = sandbox("refuse");
@@ -320,12 +320,12 @@ mod session_recovery_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// codex 的会话**不按 cwd 索引**（`~/.codex/sessions/年/月/日/`，`storage_folder` 恒为空串），
-    /// 所以它压根没有「钥匙丢了」这个问题 —— `codex resume <id>` 在任何目录都能找到会话。
-    /// 这条测的是：这种会话走「指到新位置」时只换工作目录，**不许**在 projects/ 下动任何东西。
+    /// A codex session is **not indexed by cwd** (`~/.codex/sessions/year/month/day/`, `storage_folder` always an empty string),
+    /// so it simply has no "key lost" problem -- `codex resume <id>` finds the session from any directory.
+    /// This tests: for such a session, "point to new location" only switches the working directory and **must not** touch anything under projects/.
     ///
-    /// 不加这个分支的话，空 `storage_folder` 会让 `projects_root.join("")` 落回 projects 根身上，
-    /// 源文件永远找不到 → 永远报「找不到会话记录」→ 用户为一个不存在的问题卡在对话框里。
+    /// Without this branch, an empty `storage_folder` makes `projects_root.join("")` land on the projects root itself,
+    /// the source file is never found -> it always reports "session record not found" -> the user is stuck in a dialog over a problem that does not exist.
     #[test]
     fn relink_is_a_noop_for_tools_that_dont_key_by_cwd() {
         let (root, original_cwd) = sandbox("codex");
@@ -344,11 +344,11 @@ mod session_recovery_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 「重建原目录」只补最后一级，父目录不存在必须拒绝。
+    /// "Rebuild the original directory" creates only the last level; a nonexistent parent directory must be refused.
     ///
-    /// `create_dir_all` 会把缺失的父目录全造出来，而整棵父树都没了通常意味着外置盘没挂载。
-    /// 在挂载点上造一个真目录之后，那块盘会被 macOS 静默挂成「X 1」——用户的路径全指错，
-    /// 而且没有任何提示。宁可报错让人去挂盘。
+    /// `create_dir_all` would create all the missing parents, and an entire missing parent tree usually means an external drive is not mounted.
+    /// After creating a real directory at the mount point, that drive would be silently mounted by macOS as "X 1" -- all the user's paths point wrong,
+    /// with no warning at all. Better to report an error and let the person mount the drive.
     #[test]
     fn recreate_refuses_when_the_whole_parent_tree_is_gone() {
         let root = std::env::temp_dir().join(format!("makit-recover-parent-{}", std::process::id()));
@@ -356,7 +356,7 @@ mod session_recovery_tests {
         let projects = root.join("projects");
         std::fs::create_dir_all(&projects).unwrap();
 
-        // 父目录 missing-volume 也不存在 → 这不是「删了一个项目目录」
+        // the parent directory missing-volume does not exist either -> this is not "one project directory was deleted"
         let deep = root.join("missing-volume").join("proj");
         let deep_s = deep.to_string_lossy().into_owned();
         let err = super::recover_session_cwd_in(&projects, "recreate", SID, &deep_s, "", "")
@@ -368,7 +368,7 @@ mod session_recovery_tests {
             "尤其不许在挂载点位置造出真目录"
         );
 
-        // 对照：只缺最后一级 → 正常重建
+        // control: only the last level is missing -> rebuild normally
         let shallow = root.join("normal-proj").to_string_lossy().into_owned();
         super::recover_session_cwd_in(&projects, "recreate", SID, &shallow, "", "")
             .expect("只缺最后一级是最常见的场合，必须能重建");
@@ -377,12 +377,12 @@ mod session_recovery_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// 回归：`list_sessions` 枚举 jsonl 时必须跳过 symlink。
+    /// Regression: `list_sessions` must skip symlinks when enumerating jsonl.
     ///
-    /// 加了「指到新位置」之后，同一份 transcript 会在两个键下可见（原存储目录 + 新键）。
-    /// 枚举时只看扩展名的话，同一个 session_id 会被扫成**两条**，侧栏里出现一对孪生会话。
-    /// 目录级 symlink 本来就被跳过（`file_type()` 不跟随软链，见枚举那段注释），文件级
-    /// 这条以前没管 —— 因为以前没人成规模地建过文件级 symlink。
+    /// After "point to new location" was added, the same transcript is visible under two keys (the original storage directory + the new key).
+    /// If enumeration looks only at the extension, the same session_id is scanned as **two entries**, and a pair of twin sessions shows up in the sidebar.
+    /// Directory-level symlinks were already skipped (`file_type()` does not follow symlinks, see the comment in the enumeration), while the file-level
+    /// case was not handled before -- because nobody had created file-level symlinks at scale.
     #[test]
     fn enumeration_skips_symlinked_jsonl() {
         let dir = std::env::temp_dir().join(format!("makit-enum-{}", std::process::id()));

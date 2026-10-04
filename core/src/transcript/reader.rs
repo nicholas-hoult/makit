@@ -1,9 +1,9 @@
-//! 增量读取器：游标（inode + 已消费字节），只吃完整行。
+//! Incremental reader: a cursor (inode + consumed bytes) that only consumes complete lines.
 //!
-//! 变化用「可见列表」里的下标报：
-//! - `appended`：末尾新增的范围
-//! - `updated`：前面已有的 ToolCall 拿到了结果
-//! - `reset`：整个重来（文件被截断 / 换了 inode / 当前分支变了，比如回退）——视图应整体重建
+//! Changes are reported as indices into the "visible list":
+//! - `appended`: the range newly added at the end
+//! - `updated`: an earlier ToolCall received its result
+//! - `reset`: start over entirely (file truncated / inode changed / current branch changed, e.g. a rewind); the view must be rebuilt
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
@@ -25,7 +25,7 @@ pub struct TranscriptReader {
     tool: Tool,
     state: State,
     inode: Option<u64>,
-    /// 已消费到哪（一定停在某个 `\n` 之后）
+    /// How far we have consumed (always right after a `\n`)
     offset: u64,
 }
 
@@ -37,7 +37,7 @@ impl TranscriptReader {
     pub fn poll(&mut self) -> io::Result<Changes> {
         let meta = match std::fs::metadata(&self.path) {
             Ok(m) => m,
-            // 文件还没出现（会话刚起、还没写第一条）不是错误
+            // A file that does not exist yet (session just started, nothing written) is not an error
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let n = self.state.visible_len();
                 return Ok(Changes { appended: n..n, ..Default::default() });
@@ -64,7 +64,7 @@ impl TranscriptReader {
             buf.clear();
             let n = r.read_until(b'\n', &mut buf)?;
             if n == 0 || buf.last() != Some(&b'\n') {
-                break; // 到头了，或者最后一行还没写完换行：留到下次
+                break; // reached the end, or the last line has no newline yet: leave it for next time
             }
             self.offset += n as u64;
             let line = String::from_utf8_lossy(&buf);

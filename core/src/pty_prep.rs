@@ -1,10 +1,10 @@
-//! PTY 启动前的纯逻辑：cwd 展开 / 回退、cwd 闸、resume 会话 id、会话起始目录校正。
-//! spawn 本身两边各自实现（Tauri 用 portable-pty，GPUI 用 alacritty tty）。
+//! Pure logic before PTY launch: cwd expansion / fallback, the cwd gate, the resume session id, correcting the session's start directory.
+//! The spawn itself is implemented separately on each side (Tauri uses portable-pty, GPUI uses the alacritty tty).
 
 use std::path::{Path, PathBuf};
 
-// cwd 不存在时（session 自己 mv 走目录、外部删目录），向上找最近存在的祖先
-// 找不到则回退 home，再不行 "/"——保证 shell 能起来
+// When the cwd does not exist (the session moved the directory itself, or it was deleted externally), look upward for the nearest existing ancestor
+// if none is found fall back to home, and failing that "/" -- so the shell can always start
 pub fn expand_tilde(cwd: &str) -> String {
     if cwd == "~" {
         return dirs::home_dir()
@@ -35,23 +35,23 @@ pub fn resolve_existing_cwd(cwd: &str) -> String {
         .unwrap_or_else(|| "/".to_string())
 }
 
-/// 这个 pane 该不该拒绝启动。收成一个纯谓词只为了能测 —— `pty_spawn` 本体要
-/// `Window` + `State`，测试里造不出来（和 `kill_tree` 从 `kill_pty` 里
-/// 抽出来是同一个理由）。
+/// Whether this pane should refuse to start. It is pulled out as a pure predicate only so it can be tested -- `pty_spawn` itself needs
+/// a `Window` + `State`, which tests cannot construct (the same reason `kill_tree` was
+/// extracted from `kill_pty`).
 pub fn must_refuse_cwd(cwd: &str, allow_fallback: Option<bool>) -> bool {
     allow_fallback == Some(false) && resolve_existing_cwd(cwd) != expand_tilde(cwd)
 }
 
-/// `clear && claude -r <id>`（`workspace-types.ts` 的 resumeInitCommand）里的会话 id。
-/// id 会拼进文件路径，所以只认 uuid 形状（36 位 hex 和 `-`）。
+/// The session id inside `clear && claude -r <id>` (`resumeInitCommand` in `workspace-types.ts`).
+/// The id gets spliced into a file path, so only the uuid shape (36 hex characters and `-`) is accepted.
 pub fn resume_session_id(init_command: &str) -> Option<&str> {
     let id = init_command.split("claude -r ").nth(1)?.split_whitespace().next()?;
     let uuid_shaped = id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     uuid_shaped.then_some(id)
 }
 
-/// 会话的起始目录：第一条主线（非 sidechain）用户记录的 cwd。后面的记录会被「在别的目录
-/// `claude -r`」改写，不能用。
+/// The session's start directory: the cwd of the first main-line (non-sidechain) user record. Later records get rewritten by "`claude -r` in another directory"
+/// and must not be used.
 pub fn first_user_cwd(reader: impl std::io::BufRead) -> Option<String> {
     for line in reader.lines().map_while(Result::ok) {
         let Ok(rec) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
@@ -64,14 +64,14 @@ pub fn first_user_cwd(reader: impl std::io::BufRead) -> Option<String> {
     None
 }
 
-/// resume tab 要不要改到会话的起始目录启动：起始目录**还在**且和请求的不同才改。
-/// 起始目录不在了 = 项目被移走过（用户可能已用「指到新位置」恢复），这时 tab 记的新位置才是对的，
-/// 硬改回去会和 cwd-missing 恢复流程互相打架。
+/// Whether a resume tab should be launched in the session's start directory instead: only when the start directory **still exists** and differs from the requested one.
+/// A start directory that is gone = the project was moved (the user may already have recovered with "point to new location"), so the new location recorded by the tab is the right one,
+/// and forcing it back would fight with the cwd-missing recovery flow.
 pub fn corrected_resume_cwd(requested: &str, home: Option<String>) -> Option<String> {
     home.filter(|h| Path::new(h).is_dir() && *h != expand_tilde(requested))
 }
 
-/// 在 `~/.claude/projects/*/<id>.jsonl` 里找这个会话，返回它的起始目录。
+/// Find this session in `~/.claude/projects/*/<id>.jsonl` and return its start directory.
 pub fn session_home_cwd(projects_dir: &Path, session_id: &str) -> Option<String> {
     let file = std::fs::read_dir(projects_dir)
         .ok()?
@@ -81,15 +81,15 @@ pub fn session_home_cwd(projects_dir: &Path, session_id: &str) -> Option<String>
     first_user_cwd(std::io::BufReader::new(std::fs::File::open(file).ok()?))
 }
 
-/// resume tab 的 cwd 闸（#173）。
+/// The cwd gate for resume tabs (#173).
 ///
-/// 这条不变量承担的是：**目录没了的 resume tab 必须启动失败，而不是换个目录悄悄起来**。
-/// 换 cwd 就是换钥匙 —— claude 只会去 `projects/<encode(realpath(cwd))>/<id>.jsonl`
-/// 找会话，降级到祖先目录之后它报的是「No conversation found」，把一个能修的问题
-/// 伪装成一个没救的问题。
-/// resume tab 在会话自己的起始目录启动（#190）：`init_command` 是 `claude -r <uuid>` 形状、
-/// 会话起始目录还在且和 `cwd` 不同时，返回该改成的目录；否则 None（照 `cwd` 启动）。
-/// 两边 spawn 前都先过这一步，再过 `must_refuse_cwd` 那道闸。
+/// The invariant here is: **a resume tab whose directory is gone must fail to start, not quietly start in another directory**.
+/// Changing the cwd changes the key -- claude only looks for the session at `projects/<encode(realpath(cwd))>/<id>.jsonl`,
+/// and after degrading to an ancestor directory it reports "No conversation found", disguising a fixable problem
+/// as an unrecoverable one.
+/// Launch a resume tab in the session's own start directory (#190): when `init_command` has the shape `claude -r <uuid>`
+/// and the session's start directory still exists and differs from `cwd`, return the directory to switch to; otherwise None (launch in `cwd`).
+/// Both sides run this step before spawning, then pass through the `must_refuse_cwd` gate.
 pub fn resume_cwd_correction(init_command: Option<&str>, cwd: &str) -> Option<String> {
     let home = init_command
         .and_then(resume_session_id)
@@ -97,10 +97,10 @@ pub fn resume_cwd_correction(init_command: Option<&str>, cwd: &str) -> Option<St
     corrected_resume_cwd(cwd, home)
 }
 
-/// 注入 `MAKIT_SESSION_ID` 的值：恢复会话的 initCommand 里的会话 id（claude 或 codex）。
+/// The value to inject as `MAKIT_SESSION_ID`: the session id in the resume session's initCommand (claude or codex).
 ///
-/// #223：以前只认「以 `claude -r ` 开头」，而前端拼的是 `clear && claude -r <id>`，这个变量从来
-/// 没注入过。现在和 cwd 校正共用 `resume_session_id` 的解析，同样只认 uuid 形状的 id。
+/// #223: it used to accept only strings "starting with `claude -r `", but the frontend assembles `clear && claude -r <id>`, so this variable was never
+/// injected. Now it shares the parsing of `resume_session_id` with the cwd correction, and likewise accepts only uuid-shaped ids.
 pub fn env_session_id(init_command: &str) -> Option<&str> {
     resume_session_id(init_command).or_else(|| {
         let id = init_command.split("codex resume ").nth(1)?.split_whitespace().next()?;
@@ -109,16 +109,16 @@ pub fn env_session_id(init_command: &str) -> Option<&str> {
     })
 }
 
-/// shell 集成只给 zsh 做（macOS 默认 zsh）
+/// Shell integration is done only for zsh (macOS's default shell is zsh)
 pub fn is_zsh(shell: &str) -> bool {
     shell.ends_with("zsh") || shell.ends_with("/zsh")
 }
 
-/// Shell 集成：自动发 OSC 7 通知 cwd 变化。
+/// Shell integration: automatically send OSC 7 to notify cwd changes.
 ///
-/// 用 ZDOTDIR 接管 zsh 的 .zshrc 加载点：先 source 用户原 .zshrc，再加 OSC 7 hook。
-/// 在 `<home>/.cache/makit/shell-integration/` 写好 `.zprofile` / `.zshenv` / `.zshrc`
-/// （内容没变就不写），返回这个目录 —— 调用方把它设成子进程的 `ZDOTDIR`。
+/// Take over zsh's .zshrc loading point with ZDOTDIR: first source the user's original .zshrc, then add the OSC 7 hook.
+/// Write `.zprofile` / `.zshenv` / `.zshrc` under `<home>/.cache/makit/shell-integration/`
+/// (not written if the content is unchanged) and return that directory -- the caller sets it as the child process's `ZDOTDIR`.
 pub fn prepare_zsh_integration(home: &Path) -> PathBuf {
     let integ_dir = home.join(".cache").join("makit").join("shell-integration");
     let _ = std::fs::create_dir_all(&integ_dir);
@@ -163,15 +163,15 @@ mod cwd_gate_tests {
     #[test]
     fn refuses_only_when_fallback_is_forbidden_and_dir_is_gone() {
         let gone = "/definitely/not/a/path/makit-cwd-gate";
-        // 前提：这个路径确实会触发降级，否则下面几条断言什么都没测到
+        // Precondition: this path really does trigger degradation, otherwise the assertions below test nothing
         assert_ne!(resolve_existing_cwd(gone), expand_tilde(gone));
 
-        // resume tab：必须拒
+        // resume tab: must refuse
         assert!(must_refuse_cwd(gone, Some(false)));
 
-        // shell / new tab：降级是对的（目的就是弄起一个 shell，在哪儿都行）
+        // shell / new tab: degrading is right (the goal is just to get a shell up; any directory will do)
         assert!(!must_refuse_cwd(gone, Some(true)));
-        // 老调用方不传这个参数 → None → 保持原有降级行为，向后兼容
+        // an old caller does not pass this parameter -> None -> keep the original degrading behaviour, backward compatible
         assert!(!must_refuse_cwd(gone, None));
     }
 
@@ -182,12 +182,12 @@ mod cwd_gate_tests {
     }
 }
 
-/// resume tab 必须在会话自己的起始目录启动（#190）。
+/// A resume tab must launch in the session's own start directory (#190).
 ///
-/// 起因：在 shell 里手打 `claude -r` 后 tab 就地升级成 resume tab，但 tab 记的 cwd 还是那个 shell 的
-/// 目录；新开终端又继承当前 tab 的 cwd —— 一个错目录会传给所有 tab。下次启动在错目录里
-/// `claude -r`，claude 就在那个仓库里继续这个会话（记录里的 cwd、git 分支、Bash 默认目录全变）。
-/// 会话的起始目录 = jsonl 第一条用户记录的 cwd = claude 存它的目录，是唯一可信的来源。
+/// Cause: after typing `claude -r` by hand in a shell, the tab is upgraded in place to a resume tab, but the cwd the tab recorded is still that shell's
+/// directory; and a newly opened terminal inherits the current tab's cwd -- one wrong directory propagates to every tab. On the next launch `claude -r`
+/// runs in the wrong directory and claude continues this session inside that repository (the cwd in the records, the git branch and the Bash default directory all change).
+/// The session's start directory = the cwd of the first user record in the jsonl = the directory claude stores it under, the only trustworthy source.
 #[cfg(test)]
 mod resume_cwd_tests {
     use super::{corrected_resume_cwd, first_user_cwd, resume_session_id, session_home_cwd};
@@ -199,11 +199,11 @@ mod resume_cwd_tests {
     fn parses_session_id_from_resume_init_command() {
         assert_eq!(resume_session_id(&format!("clear && claude -r {SID}")), Some(SID));
         assert_eq!(resume_session_id(&format!("claude -r {SID}")), Some(SID));
-        // codex 的会话不在 ~/.claude/projects 里，不管
+        // codex sessions are not in ~/.claude/projects, ignore them
         assert_eq!(resume_session_id(&format!("codex resume {SID}")), None);
         assert_eq!(resume_session_id("clear && claude"), None);
         assert_eq!(resume_session_id("zsh"), None);
-        // id 会拼进文件路径：不是 uuid 形状的一律不认，杜绝 ../ 之类
+        // The id gets spliced into a file path: anything not uuid-shaped is rejected, ruling out ../ and the like
         assert_eq!(resume_session_id("claude -r ../../etc/passwd"), None);
         assert_eq!(resume_session_id("claude -r 73ec5479"), None);
     }
@@ -230,14 +230,14 @@ mod resume_cwd_tests {
     #[test]
     fn corrects_only_to_an_existing_home_that_differs() {
         let home = std::env::temp_dir().to_string_lossy().trim_end_matches('/').to_string();
-        // 在别的目录被恢复 → 改回起始目录
+        // resumed in another directory -> change back to the start directory
         assert_eq!(corrected_resume_cwd("/Users/me/other-project", Some(home.clone())), Some(home.clone()));
-        // 本来就在起始目录 → 不改（不通知前端）
+        // already in the start directory -> no change (the frontend is not notified)
         assert_eq!(corrected_resume_cwd(&home, Some(home.clone())), None);
-        // 起始目录已经不在了（目录被移走、用户用「指到新位置」恢复过）→ 不改，
-        // 否则会和 cwd-missing 恢复流程互相打架：改回去 → 被拒 → relink 到新目录 → 又被改回去
+        // the start directory is gone (directory moved, the user recovered with "point to new location") -> no change,
+        // otherwise it would fight with the cwd-missing recovery flow: change back -> refused -> relink to the new directory -> changed back again
         assert_eq!(corrected_resume_cwd("/Users/me/new-place", Some("/definitely/not/a/path/makit-home".into())), None);
-        // 找不到会话记录 → 不改
+        // session record not found -> no change
         assert_eq!(corrected_resume_cwd("/Users/me/x", None), None);
     }
 
@@ -260,18 +260,18 @@ mod resume_cwd_tests {
     }
 }
 
-/// #226 抽取出来的 spawn 前准备（Tauri 和 GPUI 共用）。
-/// 错了在 UI 上：终端标签的 cwd 不跟着 `cd` 变（OSC 7 集成文件没写对），
-/// 或用户自己的 .zshrc / PATH 没被加载（集成文件没 source 原文件）。
+/// Pre-spawn preparation extracted in #226 (shared by Tauri and GPUI).
+/// What goes wrong on screen if this breaks: a terminal tab's cwd does not follow `cd` (the OSC 7 integration files are wrong),
+/// or the user's own .zshrc / PATH is not loaded (the integration files did not source the original).
 #[cfg(test)]
 mod spawn_prep_tests {
     use super::*;
 
     #[test]
-    /// #223：恢复标签的 initCommand 实际是 `clear && claude -r <id>`（workspace-types.ts 的
-    /// resumeInitCommand），以前只认「以 `claude -r` 开头」，MAKIT_SESSION_ID 从来没注入过，
-    /// 按会话找孤儿进程对恢复出来的标签全部失效。错了在 UI 上：关掉恢复出来的标签后，
-    /// 它 setsid 出去的子进程不会被当成这个会话的子进程收掉。
+    /// #223: a resume tab's initCommand is actually `clear && claude -r <id>` (`resumeInitCommand` in workspace-types.ts);
+    /// it used to accept only strings "starting with `claude -r`", MAKIT_SESSION_ID was never injected,
+    /// and looking up orphan processes by session failed for every resumed tab. What goes wrong on screen: after closing a resumed tab,
+    /// the child processes it setsid'ed away are not reaped as that session's children.
     fn env_session_id_for_real_resume_commands() {
         const SID: &str = "73ec5479-5b96-494c-919c-1f36a7e192fd";
         assert_eq!(env_session_id(&format!("clear && claude -r {SID}")), Some(SID), "前端实际拼的形状");
@@ -280,7 +280,7 @@ mod spawn_prep_tests {
         assert_eq!(env_session_id("claude -r "), None);
         assert_eq!(env_session_id("clear && claude"), None, "新会话没有 id");
         assert_eq!(env_session_id("zsh"), None);
-        // 会进环境变量、也会被拿去匹配进程：不是 uuid 形状的不认
+        // It goes into the environment and is also used to match processes: anything not uuid-shaped is rejected
         assert_eq!(env_session_id("claude -r abc"), None);
         assert_eq!(env_session_id("codex resume ../../x"), None);
     }
@@ -298,7 +298,7 @@ mod spawn_prep_tests {
         assert!(rc.contains("chpwd_functions+=(_makit_emit_cwd)") && rc.contains("precmd_functions+=(_makit_emit_cwd)"));
         assert!(std::fs::read_to_string(dir.join(".zprofile")).unwrap().contains(".zprofile"));
         assert!(std::fs::read_to_string(dir.join(".zshenv")).unwrap().contains(".zshenv"));
-        // 第二次调用内容不变
+        // second call: content unchanged
         assert_eq!(prepare_zsh_integration(&home), dir);
         assert_eq!(std::fs::read_to_string(dir.join(".zshrc")).unwrap(), rc);
         assert!(is_zsh("/bin/zsh") && !is_zsh("/bin/bash"));

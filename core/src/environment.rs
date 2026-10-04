@@ -1,41 +1,41 @@
-//! 本机有没有装 Claude Code / Codex（#197）：首次打开没有会话时，要告诉用户是「还没装」还是「装了但还没用过」。
+//! Whether Claude Code / Codex is installed on this machine (#197): on first launch with no sessions, the user must be told whether it is "not installed" or "installed but never used".
 //!
-//! 不开 shell 去 `which`：从 Finder 启动的 app 拿到的 PATH 很短（`/usr/bin:/bin:…`），而用户的 claude / codex 多半装在
-//! shell 配置里才加进 PATH 的目录（nvm、~/.local/bin……）。所以看两样东西：①命令文件在不在（当前 PATH + 一批常见安装目录）
-//! ②会话目录在不在（`~/.claude/projects`、`~/.codex/sessions`，这正是 makit 读的地方）。
-//! 检测不到只能说「没检测到」，不能说「没装」：可能装在我们没列到的地方。
+//! No shell is spawned to run `which`: an app launched from Finder gets a very short PATH (`/usr/bin:/bin:...`), while the user's claude / codex is mostly installed in directories
+//! that only the shell config adds to PATH (nvm, ~/.local/bin...). So two things are checked: (1) whether the command file exists (current PATH + a set of common install directories),
+//! (2) whether the session directories exist (`~/.claude/projects`, `~/.codex/sessions`, which is exactly where makit reads).
+//! If nothing is detected we can only say "not detected", never "not installed": it may be installed somewhere we did not list.
 
 use std::path::{Path, PathBuf};
 
-/// 读目录失败的原因，只分「权限」和「别的」（要放进 `Copy` 的结构里，不带错误文字）
+/// Why a directory read failed, distinguishing only "permission" from "other" (it goes into a `Copy` struct, so no error text)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ErrKind {
     PermissionDenied,
     Other,
 }
 
-/// 一个会话目录的状态（#256 B1）。**「读不了」和「空」必须分开**：读不了时界面不能说「没有会话」，
-/// 否则用户会以为自己没有会话，而不是知道系统拒绝了读取
+/// The state of one session directory (#256 B1). **"Unreadable" and "empty" must be kept apart**: when unreadable the UI must not say "no sessions",
+/// otherwise the user would think they have no sessions, rather than knowing the system refused the read
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DirState {
-    /// 目录不存在（这个工具没用过）
+    /// The directory does not exist (this tool was never used)
     #[default]
     Missing,
-    /// 目录在、里面没有条目
+    /// The directory exists and has no entries
     Empty,
     HasEntries,
-    /// 目录在，但读不了
+    /// The directory exists but cannot be read
     Unreadable(ErrKind),
 }
 
 impl DirState {
-    /// 有没有用过这个工具的迹象：目录在（哪怕空着、读不了）
+    /// Whether there are signs that this tool was used: the directory exists (even if empty or unreadable)
     pub fn exists(&self) -> bool {
         !matches!(self, DirState::Missing)
     }
 }
 
-/// 探测一个目录：一次 `read_dir`。NotFound → Missing；权限不够 → Unreadable(PermissionDenied)；别的错 → Unreadable(Other)
+/// Probe a directory: one `read_dir`. NotFound -> Missing; insufficient permission -> Unreadable(PermissionDenied); other errors -> Unreadable(Other)
 pub fn probe_dir(path: &Path) -> DirState {
     match std::fs::read_dir(path) {
         Ok(mut it) => {
@@ -62,7 +62,7 @@ pub struct ToolPresence {
 }
 
 impl ToolPresence {
-    /// Claude Code 的任何一个迹象
+    /// Any sign of Claude Code
     pub fn claude(&self) -> bool {
         self.claude_bin || self.claude_dir.exists()
     }
@@ -75,7 +75,7 @@ impl ToolPresence {
         self.claude() || self.codex()
     }
 
-    /// 读不了的会话目录：(显示用的路径, 原因)。欢迎卡和侧栏据此说「读不了」，而不是「没有会话」
+    /// Session directories that cannot be read: (path for display, reason). The welcome card and the sidebar use this to say "cannot read" instead of "no sessions"
     pub fn unreadable_dirs(&self) -> Vec<(&'static str, ErrKind)> {
         let mut v = Vec::new();
         if let DirState::Unreadable(k) = self.claude_dir {
@@ -88,11 +88,11 @@ impl ToolPresence {
     }
 }
 
-/// 系统级的常见安装目录（Homebrew）。只在真实入口 `detect()` 里并进 PATH，不放进 `detect_in`：
-/// 否则测试会读到开发机上真装的 claude / codex，「什么都没装」的用例就不成立
+/// Common system-wide install directories (Homebrew). Merged into PATH only in the real entry point `detect()`, not in `detect_in`:
+/// otherwise tests would pick up a claude / codex really installed on the dev machine, and the "nothing installed" case would not hold
 const SYSTEM_BIN_DIRS: &str = "/opt/homebrew/bin:/usr/local/bin";
 
-/// 家目录下常见的命令安装目录（App 的 PATH 里通常没有它们）。nvm 的各个 node 版本目录另外在 `nvm_bin_dirs` 里展开
+/// Common command install directories under the home directory (usually not in an App's PATH). nvm's per-version node directories are expanded separately in `nvm_bin_dirs`
 pub fn common_bin_dirs(home: &Path) -> Vec<PathBuf> {
     let mut v = vec![
         home.join(".local/bin"),
@@ -106,7 +106,7 @@ pub fn common_bin_dirs(home: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// `~/.nvm/versions/node/<版本>/bin`：nvm 每个 node 版本一个目录，全局装的命令在各自的 bin 里
+/// `~/.nvm/versions/node/<version>/bin`: nvm has one directory per node version, and globally installed commands live in each one's bin
 fn nvm_bin_dirs(home: &Path) -> Vec<PathBuf> {
     let root = home.join(".nvm/versions/node");
     std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path().join("bin")).collect()
@@ -116,7 +116,7 @@ fn has_command(name: &str, dirs: &[PathBuf]) -> bool {
     dirs.iter().any(|d| d.join(name).is_file())
 }
 
-/// 在 `home` 下检测；`path_env` 是 `$PATH` 的值（冒号分隔）
+/// Detect under `home`; `path_env` is the value of `$PATH` (colon separated)
 pub fn detect_in(home: &Path, path_env: &str) -> ToolPresence {
     let mut dirs: Vec<PathBuf> = path_env.split(':').filter(|s| !s.is_empty()).map(PathBuf::from).collect();
     dirs.extend(common_bin_dirs(home));
@@ -128,9 +128,9 @@ pub fn detect_in(home: &Path, path_env: &str) -> ToolPresence {
     }
 }
 
-/// 调试 / 开发用：`MAKIT_TOOLS=none|claude|codex|both` 直接指定检测结果，不看真实的 PATH 和目录。
-/// 为什么要有：dev 的假 HOME 只隔离了会话目录，命令检测仍读开发机真实的 PATH，永远看不到「没装」那种提示。
-/// 认不出的值返回 None（按真实检测走），不报错
+/// For debugging / development: `MAKIT_TOOLS=none|claude|codex|both` specifies the detection result directly, ignoring the real PATH and directories.
+/// Why it exists: dev's fake HOME isolates only the session directories, while command detection still reads the dev machine's real PATH, so the "not installed" hint can never be seen.
+/// An unrecognized value returns None (falls through to real detection) without an error
 pub fn parse_override(value: &str) -> Option<ToolPresence> {
     let on = |claude, codex| Some(ToolPresence { claude_bin: claude, codex_bin: codex, ..Default::default() });
     match value.trim().to_ascii_lowercase().as_str() {
@@ -142,7 +142,7 @@ pub fn parse_override(value: &str) -> Option<ToolPresence> {
     }
 }
 
-/// 用真实的 HOME 和 PATH 检测（设了 `MAKIT_TOOLS` 就用它指定的结果）
+/// Detect with the real HOME and PATH (if `MAKIT_TOOLS` is set, use the result it specifies)
 pub fn detect() -> ToolPresence {
     if let Some(p) = std::env::var("MAKIT_TOOLS").ok().and_then(|v| parse_override(&v)) {
         return p;
@@ -158,7 +158,7 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// 每个测试自己的临时 HOME（pid + 纳秒 + 名字，不引 tempfile）
+    /// Each test's own temporary HOME (pid + nanoseconds + name, without pulling in tempfile)
     fn temp_home(name: &str) -> PathBuf {
         let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let p = std::env::temp_dir().join(format!("makit-env-{}-{n}-{name}", std::process::id()));
@@ -171,8 +171,8 @@ mod tests {
         fs::write(p, "").unwrap();
     }
 
-    /// 为什么要测（#197）：错了在界面上就是「明明装了 Claude Code，首次打开却说没找到」（吓跑用户），
-    /// 或「没装却说已检测到」（让人以为 makit 坏了）
+    /// Why test this (#197): what goes wrong on screen is "Claude Code is clearly installed, yet first launch says not found" (scares users away),
+    /// or "not installed but reported as detected" (makes people think makit is broken)
     #[test]
     fn nothing_installed_is_all_false() {
         let h = temp_home("none");
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn command_in_common_dir_outside_path_is_found() {
-        // Finder 启动的 app PATH 很短：命令装在 ~/.local/bin 也要认出来
+        // An app launched from Finder has a very short PATH: a command installed in ~/.local/bin must be recognized too
         let h = temp_home("common");
         touch(&h.join(".local/bin/codex"));
         let p = detect_in(&h, "/usr/bin:/bin");
@@ -218,11 +218,11 @@ mod tests {
     #[test]
     fn a_directory_named_like_the_command_is_not_the_command() {
         let h = temp_home("dir");
-        fs::create_dir_all(h.join(".local/bin/claude")).unwrap(); // 目录，不是可执行文件
+        fs::create_dir_all(h.join(".local/bin/claude")).unwrap(); // a directory, not an executable
         assert!(!detect_in(&h, "").claude_bin);
     }
 
-    /// 为什么要测：覆盖开关写错，dev 里想看的提示就出不来，又得怀疑是不是提示本身坏了
+    /// Why test this: if the override switch is wrong, the hint wanted in dev cannot appear, and one would again suspect the hint itself is broken
     #[test]
     fn override_presets() {
         let on = |c, x| ToolPresence { claude_bin: c, codex_bin: x, ..Default::default() };
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(parse_override(""), None);
     }
 
-    // ---- probe_dir（#256 B1）----
+    // ---- probe_dir (#256 B1) ----
 
     #[test]
     fn missing_empty_and_populated_dirs_are_told_apart() {
@@ -248,8 +248,8 @@ mod tests {
         assert_eq!(probe_dir(&empty), DirState::HasEntries);
     }
 
-    /// 为什么要测：目录读不了时界面如果说「没有会话」，用户会以为自己没有会话，而不是去检查权限。
-    /// chmod 000 在 root 下拦不住，所以用 root 跑时这条跳过——对照组不能依赖运行身份
+    /// Why test this: if the UI says "no sessions" when a directory is unreadable, the user thinks they have no sessions instead of checking permissions.
+    /// chmod 000 does not block root, so this case is skipped when run as root -- the control group must not depend on the running identity
     #[cfg(unix)]
     #[test]
     fn unreadable_dir_is_not_reported_as_empty() {
@@ -265,7 +265,7 @@ mod tests {
         fs::set_permissions(&d, fs::Permissions::from_mode(0o000)).unwrap();
         let state = probe_dir(&d);
         let p = detect_in(&h, "");
-        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap(); // 先还原，免得清理不掉
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o755)).unwrap(); // restore first, or cleanup would fail
         assert_eq!(state, DirState::Unreadable(ErrKind::PermissionDenied));
         assert!(p.claude(), "目录在就算有迹象");
         assert_eq!(p.unreadable_dirs(), vec![("~/.claude/projects", ErrKind::PermissionDenied)]);

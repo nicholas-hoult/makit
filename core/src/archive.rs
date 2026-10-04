@@ -1,4 +1,4 @@
-//! 归档：`~/.claude/makit/archived.json`，排好序的 session_id 数组。
+//! Archive: `~/.claude/makit/archived.json`, a sorted array of session_ids.
 
 use std::fs;
 use std::path::PathBuf;

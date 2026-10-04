@@ -1,14 +1,14 @@
-//! 统一的对话模型（#231）：claude 的 jsonl 和 codex 的 rollout 都解析成这个。
+//! Unified conversation model (#231): both claude's jsonl and codex's rollout are parsed into this.
 //!
-//! 扁平的 `Item` 列表（不是 Turn / Block 嵌套）：方便增量追加，也方便虚拟列表给每一项单独算高度。
-//! 连续的 Assistant / ToolCall 在**渲染时**按相邻关系分组，不放进模型。
+//! A flat `Item` list (not nested Turn / Block): easy to append incrementally, and lets a virtual list compute each item's height independently.
+//! Consecutive Assistant / ToolCall items are grouped **at render time** by adjacency, not in the model.
 
-/// 工具输出保留多少字节：几 MB 的输出不进内存，`total_len` 记原长
+/// How many bytes of tool output to keep: output of several MB stays out of memory; `total_len` records the original length
 pub const MAX_TOOL_TEXT: usize = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Item {
-    /// 稳定 id：claude 是记录 uuid（一条记录里有多个 Item 时后面的带 `#n`），codex 是行序号
+    /// Stable id: for claude it is the record uuid (when one record yields several Items, later ones get `#n`); for codex it is the line number
     pub id: String,
     pub time: Option<String>,
     pub kind: ItemKind,
@@ -23,44 +23,44 @@ pub enum Level {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DividerKind {
-    /// 对话被压缩过（compact / microcompact）
+    /// The conversation was compacted (compact / microcompact)
     Compacted,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ItemKind {
-    /// 真用户输入
+    /// Genuine user input
     User(String),
-    /// 用户贴的图：只留元信息
+    /// An image pasted by the user: only metadata is kept
     Image { media_type: String, bytes: usize },
-    /// 斜杠命令回显
+    /// Echo of a slash command
     Command { name: String, args: String },
-    /// 斜杠命令 / `!` 命令的输出（暗色）
+    /// Output of a slash command / `!` command (dim)
     LocalOutput(String),
-    /// `!` 命令的输入
+    /// Input of a `!` command
     BashInput(String),
-    /// 助手回复，markdown 原文
+    /// Assistant reply, raw markdown
     Assistant(String),
-    /// 思考文本；可能为空（codex 的 reasoning 是加密的）
+    /// Thinking text; may be empty (codex's reasoning is encrypted)
     Thinking(String),
-    /// 工具调用；结果比调用晚到，按 id 配对后挂在 `result` 上
+    /// Tool call; the result arrives later than the call and is attached to `result` by id pairing
     ToolCall { call_id: String, name: String, input: serde_json::Value, result: Option<ToolResult> },
-    /// 提示：recap、后台任务完成、API 重试、被中断……
+    /// Notices: recap, background task finished, API retry, interruption...
     Notice { level: Level, text: String },
     Divider(DividerKind),
-    /// 一轮花了多久（毫秒），TUI 里的「Baked for 2m 56s」
+    /// How long a turn took (milliseconds), the "Baked for 2m 56s" in the TUI
     TurnDuration(u64),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolResult {
-    /// 截断到 `MAX_TOOL_TEXT`（在字符边界上）
+    /// Truncated to `MAX_TOOL_TEXT` (on a character boundary)
     pub text: String,
     pub truncated: bool,
-    /// 原始字节数
+    /// Original byte count
     pub total_len: usize,
     pub is_error: bool,
-    /// 结果里带的图片数
+    /// Number of images in the result
     pub images: usize,
 }
 
@@ -78,7 +78,7 @@ impl ToolResult {
     }
 }
 
-/// 读哪种会话文件
+/// Which kind of session file to read
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Claude,

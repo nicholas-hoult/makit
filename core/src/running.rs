@@ -1,5 +1,5 @@
-//! 运行状态：`~/.claude/sessions/*.json`（claude 运行时写的 pid / 状态 / 名字），
-//! 以及 pty_id → session 的绑定。
+//! Running state: `~/.claude/sessions/*.json` (pid / status / name written by claude while running),
+//! and the pty_id -> session binding.
 
 use std::collections::HashMap;
 use std::fs;
@@ -23,9 +23,9 @@ pub fn load_running_info() -> HashMap<String, RunningInfo> {
     }
 }
 
-/// `load_running_info` 的可测版本：目录 + 「这个 pid 还活着吗」。
-/// 进程被 kill / 崩溃 / 终端被关时 claude 不会删 `sessions/<pid>.json`，文件还在但进程没了 ——
-/// 这种条目不能算「在跑」，否则侧栏一直显示运行中，还会拦着不让重新打开（「正在运行中，不能重复启动」）
+/// Testable version of `load_running_info`: a directory + "is this pid still alive?".
+/// When a process is killed / crashes / its terminal is closed, claude does not delete `sessions/<pid>.json`: the file stays but the process is gone --
+/// such an entry must not count as "running", otherwise the sidebar shows running forever and even blocks reopening ("already running, cannot start twice")
 pub fn load_running_info_in(dir: &Path, alive: &dyn Fn(u32) -> bool) -> HashMap<String, RunningInfo> {
     let mut map = HashMap::new();
     let entries = match fs::read_dir(dir) {
@@ -70,9 +70,9 @@ pub fn load_running_info_in(dir: &Path, alive: &dyn Fn(u32) -> bool) -> HashMap<
             .to_string();
         let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
         if pid > 0 && !alive(pid) {
-            continue; // 死进程留下的文件
+            continue; // file left behind by a dead process
         }
-        // 检查 claude 进程的环境变量获取 MAKIT_PTY_ID
+        // Check the claude process's environment variables to get MAKIT_PTY_ID
         let pty_id = if pid > 0 {
             get_env_var_of_pid(pid, "MAKIT_PTY_ID").unwrap_or_default()
         } else {
@@ -92,7 +92,7 @@ pub fn load_running_info_in(dir: &Path, alive: &dyn Fn(u32) -> bool) -> HashMap<
     map
 }
 
-// 轻量扫描：只读 running 状态（~/.claude/sessions/*.json），不扫 projects
+// Lightweight scan: reads only the running state (~/.claude/sessions/*.json), does not scan projects
 pub fn list_running_sessions() -> Vec<RunningMeta> {
     match dirs::home_dir() {
         Some(h) => list_running_sessions_in(&h.join(".claude").join("sessions"), &pid_alive),
@@ -100,7 +100,7 @@ pub fn list_running_sessions() -> Vec<RunningMeta> {
     }
 }
 
-/// `list_running_sessions` 的可测版本，同样跳过死进程留下的文件
+/// Testable version of `list_running_sessions`; likewise skips files left behind by dead processes
 pub fn list_running_sessions_in(sessions_dir: &Path, alive: &dyn Fn(u32) -> bool) -> Vec<RunningMeta> {
     let mut result = vec![];
     if let Ok(entries) = std::fs::read_dir(sessions_dir) {
@@ -113,8 +113,8 @@ pub fn list_running_sessions_in(sessions_dir: &Path, alive: &dyn Fn(u32) -> bool
                     let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("").to_string();
                     let waiting_for = v.get("waitingFor").and_then(|x| x.as_str()).unwrap_or("").to_string();
                     let pid = v.get("pid").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
-                    // name 必须带上：改名写的就是这个文件，而写它只会触发 `running-changed`。
-                    // 少了这个字段，那条路就**结构上**搬不了标题，改名要 ⌘R 才生效（#4 / #8）。
+                    // name must be included: a rename writes exactly this file, and writing it only triggers `running-changed`.
+                    // Without this field that path **structurally** cannot carry the title, and a rename would only take effect after a manual refresh (#4 / #8).
                     let name = v.get("name").and_then(|x| x.as_str()).unwrap_or("").to_string();
                     if pid > 0 && !alive(pid) {
                         continue;
@@ -135,8 +135,8 @@ pub struct RunningMeta {
     pub status: String,
     pub waiting_for: String,
     pub pid: u32,
-    /// claude 自己写的会话名（`~/.claude/sessions/<pid>.json` 的 `name`）。可能为空。
-    /// 和 `RunningInfo.name` 同源；`parse_session` 里它是 display_name 的**最高优先级**。
+    /// The session name claude wrote itself (`name` in `~/.claude/sessions/<pid>.json`). May be empty.
+    /// Same source as `RunningInfo.name`; in `parse_session` it has the **highest priority** for display_name.
     pub name: String,
 }
 
@@ -145,22 +145,22 @@ pub struct PtyBinding {
     pub pty_id: String,
     pub session_id: String,
     pub short_id: String,
-    /// claude 自己写的会话名（`~/.claude/sessions/<pid>.json` 的 `name`）。可能为空。
+    /// The session name claude wrote itself (`name` in `~/.claude/sessions/<pid>.json`). May be empty.
     pub name: String,
 }
 
-/// 把「还没绑上 session 的 tab」和「正在跑的 claude」对上：pty_id → session_id。
+/// Match "tabs not yet bound to a session" with "running claude processes": pty_id -> session_id.
 ///
-/// 为什么不复用 `list_sessions`：绑定需要的事实只有 `(pty_id, session_id)`，它在 claude
-/// 启动的那一瞬间就写进了 `~/.claude/sessions/<pid>.json`。而 `list_sessions` 扫的是
-/// `~/.claude/projects/**/*.jsonl` —— **那个文件要等用户发出第一条消息之后才存在**。
-/// 于是「新建 shell、手打 claude」的 tab 在发消息之前根本不在 sessions 数组里，
-/// `s.pty_id === t.id` 无从匹配，标题一直停在「新会话」；⌘R 走的还是 `list_sessions`，
-/// 所以刷新同样无效；而 resume 出来的 tab 早就有 jsonl，看着"是好的"。
-/// 三种表现是同一个根因：绑定挂在了一个比它自己晚出现的数据源上。
+/// Why not reuse `list_sessions`: the only fact binding needs is `(pty_id, session_id)`, which claude
+/// writes into `~/.claude/sessions/<pid>.json` the moment it starts. `list_sessions` scans
+/// `~/.claude/projects/**/*.jsonl` -- **and that file does not exist until the user sends the first message**.
+/// So a tab where "a new shell was opened and claude was typed by hand" is not in the sessions array at all before a message is sent,
+/// `s.pty_id === t.id` can never match, and the title stays at "New session"; the manual refresh still goes through `list_sessions`,
+/// so refreshing does not help either; while a resumed tab already has a jsonl and looks "fine".
+/// The three symptoms share one root cause: the binding hung off a data source that appears later than itself.
 ///
-/// 只对前端传进来的 pty_ids 干活：没有待绑定 tab 时前端不会调这个命令，一次 ps 都不跑。
-/// 匹配满了就早退，正常情况（一个新 tab）只查到第一个命中就结束。
+/// It works only on the pty_ids passed in by the frontend: with no tab awaiting binding the frontend does not call this command, and not a single ps is run.
+/// It returns early once the quota is filled; in the normal case (one new tab) it stops at the first hit.
 pub fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<PtyBinding> {
     let home = match dirs::home_dir() {
         Some(h) => h,
@@ -169,9 +169,9 @@ pub fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<PtyBinding> {
     resolve_bindings_in(
         &home.join(".claude").join("sessions"),
         &pty_ids,
-        // 「这个 pid 现在归哪个 pty」合成一问：进程已经没了就当没有 marker。
-        // sessions/*.json 不保证在 claude 退出时被清掉，先 kill(0) 挡掉死 pid，
-        // 省一次 ps。
+        // Fold "which pty does this pid belong to now" into one question: a process that is already gone counts as having no marker.
+        // sessions/*.json is not guaranteed to be cleaned when claude exits, so kill(0) first rules out dead pids,
+        // saving a ps.
         &|pid| {
             if !pid_alive(pid) {
                 return None;
@@ -181,9 +181,9 @@ pub fn resolve_pty_bindings(pty_ids: Vec<String>) -> Vec<PtyBinding> {
     )
 }
 
-/// `resolve_pty_bindings` 的纯逻辑部分：目录 + 想要的 pty_ids + 「pid → pty_id」查询。
-/// 抽出来是为了能测 —— 真实实现要一个活着的、带 MAKIT_PTY_ID 的非 Apple 签名进程，
-/// 在单测里造不出来。
+/// The pure-logic part of `resolve_pty_bindings`: a directory + the wanted pty_ids + a "pid -> pty_id" lookup.
+/// Extracted so it can be tested -- the real implementation needs a live, non-Apple-signed process carrying MAKIT_PTY_ID,
+/// which a unit test cannot create.
 pub fn resolve_bindings_in(
     dir: &Path,
     pty_ids: &[String],
@@ -198,7 +198,7 @@ pub fn resolve_bindings_in(
     };
     let mut result: Vec<PtyBinding> = vec![];
     for entry in entries.flatten() {
-        // 每个 tab 只能绑一个 session，配额满了就不必再扫（常见情况是只有一个新 tab）
+        // Each tab can bind only one session; once the quota is full there is no need to keep scanning (the common case is a single new tab)
         if result.len() == pty_ids.len() {
             break;
         }
@@ -241,15 +241,15 @@ pub fn resolve_bindings_in(
 
 #[cfg(unix)]
 pub fn pid_alive(pid: u32) -> bool {
-    // signal 0：只做存在性/权限检查，不真的发信号。但它对**僵尸**（已死、父进程还没 wait）也返回成功，
-    // 所以要再排除僵尸，否则被 kill 的会话在父进程回收前一直显示运行中
+    // signal 0: only an existence / permission check, no signal is really sent. But it also succeeds for a **zombie** (dead, parent has not waited yet),
+    // so zombies must be excluded as well, otherwise a killed session keeps showing as running until the parent reaps it
     let exists = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
     exists && !is_zombie(pid)
 }
 
-/// 进程是不是僵尸。macOS 用 `proc_pidinfo`（比 fork 一次 `ps` 便宜得多，巡检每 3 秒要问一遍）。
-/// 实测（macOS 26）：僵尸进程 `kill(pid, 0)` 成功、`ps` 显示状态 Z，而 `proc_pidinfo` 返回 0 且 errno = ESRCH。
-/// 其它失败（比如 EPERM：别的用户的进程）当作活着，宁可多显示也不误杀
+/// Whether the process is a zombie. On macOS this uses `proc_pidinfo` (much cheaper than forking a `ps`; the patrol asks every 3 seconds).
+/// Measured (macOS 26): for a zombie `kill(pid, 0)` succeeds and `ps` shows state Z, while `proc_pidinfo` returns 0 with errno = ESRCH.
+/// Other failures (e.g. EPERM: another user's process) are treated as alive: better to show too much than to kill by mistake
 #[cfg(target_os = "macos")]
 fn is_zombie(pid: u32) -> bool {
     const SZOMB: u32 = 5; // <sys/proc.h>
@@ -281,21 +281,21 @@ pub fn pid_alive(_pid: u32) -> bool {
 mod pty_binding_tests {
     use std::fs;
 
-    /// 回归 #169 的第二半：「新建 shell 里手敲 claude」的 tab 标题不同步。
+    /// Regression, the second half of #169: the title of a tab where "claude was typed by hand in a new shell" does not sync.
     ///
-    /// 原来的绑定挂在 `sessions` 数组上（`list_sessions` → 扫
-    /// `~/.claude/projects/**/*.jsonl`），而那个 jsonl **要等用户发出第一条消息之后
-    /// 才被创建**。于是新起的 claude 在发消息前根本不在 sessions 里，
-    /// `s.pty_id === t.id` 无从匹配，tab.sessionId 一直是 null，标题停在「新会话」。
-    /// ⌘R 走的还是 `list_sessions`，所以"刷新也没修复"；resume 出来的 tab 早就有
-    /// jsonl，所以"恢复的是可以的"——用户给的三句话是同一个根因的三个侧面。
+    /// The original binding hung off the `sessions` array (`list_sessions` -> scanning
+    /// `~/.claude/projects/**/*.jsonl`), and that jsonl is **not created until the user sends the first message**.
+    /// So a newly started claude is not in sessions at all before a message is sent,
+    /// `s.pty_id === t.id` can never match, tab.sessionId stays null, and the title stays at "New session".
+    /// The manual refresh still goes through `list_sessions`, hence "refreshing did not fix it either"; a resumed tab already has a
+    /// jsonl, hence "resumed ones are fine" -- the three statements in the report are three sides of one root cause.
     ///
-    /// 真正需要的事实只有 `(pty_id, session_id)`，claude 启动那一刻就写进了
-    /// `~/.claude/sessions/<pid>.json`。这里测的就是"只读那个目录也够"。
+    /// The only fact really needed is `(pty_id, session_id)`, which claude writes into
+    /// `~/.claude/sessions/<pid>.json` the moment it starts. This tests exactly that "reading only that directory is enough".
     ///
-    /// 实测证据（修之前）：pid 86431 的 MAKIT_PTY_ID=t_msngclks3eo5、session 32318d5f
-    /// 活了近 2 小时，而 localStorage 里 id 为 t_msngclks3eo5 的 tab 仍是
-    /// `kind:"new" / label:"新会话" / sessionId:null` —— 因为 32318d5f.jsonl 不存在。
+    /// Evidence measured before the fix: pid 86431 had MAKIT_PTY_ID=t_msngclks3eo5, session 32318d5f
+    /// had been alive for nearly 2 hours, while the tab with id t_msngclks3eo5 in localStorage was still
+    /// `kind:"new" / label:"New session" / sessionId:null` -- because 32318d5f.jsonl did not exist.
     fn write(dir: &std::path::Path, file: &str, json: &str) {
         fs::write(dir.join(file), json).unwrap();
     }
@@ -306,25 +306,25 @@ mod pty_binding_tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
-        // 想绑的那个：pid 4321 → t_wanted
+        // the one we want to bind: pid 4321 -> t_wanted
         write(
             &dir,
             "4321.json",
             r#"{"pid":4321,"sessionId":"32318d5f-1111-2222-3333-444455556666","name":"ai-claw-studio-6d"}"#,
         );
-        // 别人家的 pty，不能串台
+        // another's pty must not get mixed up
         write(
             &dir,
             "4322.json",
             r#"{"pid":4322,"sessionId":"deadbeef-0000-0000-0000-000000000000","name":"别人"}"#,
         );
-        // pid=0（claude 没写 pid）：必须跳过，且不该去查环境变量
+        // pid=0 (claude wrote no pid): must be skipped, and the environment variables must not be queried
         write(
             &dir,
             "4323.json",
             r#"{"pid":0,"sessionId":"aaaaaaaa-0000-0000-0000-000000000000"}"#,
         );
-        // 不是 json 后缀 / 坏 json：都不能让整个扫描挂掉
+        // not a json suffix / bad json: neither may crash the whole scan
         write(&dir, "notes.txt", "t_wanted");
         write(&dir, "broken.json", "{ this is not json");
 
@@ -353,13 +353,13 @@ mod pty_binding_tests {
             "pid=0 不该触发环境变量查询（每次查询是一个 ps 进程）"
         );
 
-        // pty_ids 为空：一次目录读都不该发生 —— 前端没有待绑定 tab 时的零成本路径
+        // pty_ids empty: not a single directory read may happen -- the zero-cost path when the frontend has no tab awaiting binding
         let never = |_pid: u32| -> Option<String> {
             panic!("pty_ids 为空时不该查任何 pid");
         };
         assert!(super::resolve_bindings_in(&dir, &[], &never).is_empty());
 
-        // 匹配不上就是空，而不是"随便挑一个回去"
+        // no match means empty, not "pick one at random and return it"
         let out = super::resolve_bindings_in(&dir, &["t_nobody".to_string()], &pty_of);
         assert!(out.is_empty(), "没有命中的 pty_id 时必须返回空");
 
@@ -367,14 +367,14 @@ mod pty_binding_tests {
     }
 }
 
-// ─────────────── codex 的标签绑定（#231）───────────────
+// --------------- codex tab binding (#231) ---------------
 //
-// claude 运行时写 `~/.claude/sessions/<pid>.json`（pid + 会话 id），标签绑定靠它；codex 不写这个文件，
-// 所以在 shell / 新建标签里手敲 `codex` 永远绑不上会话（状态点、可重排视图、关标签杀进程都拿不到）。
-// codex 这边的两头事实：进程环境里有 `MAKIT_PTY_ID`（= 标签 id）；进程开着自己的 rollout 文件，
-// 文件第一行 `session_meta.payload.id` 就是会话 id。
+// While running, claude writes `~/.claude/sessions/<pid>.json` (pid + session id), and tab binding relies on it; codex does not write this file,
+// so typing `codex` by hand in a shell / a new tab can never bind a session (the status dot, reorderable view, and killing the process on tab close all fail).
+// The two facts available on the codex side: the process environment has `MAKIT_PTY_ID` (= the tab id); the process has its own rollout file open,
+// and `session_meta.payload.id` on the first line of that file is the session id.
 
-/// `lsof -Fn` 的输出里，codex 开着的会话文件（在 `sessions_dir` 下、以 .jsonl 结尾）
+/// In the output of `lsof -Fn`, the session files codex has open (under `sessions_dir` and ending in .jsonl)
 pub fn rollout_paths_from_lsof(output: &str, sessions_dir: &Path) -> Vec<std::path::PathBuf> {
     output
         .lines()
@@ -384,7 +384,7 @@ pub fn rollout_paths_from_lsof(output: &str, sessions_dir: &Path) -> Vec<std::pa
         .collect()
 }
 
-/// rollout 文件第一行 `session_meta` 里的会话 id
+/// The session id in the first-line `session_meta` of the rollout file
 pub fn codex_session_id_of(path: &Path) -> Option<String> {
     use std::io::BufRead;
     let f = fs::File::open(path).ok()?;
@@ -396,8 +396,8 @@ pub fn codex_session_id_of(path: &Path) -> Option<String> {
     v.pointer("/payload/id").and_then(|x| x.as_str()).map(String::from)
 }
 
-/// 正在运行、`MAKIT_PTY_ID` 在 `pty_ids` 里的 codex 进程 → (标签 id, 会话 id)。
-/// 只在有待绑定标签时调（每次一趟 pgrep + 每个命中进程一次 ps / lsof）
+/// Running codex processes whose `MAKIT_PTY_ID` is in `pty_ids` -> (tab id, session id).
+/// Called only when a tab awaits binding (one pgrep per pass + one ps / lsof per matching process)
 pub fn codex_pty_bindings(pty_ids: &[String]) -> Vec<PtyBinding> {
     let Some(sessions_dir) = dirs::home_dir().map(|h| h.join(".codex").join("sessions")) else { return vec![] };
     let Ok(out) = std::process::Command::new("pgrep").args(["-x", "codex"]).output() else { return vec![] };
@@ -418,7 +418,7 @@ pub fn codex_pty_bindings(pty_ids: &[String]) -> Vec<PtyBinding> {
 mod dead_pid_tests {
     use super::*;
 
-    /// 为什么要测：错了在界面上就是「进程被 kill 之后侧栏一直显示运行中」「点它提示正在运行中不能重复启动，打不开」
+    /// Why test this: what goes wrong on screen is "after a process is killed the sidebar keeps showing running" and "clicking it says already running and cannot be opened twice, so it cannot be opened"
     fn dir_with(name: &str, entries: &[(&str, &str, u32)]) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("makit-running-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
@@ -452,13 +452,13 @@ mod dead_pid_tests {
         assert_eq!(list_running_sessions_in(&d, &|_| false).len(), 1, "没有 pid 的旧格式判断不了，保留");
     }
 
-    /// 被杀掉的进程在父进程 wait 之前是僵尸：`kill(pid, 0)` 对僵尸照样成功，把「已经死了」误报成「还活着」。
-    /// 端到端实测就栽在这上面：kill 之后侧栏 8 秒都还显示运行中
+    /// A killed process is a zombie until the parent waits: `kill(pid, 0)` still succeeds for a zombie, misreporting "already dead" as "still alive".
+    /// The end-to-end measurement tripped on exactly this: after the kill the sidebar still showed running 8 seconds later
     #[test]
     fn a_zombie_is_not_alive() {
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let pid = child.id();
-        // 不 wait：等它退出后成为僵尸（父进程是本测试进程，没回收）
+        // no wait: after it exits it becomes a zombie (its parent is this test process, which did not reap it)
         std::thread::sleep(std::time::Duration::from_millis(300));
         assert!(!pid_alive(pid), "僵尸进程不算活着");
         child.wait().unwrap();
@@ -478,7 +478,7 @@ mod dead_pid_tests {
 mod codex_binding_tests {
     use super::*;
 
-    /// 为什么要测：错了在界面上就是「在 shell 里跑 codex，标签一直显示 shell、没有状态点、可重排视图不出现」
+    /// Why test this: what goes wrong on screen is "running codex in a shell, the tab keeps showing shell, no status dot, and the reorderable view does not appear"
     #[test]
     fn lsof_output_picks_only_rollout_files_under_the_sessions_dir() {
         let out = "p15369\nfcwd\nn/Users/me/proj\nf3\nn/Users/me/.codex/sessions/2026/10/01/rollout-2026-10-01T13-14-24-01a0f5e2.jsonl\nf4\nn/Users/me/.codex/log/codex-tui.log\nf5\nn/Users/me/other.jsonl\n";

@@ -1,4 +1,4 @@
-//! 会话 jsonl 的增量扫描游标（#216）：按 inode + offset 续读，落盘到 `scan-cache.json`。
+//! Incremental scan cursor for session jsonl (#216): resumes reading by inode + offset, persisted to `scan-cache.json`.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::sessions::{extract_text, is_real_user_msg};
 
-/// parse_session 逐行累加的状态。jsonl 只追加，所以这份状态可以从上次读到的位置接着累加（#216）。
+/// State that parse_session accumulates line by line. A jsonl is append-only, so this state can keep accumulating from the last read position (#216).
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScanState {
     pub start_cwd: String,
@@ -30,14 +30,14 @@ impl ScanState {
             Ok(v) => v,
             Err(_) => return,
         };
-        // claude code 写入的真实标题。多次重命名取最后一次。
+        // The real title written by claude code. With multiple renames, the last one wins.
         // type:"custom-title" {customTitle: "..."}  / type:"agent-name" {agentName: "..."}
         //
-        // 这里**故意不读** `slug`。claude 的 slug 是 `clever-swimming-flute` 这种随机三词
-        // 代号，只写在 `type:"system", subtype:"compact_boundary"` 记录上（实测 8 个带
-        // slug 的会话 8 个都是这个来源），和会话内容没有任何关系。它一旦进了 display_name，
-        // 前端的 `display_name || first_user_msg` 就会优先它，结果是**会话被 compact 一次，
-        // 标题就从首条消息退化成随机词组**。没有真标题时留空更好：交给前端兜到首条消息。
+        // `slug` is **deliberately not read** here. claude's slug is a random three-word
+        // codename like `clever-swimming-flute`, written only on `type:"system", subtype:"compact_boundary"` records (measured: of 8 sessions
+        // with a slug, all 8 came from this source), and has nothing to do with the session content. Once it got into display_name,
+        // the frontend's `display_name || first_user_msg` would prefer it, with the result that **after a session is compacted once,
+        // its title degrades from the first message to a random phrase**. With no real title, leaving it empty is better: the frontend falls back to the first message.
         let rec_type = rec.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if rec_type == "custom-title" {
             if let Some(s) = rec.get("customTitle").and_then(|v| v.as_str()) {
@@ -87,7 +87,7 @@ impl ScanState {
     }
 }
 
-/// 每个 jsonl 读到哪了：inode 变了（被替换）或文件比已读位置短（被截断）就从头来。
+/// How far each jsonl has been read: if the inode changed (replaced) or the file is shorter than the read position (truncated), start over.
 #[derive(Serialize, Deserialize)]
 pub struct ScanCursor {
     ino: u64,
@@ -101,8 +101,8 @@ pub static SCAN_CACHE: std::sync::LazyLock<std::sync::Mutex<HashMap<PathBuf, Sca
         std::sync::Mutex::new(loaded)
     });
 
-/// 缓存落盘（#216）：冷启动不用再把全部会话从头解析一遍（实测 2.8s），只读关闭之后追加的部分。
-/// 位置和状态是同一条记录里一起存的，所以落盘时机早晚只影响「要补读多少」，不影响对错。
+/// Cache persistence (#216): a cold start no longer has to re-parse every session from scratch (measured 2.8s); it reads only what was appended after the last shutdown.
+/// The position and the state are stored together in one record, so when it is persisted only affects "how much has to be re-read", not correctness.
 pub fn scan_cache_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("makit").join("scan-cache.json"))
 }
@@ -115,7 +115,7 @@ pub struct ScanCacheFile {
     entries: HashMap<PathBuf, ScanCursor>,
 }
 
-/// 读不出来（不存在、坏了、版本不对）一律当空缓存：代价只是从头解析一遍
+/// Anything unreadable (missing, corrupt, wrong version) is treated as an empty cache: the only cost is a parse from scratch
 pub fn load_scan_cache_from(path: &Path) -> HashMap<PathBuf, ScanCursor> {
     fs::read(path)
         .ok()
@@ -128,16 +128,16 @@ pub fn load_scan_cache_from(path: &Path) -> HashMap<PathBuf, ScanCursor> {
 pub fn save_scan_cache_to(path: &Path) -> Result<(), String> {
     let json = {
         let mut cache = SCAN_CACHE.lock().map_err(|e| e.to_string())?;
-        cache.retain(|p, _| p.exists()); // 删掉的会话不留在缓存里
+        cache.retain(|p, _| p.exists()); // sessions that were deleted do not stay in the cache
         serde_json::to_vec(&ScanCacheFileRef { version: SCAN_CACHE_VERSION, entries: &cache })
             .map_err(|e| e.to_string())?
     };
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    // 先写临时文件再改名：写到一半被杀也不会留下半个文件。
-    // 临时文件名带进程号和序号：同一台机器上可能有几个 makit 实例（打包版 + dev）、同一进程也可能有几个线程同时存，
-    // 共用一个临时文件的话第一个改名之后第二个就找不到文件了（日志里的「写盘失败: No such file or directory」）
+    // Write a temp file first, then rename: being killed halfway never leaves a half-written file.
+    // The temp file name carries the pid and a sequence number: several makit instances can run on one machine (packaged + dev), and several threads in one process can save at once;
+    // with a shared temp file, after the first rename the second cannot find the file (the "write failed: No such file or directory" in the log)
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = path.with_extension(format!("json.{}.{}.tmp", std::process::id(), SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     let result = fs::write(&tmp, json).and_then(|_| fs::rename(&tmp, path));
@@ -153,7 +153,7 @@ pub struct ScanCacheFileRef<'a> {
     entries: &'a HashMap<PathBuf, ScanCursor>,
 }
 
-/// 会话输出时每秒多一次增量扫描，没必要每次都写盘：最多 30 秒写一次
+/// While a session is producing output there is an extra incremental scan every second; no need to write to disk every time: at most once per 30 seconds
 pub fn save_scan_cache_throttled(force: bool) {
     static LAST: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
     let Ok(mut last) = LAST.lock() else { return };
@@ -169,8 +169,8 @@ pub fn save_scan_cache_throttled(force: bool) {
     }
 }
 
-/// 增量扫描一个 claude 会话 jsonl（#216）。只消费以换行结尾的完整行 ——
-/// claude 可能正写到一半，半行留到下次，否则会被当成坏行丢掉、之后再也不读。
+/// Incrementally scan a claude session jsonl (#216). Only complete lines ending in a newline are consumed --
+/// claude may be midway through writing; a half line is left for next time, otherwise it would be taken for a bad line, dropped, and never read again.
 pub fn scan_session_file(path: &Path) -> Option<ScanState> {
     use std::io::{Seek, SeekFrom};
     use std::os::unix::fs::MetadataExt;
@@ -179,7 +179,7 @@ pub fn scan_session_file(path: &Path) -> Option<ScanState> {
     let md = file.metadata().ok()?;
     let (ino, len) = (md.ino(), md.len());
 
-    // 锁只在取出 / 放回时持有，读文件期间不持锁
+    // The lock is held only while taking out / putting back, not while reading the file
     let cached = SCAN_CACHE.lock().ok()?.remove(path);
     let (mut offset, mut state) = match cached {
         Some(c) if c.ino == ino && c.offset <= len => (c.offset, c.state),
@@ -196,10 +196,10 @@ pub fn scan_session_file(path: &Path) -> Option<ScanState> {
             Ok(n) => n,
         };
         if buf.last() != Some(&b'\n') {
-            break; // 半行：不前进
+            break; // half line: do not advance
         }
         offset += n as u64;
-        // 和原来 reader.lines() 一样：非法 UTF-8 的行跳过
+        // Same as the original reader.lines(): lines with invalid UTF-8 are skipped
         if let Ok(line) = std::str::from_utf8(&buf[..n - 1]) {
             state.feed_line(line.strip_suffix('\r').unwrap_or(line));
         }
@@ -211,10 +211,10 @@ pub fn scan_session_file(path: &Path) -> Option<ScanState> {
     Some(state)
 }
 
-/// #216：会话输出时每秒多一次 `list_sessions_by_paths`，以前每次把整个 jsonl
-/// （本机最大 43MB）重新解析一遍，0.2–0.4s CPU。现在记住读到的字节位置，只读追加部分。
-/// 错了在 UI 上：侧栏的消息数 / 首末条消息 / 标题和 ⌘R 全量刷新后的不一致，
-/// 或者 claude 正写到一半的那行被吞掉、被数两次。
+/// #216: while a session is producing output there is an extra `list_sessions_by_paths` every second, and it used to re-parse the whole jsonl
+/// (the largest here is 43MB) each time, costing 0.2-0.4s of CPU. Now the byte position already read is remembered and only the appended part is read.
+/// What goes wrong on screen if this breaks: the sidebar's message count / first and last message / title disagree with what a full refresh shows,
+/// or the line claude is midway through writing gets swallowed or counted twice.
 #[cfg(test)]
 mod save_race_tests {
     use super::*;
@@ -294,9 +294,9 @@ mod incremental_scan_tests {
         assert_eq!(scan_session_file(&p).unwrap().user_count, 2, "没新内容时不变");
     }
 
-    /// 启动时（新进程，内存缓存是空的）以前要把全部会话文件从头解析一遍：实测冷启动 2.8s。
-    /// 缓存落盘后，重启只读上次关闭之后追加的部分。错了在 UI 上：重启后侧栏的消息数 /
-    /// 首末条 / 标题和实际不符（缓存和文件对不上还被信任），或缓存文件坏了导致侧栏空白。
+    /// At startup (a new process, with an empty in-memory cache) every session file used to be re-parsed from scratch: measured cold start 2.8s.
+    /// With the cache persisted, a restart reads only what was appended after the last shutdown. What goes wrong on screen if this breaks: after a restart the sidebar's message count /
+    /// first and last message / title do not match reality (a cache that disagrees with the file is still trusted), or a corrupt cache file leaves the sidebar blank.
     #[test]
     fn persisted_cursor_survives_restart_and_resumes_from_offset() {
         let p = tmpfile("persist");
@@ -307,7 +307,7 @@ mod incremental_scan_tests {
         let cache_file = p.with_file_name("scan-cache.json");
         save_scan_cache_to(&cache_file).unwrap();
 
-        // 模拟重启：内存缓存清空，只从磁盘恢复
+        // simulate a restart: clear the in-memory cache and restore from disk only
         SCAN_CACHE.lock().unwrap().remove(&p);
         let loaded = load_scan_cache_from(&cache_file);
         let len_before = fs::metadata(&p).unwrap().len();
@@ -336,11 +336,11 @@ mod incremental_scan_tests {
         append(&p, &user("旧一", "/a"));
         append(&p, &user("旧二", "/a"));
         assert_eq!(scan_session_file(&p).unwrap().user_count, 2);
-        // 同路径换成更短的新文件（截断）
+        // replace with a shorter new file at the same path (truncation)
         fs::write(&p, user("新", "/n")).unwrap();
         let s = scan_session_file(&p).unwrap();
         assert_eq!((s.user_count, s.first_msg.as_str()), (1, "新"));
-        // 原子替换（新 inode），长度比已读位置还长
+        // atomic replacement (new inode), whose length is still longer than the read position
         let tmp = p.with_extension("tmp");
         fs::write(&tmp, format!("{}{}{}", user("替一", "/r"), user("替二", "/r"), user("替三", "/r"))).unwrap();
         fs::rename(&tmp, &p).unwrap();

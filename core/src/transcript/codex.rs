@@ -1,17 +1,17 @@
-//! codex 的 rollout 逐行解析（规则见 TRD §11.4）。
+//! Line-by-line parsing of codex's rollout (rules in TRD section 11.4).
 //!
-//! 0.40 的文件里，消息有**两份**：`response_item`（message）和 `event_msg.item_completed`（UserMessage /
-//! AgentMessage），文本逐条一致（实测 17 个有对话的文件全部一致），顺序有时是「R 后 E」（用户）有时是
-//! 「E 先、隔着 reasoning 再 R」（助手）。所以：先到的那份出 Item，后到的同角色同文本的那份判重跳过；
-//! 判重记录只留最近几条记录之内（用户真的连发两遍同样的话时，第二遍不能被吞掉）。
-//! 以后的版本如果只剩一份，先到的就是唯一的一份，照样能显示。
+//! In 0.40 files each message appears **twice**: as `response_item` (message) and as `event_msg.item_completed` (UserMessage /
+//! AgentMessage). The text is identical each time (verified on all 17 files that contain a conversation); the order is sometimes "R then E" (user)
+//! and sometimes "E first, then R after a reasoning item" (assistant). So: the copy that arrives first emits the Item, and the later copy with the same role and text is skipped as a duplicate;
+//! the dedup record is kept only within the last few records (when a user really sends the same message twice in a row, the second one must not be swallowed).
+//! If a later version has only one copy, the first to arrive is the only one and is still displayed.
 
 use serde_json::Value;
 
 use super::model::{Item, ItemKind, Level, ToolResult};
 use super::state::State;
 
-/// 判重记录保留多少条记录：R 与 E 实测相隔不超过 3 条
+/// How many records the dedup record is kept for: R and E were measured to be at most 3 records apart
 const DEDUP_WINDOW: usize = 6;
 
 #[derive(Default)]
@@ -37,7 +37,7 @@ pub(super) fn feed(st: &mut State, v: &Value, seq: usize) -> Vec<usize> {
             let role = p.get("role").and_then(Value::as_str).unwrap_or("");
             let text = join_texts(p.get("content"));
             match role {
-                // 注入的上下文（环境、AGENTS.md 等）不是用户说的
+                // Injected context (environment, AGENTS.md, etc.) is not said by the user
                 "user" if !text.trim_start().starts_with("<environment_context>") && !text.trim_start().starts_with("<user_instructions>") => {
                     message(st, true, text, false, seq, time)
                 }
@@ -47,7 +47,7 @@ pub(super) fn feed(st: &mut State, v: &Value, seq: usize) -> Vec<usize> {
             vec![]
         }
         ("response_item", "reasoning") => {
-            // 实测 reasoning 是加密的、summary 为空 → 没有可显示的文字就不出 Item
+            // Measured: reasoning is encrypted and the summary is empty -> with no displayable text, no Item is emitted
             let text = p
                 .get("summary")
                 .and_then(Value::as_array)
@@ -120,7 +120,7 @@ fn add(st: &mut State, seq: usize, time: Option<String>, kind: ItemKind) -> usiz
     st.push(None, Item { id: format!("c{seq}"), time, kind })
 }
 
-/// 一条消息：另一份来源里刚出过同样的 → 跳过；否则出 Item 并记下「等另一份来判重」
+/// One message: if the other source just emitted the same one -> skip; otherwise emit an Item and note "waiting for the other copy to dedup"
 fn message(st: &mut State, user: bool, text: String, from_event: bool, seq: usize, time: Option<String>) {
     if text.trim().is_empty() {
         return;
@@ -135,7 +135,7 @@ fn message(st: &mut State, user: bool, text: String, from_event: bool, seq: usiz
     add(st, seq, time, if user { ItemKind::User(text) } else { ItemKind::Assistant(text) });
 }
 
-/// `content` 是块列表（`input_text` / `output_text` / `Text`…）：把有 text 字段的拼起来
+/// `content` is a list of blocks (`input_text` / `output_text` / `Text`...): concatenate those that have a text field
 fn join_texts(content: Option<&Value>) -> String {
     match content {
         Some(Value::Array(a)) => a.iter().filter_map(|b| b.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join(""),

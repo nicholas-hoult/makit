@@ -1,10 +1,10 @@
-//! Claude Code 的 Notification hook：hook 脚本安装 + 本机 unix socket 服务。
+//! Claude Code Notification hook: hook script installation + a local unix socket server.
 //!
-//! 协议：`~/.claude/makit/hook.sock`。每个连接只读**一行** JSON，原样交给回调；
-//! 然后回写 `{}\n`，让 Claude Code 认为 hook 执行成功。
+//! Protocol: `~/.claude/makit/hook.sock`. Each connection reads only **one line** of JSON and hands it to the callback as-is;
+//! then it writes back `{}\n`, so Claude Code considers the hook to have run successfully.
 //!
-//! 不依赖任何 UI 框架 / async runtime：自带一个接受线程，每个连接一个短命线程
-//! （hook 一次一行、频率很低，不值得为它拉一个 runtime）。
+//! No UI framework / async runtime dependency: it brings its own accept thread, with a short-lived thread per connection
+//! (a hook sends one line at a time and rarely, so a runtime is not worth pulling in).
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -16,8 +16,8 @@ pub fn socket_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("makit").join("hook.sock"))
 }
 
-/// 在 `~/.claude/makit/hook.sock` 上起 hook 服务。收到的每一行（去掉首尾空白、非空）调一次 `on_line`。
-/// `on_line` 在连接线程里被调用，可能并发，所以要 `Sync`。
+/// Start the hook server on `~/.claude/makit/hook.sock`. `on_line` is called once for each received line (trimmed, non-empty).
+/// `on_line` is invoked on the connection thread and may run concurrently, so it must be `Sync`.
 pub fn start(on_line: impl Fn(String) + Send + Sync + 'static) {
     let Some(path) = socket_path() else { return };
     if let Err(e) = start_at(&path, on_line) {
@@ -25,12 +25,12 @@ pub fn start(on_line: impl Fn(String) + Send + Sync + 'static) {
     }
 }
 
-/// `start` 的可测版本：socket 路径可注入。绑定失败同步返回错误；成功后接受循环在后台线程里跑。
+/// Testable version of `start`: the socket path can be injected. A bind failure returns an error synchronously; on success the accept loop runs on a background thread.
 pub fn start_at(path: &Path, on_line: impl Fn(String) + Send + Sync + 'static) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    // 上次运行残留的 socket 文件：不删就 bind 不上
+    // A socket file left over from the last run: bind fails unless it is removed
     let _ = fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     let on_line = Arc::new(on_line);
@@ -50,32 +50,32 @@ pub fn start_at(path: &Path, on_line: impl Fn(String) + Send + Sync + 'static) -
 
 fn handle_conn(stream: UnixStream, on_line: &(dyn Fn(String) + Send + Sync)) {
     let mut line = String::new();
-    // 只读一行 newline 结尾的 JSON
+    // Read only one newline-terminated line of JSON
     if let Ok(reader) = stream.try_clone() {
         let mut buf = BufReader::new(reader);
         if buf.read_line(&mut line).is_ok() && !line.trim().is_empty() {
             on_line(line.trim().to_string());
         }
     }
-    // 回 {}，让 Claude Code 认为 hook 成功退出
+    // Reply with {} so Claude Code considers the hook to have exited successfully
     let mut w = &stream;
     let _ = w.write_all(b"{}\n");
 }
 
-/// makit 用得上的 Claude Code hook 事件：`Notification`（等审批 / 等回答）、`Stop`（任务完成，带 Claude 的原话做横幅正文）、
-/// `UserPromptSubmit` / `SessionEnd`（清掉未读）。只装 Notification 时「任务完成」拿不到正文，横幅出不来
+/// Claude Code hook events makit uses: `Notification` (awaiting approval / an answer), `Stop` (task finished, carrying Claude's own words as the banner body),
+/// `UserPromptSubmit` / `SessionEnd` (clear unread). With only Notification installed, "task finished" has no body text and no banner can be shown
 pub const HOOK_EVENTS: [&str; 4] = ["Notification", "Stop", "UserPromptSubmit", "SessionEnd"];
 
-/// 创建 hook 脚本并把 `HOOK_EVENTS` 注册进 ~/.claude/settings.json
+/// Create the hook script and register `HOOK_EVENTS` in ~/.claude/settings.json
 pub fn install_claude_hook() -> Result<String, String> {
     let home = dirs::home_dir().ok_or("无法定位 home 目录")?;
     install_claude_hook_in(&home)
 }
 
-/// 返回 `"installed"`（第一次装）/ `"updated"`（补上缺的事件）/ `"already_installed"`。
-/// settings.json 存在但解析不了时**不动它**直接报错（以前会拿空配置顶替再写回，等于清空用户的整个 Claude 配置）
+/// Returns `"installed"` (first install) / `"updated"` (missing events added) / `"already_installed"`.
+/// If settings.json exists but cannot be parsed, it is **left untouched** and an error is returned (it used to be replaced with an empty config and written back, wiping the user's whole Claude configuration)
 pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
-    // 1. hook 脚本
+    // 1. hook script
     let hooks_dir = home.join(".claude").join("hooks");
     fs::create_dir_all(&hooks_dir).map_err(|e| e.to_string())?;
     let hook_script = hooks_dir.join("makit-hook.sh");
@@ -92,7 +92,7 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
         fs::set_permissions(&hook_script, perms).map_err(|e| e.to_string())?;
     }
 
-    // 2. settings.json：不存在当空配置；存在但解析不了 → 不动它，报错
+    // 2. settings.json: if missing, treat as empty config; if it exists but cannot be parsed -> leave it untouched, report an error
     let settings_path = home.join(".claude").join("settings.json");
     let mut settings: serde_json::Value = if settings_path.exists() {
         let raw = fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
@@ -141,9 +141,9 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
     Ok(if had_any { "updated" } else { "installed" }.into())
 }
 
-/// 回调式改造（#226）：hook 服务不再依赖 tauri 的 async runtime，自己起线程。
-/// 错了在 UI 上：claude 等审批 / 等回答时收不到通知（行没交出来），或 claude 的 hook
-/// 卡住、报 hook 失败（没回 `{}`）。
+/// After the callback-style refactor (#226): the hook server no longer depends on tauri's async runtime and starts its own thread.
+/// What goes wrong on screen if this breaks: no notification when claude awaits approval / an answer (the line was not handed over), or claude's hook
+/// hangs / reports a hook failure (`{}` was not sent back).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,11 +153,11 @@ mod tests {
 
     #[test]
     fn delivers_one_line_and_replies_empty_object() {
-        // unix socket 路径有长度上限（104 字节），用短目录
+        // unix socket paths have a length limit (104 bytes), use a short directory
         let dir = PathBuf::from(format!("/tmp/mk-hook-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let sock = dir.join("h.sock");
-        // 残留的旧 socket 文件不能挡住 bind
+        // A leftover old socket file must not block bind
         fs::create_dir_all(&dir).unwrap();
         fs::write(&sock, "stale").unwrap();
 
@@ -177,7 +177,7 @@ mod tests {
             assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), payload, "去掉首尾空白后原样交出");
         }
 
-        // 空行：照样回 {}，但不回调
+        // empty line: still reply {}, but do not call back
         let mut s = UnixStream::connect(&sock).unwrap();
         s.write_all(b"\n").unwrap();
         let mut reply = String::new();

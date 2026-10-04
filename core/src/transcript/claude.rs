@@ -1,11 +1,11 @@
-//! claude 的 jsonl 逐行解析（规则见 TRD §11.4）。
+//! Line-by-line parsing of claude's jsonl (rules in TRD section 11.4).
 
 use serde_json::Value;
 
 use super::model::{DividerKind, Item, ItemKind, Level, ToolResult};
 use super::state::{Rec, State};
 
-/// 没有 uuid 的元数据 / 状态记录：认识，不是对话内容
+/// Metadata / status records without a uuid: recognized, but not conversation content
 const IGNORED: &[&str] = &[
     "ai-title",
     "custom-title",
@@ -34,23 +34,23 @@ pub(super) fn feed(st: &mut State, v: &Value) -> Vec<usize> {
         st.count_unknown(if ty.is_empty() { "<无 type>".into() } else { ty.into() });
         return vec![];
     }
-    // 子代理侧链：主对话里只留那个工具调用和它的最终结果
+    // Subagent sidechain: the main conversation keeps only that tool call and its final result
     if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
         return vec![];
     }
     let Some(uuid) = v.get("uuid").and_then(Value::as_str) else { return vec![] };
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(String::from);
     let mut logical_parent = s("logicalParentUuid");
-    // 压缩边界的 logicalParentUuid 有时指向边界之后才出现的记录（它的祖先链又绕回边界 → 成环，压缩前的对话全丢）。
-    // 这种情况改接文件里在它前面的最后一条对话记录；只对压缩边界这么做，用户根记录的回退是正当的
+    // A compaction boundary's logicalParentUuid sometimes points at a record that only appears after the boundary (its ancestor chain loops back to the boundary -> a cycle, and the whole pre-compaction conversation is lost).
+    // In that case, re-attach to the last conversation record before it in the file; only done for compaction boundaries, since a user root record's rewind is legitimate
     let is_boundary = ty == "system" && matches!(s("subtype").as_deref(), Some("compact_boundary" | "microcompact_boundary"));
     if is_boundary && s("parentUuid").is_none() && !logical_parent.as_ref().is_some_and(|l| st.recs.contains_key(l)) {
         logical_parent = st.leaf.clone();
     }
     let msg = if ty == "assistant" { v.pointer("/message/id").and_then(Value::as_str).map(String::from) } else { None };
     st.recs.insert(uuid.to_string(), Rec { parent: s("parentUuid"), logical_parent, conv: matches!(ty, "user" | "assistant"), msg });
-    // 纯工具结果的 user 记录不移动叶子：并行调用时先到的结果挂在较早的分支上，让叶子退回去会把后面的调用
-    // 暂时踢出可见链（实时读时读取器就报 reset，界面整体重建 →「刷一下」）。结果靠 tool_use_id 挂回调用，不依赖链
+    // A user record that is purely tool results does not move the leaf: with parallel calls, the result that arrives first hangs off an earlier branch, and moving the leaf back would
+    // temporarily kick the later calls out of the visible chain (during live reading the reader then reports reset and the view is rebuilt entirely, i.e. a visible flash). Results attach back to calls via tool_use_id and do not depend on the chain
     if matches!(ty, "user" | "assistant") && !only_tool_results(v) {
         st.leaf = Some(uuid.to_string());
     }
@@ -65,12 +65,12 @@ pub(super) fn feed(st: &mut State, v: &Value) -> Vec<usize> {
         }
         "assistant" => assistant(&mut out, v),
         "system" => system(&mut out, v),
-        _ => {} // attachment / progress：不是对话内容
+        _ => {} // attachment / progress: not conversation content
     }
     out.updated
 }
 
-/// 往 `all` 里追加 Item 的小帮手：同一条记录里第 n 个 Item 的 id 是 `uuid#n`
+/// Small helper that appends an Item to `all`: the n-th Item from the same record has the id `uuid#n`
 struct Items<'a> {
     st: &'a mut State,
     uuid: &'a str,
@@ -142,7 +142,7 @@ fn user_text(o: &mut Items, s: &str) {
             o.add(ItemKind::Notice { level: Level::Info, text: sum.trim().to_string() });
         }
     } else if t.starts_with("<system-reminder>") || t.starts_with("<local-command-caveat>") {
-        // 给模型看的，不是用户说的
+        // For the model, not said by the user
     } else if t.starts_with("[Request interrupted") {
         o.add(ItemKind::Notice { level: Level::Warn, text: "已中断".into() });
     } else {
@@ -162,7 +162,7 @@ fn tool_result(o: &mut Items, b: &Value) {
                 match p.get("type").and_then(Value::as_str) {
                     Some("text") => texts.push(p.get("text").and_then(Value::as_str).unwrap_or("").to_string()),
                     Some("image") => images += 1,
-                    _ => {} // tool_reference 等：没有可显示的文字
+                    _ => {} // tool_reference etc.: no displayable text
                 }
             }
             (texts.join("\n"), images)
@@ -179,7 +179,7 @@ fn assistant(o: &mut Items, v: &Value) {
     for b in blocks {
         match b.get("type").and_then(Value::as_str) {
             Some("thinking") => {
-                // 很多 thinking 块只有签名、没有文字：没有可显示的就不出 Item
+                // Many thinking blocks carry only a signature and no text: with nothing displayable, no Item is emitted
                 let t = b.get("thinking").and_then(Value::as_str).unwrap_or("");
                 if !t.trim().is_empty() {
                     o.add(ItemKind::Thinking(t.to_string()));
@@ -232,13 +232,13 @@ fn system(o: &mut Items, v: &Value) {
                 o.add(ItemKind::Notice { level: Level::Info, text: content });
             }
         }
-        // 同一条命令在 user 记录里已经有了；hook 摘要给人看的价值不大
+        // The same command already appears in the user record; the hook summary is of little value to a person
         "local_command" | "stop_hook_summary" => {}
         other => o.st.count_unknown(format!("system/{other}")),
     }
 }
 
-/// `<tag>内容</tag>` 里的内容
+/// The content inside `<tag>content</tag>`
 fn tag(s: &str, name: &str) -> Option<String> {
     let open = format!("<{name}>");
     let close = format!("</{name}>");
@@ -247,13 +247,13 @@ fn tag(s: &str, name: &str) -> Option<String> {
     Some(s[a..b].to_string())
 }
 
-/// base64 解码后的字节数（不真解码）
+/// Number of bytes after base64 decoding (without actually decoding)
 fn base64_decoded_len(data: &str) -> usize {
     let n = data.trim_end_matches('=').len();
     n * 3 / 4
 }
 
-/// 消息内容全是 tool_result 块（没有任何用户文字 / 图片）
+/// Whether the message content consists solely of tool_result blocks (no user text / images at all)
 fn only_tool_results(v: &Value) -> bool {
     let blocks = v.pointer("/message/content").and_then(Value::as_array);
     blocks.is_some_and(|b| !b.is_empty() && b.iter().all(|x| x.get("type").and_then(Value::as_str) == Some("tool_result")))

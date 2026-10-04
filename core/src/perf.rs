@@ -1,10 +1,10 @@
-//! 性能埋点（#218）：打包版也能看的关键操作耗时。
+//! Performance instrumentation (#218): timings of key operations, available in the packaged build too.
 //!
-//! - 时钟：以进程启动（内核记录的时刻）为 0。前端拿 `startup_info()`（Tauri 命令 `perf_startup`）里的 `process_start`
-//!   把自己的时间戳换算到同一个时钟上。
-//! - 落盘：`~/.claude/makit/perf.log`，JSON Lines，一行一个事件；超过 2MB 轮转成 `perf.log.1`
-//!   （只留一份旧的）。
-//! - 写日志走后台线程（命令都是 async），不占主线程。
+//! - Clock: zero is the process start (the moment recorded by the kernel). The frontend takes `process_start` from `startup_info()` (Tauri command `perf_startup`)
+//!   and converts its own timestamps onto the same clock.
+//! - Persistence: `~/.claude/makit/perf.log`, JSON Lines, one event per line; rotated to `perf.log.1` beyond 2MB
+//!   (only one old file is kept).
+//! - Log writes go through a background thread (commands are all async), so the main thread is not used.
 
 use serde_json::Value;
 use std::fs;
@@ -23,8 +23,8 @@ pub fn now_epoch_ms() -> f64 {
     epoch_ms(SystemTime::now())
 }
 
-/// 进程启动的时刻（epoch 毫秒）。macOS 取内核记录的，连 main 之前的加载时间也算进去；
-/// 其他平台退回第一次调用的时刻。
+/// The moment the process started (epoch milliseconds). On macOS it is the kernel-recorded value, so load time before main counts too;
+/// on other platforms it falls back to the first call.
 pub fn process_start_epoch_ms() -> f64 {
     static START: std::sync::LazyLock<f64> = std::sync::LazyLock::new(|| {
         #[cfg(target_os = "macos")]
@@ -49,11 +49,11 @@ pub fn process_start_epoch_ms() -> f64 {
     *START
 }
 
-/// Rust 侧的启动阶段（run 开始、窗口创建、页面加载……），等前端来取、和它自己的阶段合成一条启动记录
+/// Startup phases on the Rust side (run begins, window created, page loaded...), which wait for the frontend to fetch them and merge them with its own phases into one startup record
 static STARTUP_MARKS: Mutex<Vec<(String, f64)>> = Mutex::new(Vec::new());
 
 pub fn startup_mark(stage: &str) {
-    process_start_epoch_ms(); // 确保零点在第一次打点之前就定下来
+    process_start_epoch_ms(); // make sure the zero point is fixed before the first measurement
     if let Ok(mut marks) = STARTUP_MARKS.lock() {
         marks.push((stage.to_string(), now_epoch_ms()));
     }
@@ -65,7 +65,7 @@ pub struct StartupInfo {
     pub marks: Vec<(String, f64)>,
 }
 
-/// 进程启动时刻 + Rust 侧已打的启动阶段（Tauri 的 `perf_startup` 命令就是它）
+/// Process start time + the Rust-side startup phases recorded so far (this is what Tauri's `perf_startup` command returns)
 pub fn startup_info() -> StartupInfo {
     StartupInfo {
         process_start: process_start_epoch_ms(),
@@ -77,7 +77,7 @@ fn log_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("makit").join("perf.log"))
 }
 
-/// 追加若干行；追加前超过上限就先轮转（旧的挪成 `.1`，覆盖更旧的那份）
+/// Append some lines; if the file is over the limit beforehand, rotate first (the old one becomes `.1`, overwriting the even older one)
 fn append_lines_to(path: &Path, lines: &[Value], max_bytes: u64) -> std::io::Result<()> {
     static WRITE: Mutex<()> = Mutex::new(());
     let _guard = WRITE.lock();
@@ -95,7 +95,7 @@ fn append_lines_to(path: &Path, lines: &[Value], max_bytes: u64) -> std::io::Res
     fs::OpenOptions::new().create(true).append(true).open(path)?.write_all(&buf)
 }
 
-/// 记一条事件。补上时间戳（相对进程启动的毫秒数），写失败只打日志、不影响功能。
+/// Record one event. Adds a timestamp (milliseconds relative to process start); a failed write only logs and does not affect functionality.
 pub fn record(mut event: Value) {
     if let Value::Object(map) = &mut event {
         map.entry("t").or_insert_with(|| Value::from((now_epoch_ms() - process_start_epoch_ms()).round()));
@@ -107,7 +107,7 @@ pub fn record(mut event: Value) {
     }
 }
 
-/// 一批事件原样落盘（不补时间戳）。Tauri 前端攒一批再发（每秒最多一次），走的就是这里
+/// Write a batch of events to disk as-is (no timestamp added). The Tauri frontend accumulates a batch and sends it (at most once per second), which goes through here
 pub fn record_batch(events: Vec<Value>) {
     if events.is_empty() {
         return;
@@ -119,8 +119,8 @@ pub fn record_batch(events: Vec<Value>) {
     }
 }
 
-/// 打包版查「为什么卡」只能靠这个文件，所以格式和轮转要钉住：
-/// 一行一个 JSON（`tail -f` / `jq` 能直接读），超过上限只留一份旧的，不会无限长。
+/// In the packaged build this file is the only way to investigate "why is it slow", so the format and rotation must be pinned down:
+/// one JSON per line (`tail -f` / `jq` can read it directly), and beyond the limit only one old file is kept, so it never grows without bound.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,11 +150,11 @@ mod tests {
     fn rotates_when_over_limit_keeping_one_old_file() {
         let p = tmp("rotate");
         let big = json!({"pad": "x".repeat(100)});
-        append_lines_to(&p, &[big.clone()], 50).unwrap(); // 第一次：文件不存在，直接写
-        append_lines_to(&p, &[json!({"n": 2})], 50).unwrap(); // 已超 50 字节 → 先轮转
+        append_lines_to(&p, &[big.clone()], 50).unwrap(); // first time: the file does not exist, write directly
+        append_lines_to(&p, &[json!({"n": 2})], 50).unwrap(); // already over 50 bytes -> rotate first
         assert!(fs::read_to_string(p.with_extension("log.1")).unwrap().contains("pad"));
         assert_eq!(fs::read_to_string(&p).unwrap().trim(), r#"{"n":2}"#);
-        append_lines_to(&p, &[big], 5).unwrap(); // 现在 8 字节，超 5 → 再轮转一次：旧的 .1 被覆盖，只留一份
+        append_lines_to(&p, &[big], 5).unwrap(); // now 8 bytes, over 5 -> rotate again: the old .1 is overwritten, only one is kept
         assert_eq!(fs::read_to_string(p.with_extension("log.1")).unwrap().trim(), r#"{"n":2}"#);
     }
 

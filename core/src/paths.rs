@@ -1,4 +1,4 @@
-//! 路径类小工具：数据目录、打开路径、批量判存在、工具 logo。
+//! Path utilities: data directory, opening paths, batch existence checks, tool logos.
 
 use std::fs;
 use std::path::PathBuf;
@@ -8,10 +8,10 @@ pub fn projects_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("projects"))
 }
 
-// 在 macOS 上打开本地路径：默认在 Finder 中显示（reveal），文件用默认 app 打开
-// reveal=true → open -R（Finder 高亮），false → open（用默认 app 打开）
+// Open a local path on macOS: reveal in Finder by default, open files with the default app.
+// reveal=true -> open -R (highlight in Finder), false -> open (default app)
 pub fn open_path(path: String, reveal: bool) -> Result<(), String> {
-    // 展开 ~ 为 $HOME
+    // Expand ~ to $HOME
     let expanded = if path.starts_with("~/") || path == "~" {
         let home = std::env::var("HOME").map_err(|_| "无法获取 HOME".to_string())?;
         if path == "~" {
@@ -35,8 +35,8 @@ pub fn open_path(path: String, reveal: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// 一批路径各自存不存在（#214）。终端里的裸目录名、不带斜杠结尾的相对目录，字面上和普通单词分不开，
-/// 由这里查磁盘说了算：存在才画成链接。`~` 按 home 展开；相对路径由前端先按终端当前目录拼好。
+/// Whether each path in a batch exists (#214). A bare directory name in a terminal, or a relative directory without a trailing slash,
+/// is textually indistinguishable from an ordinary word, so the disk decides: only existing paths become links. `~` is expanded against home; relative paths are joined with the terminal's current directory by the frontend first.
 pub fn paths_exist_in(paths: &[String], home: &std::path::Path) -> Vec<bool> {
     paths
         .iter()
@@ -54,7 +54,7 @@ pub fn paths_exist_in(paths: &[String], home: &std::path::Path) -> Vec<bool> {
 }
 
 pub fn paths_exist(paths: Vec<String>) -> Vec<bool> {
-    // 一次最多查 200 个：悬停一行最多几十个词，超了说明是异常输入，不陪它扫盘
+    // At most 200 per call: hovering over one line yields a few dozen words at most; more than that is abnormal input, so don't scan the disk for it
     let paths: Vec<String> = paths.into_iter().take(200).collect();
     match dirs::home_dir() {
         Some(home) => paths_exist_in(&paths, &home),
@@ -81,7 +81,7 @@ mod paths_exist_tests {
     }
 }
 
-/// 获取 AI 工具 logo（base64 data URL）：本地缓存优先，不存在则下载
+/// Fetch an AI tool logo (base64 data URL): local cache first, download if missing
 pub async fn get_tool_logo(tool: String) -> Result<String, String> {
     let (url, ext, mime) = match tool.as_str() {
         "claude" => ("https://www.anthropic.com/favicon.ico", "ico", "image/x-icon"),

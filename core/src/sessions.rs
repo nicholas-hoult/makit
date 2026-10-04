@@ -1,5 +1,5 @@
-//! 会话扫描：枚举 `~/.claude/projects/**/*.jsonl`（和 Codex），解析成 `SessionMeta`，
-//! 以及单个会话的详情 / meta / 按 cwd 反查。增量游标见 `scan_cache`。
+//! Session scanning: enumerates `~/.claude/projects/**/*.jsonl` (and Codex), parses into `SessionMeta`,
+//! plus single-session details / meta / reverse lookup by cwd. For the incremental cursor see `scan_cache`.
 
 use chrono::{DateTime, Local, TimeZone};
 use serde::{Deserialize, Serialize};
@@ -45,12 +45,12 @@ pub struct SessionMeta {
     pub tool: String,
 }
 
-/// 枚举 `projects/<key>/` 里的 transcript 时该不该扫这个条目。
+/// Whether this entry should be scanned when enumerating transcripts in `projects/<key>/`.
 ///
-/// 除了扩展名，还必须**跳过 symlink**。「指到新位置」会让同一份 transcript 在两个键下
-/// 可见（原存储目录 + 新 cwd 的键），只看扩展名的话同一个 session_id 会被扫成两条，
-/// 侧栏里冒出一对孪生会话。目录级 symlink 本来就被跳过（见 `list_sessions` 里那段注释），
-/// 这里把文件级补上，两者规则一致：**只认真身，软链一律不算**。
+/// Beyond the extension, **symlinks must be skipped**. "Point to new location" makes the same transcript
+/// visible under two keys (the original storage directory + the new cwd's key); looking only at the extension would scan the same session_id as two entries,
+/// and a pair of twin sessions would pop up in the sidebar. Directory-level symlinks were already skipped (see the comment in `list_sessions`),
+/// and the file level is added here so the two rules agree: **only real files count, symlinks never do**.
 pub fn is_scannable_jsonl(entry: &fs::DirEntry) -> bool {
     if entry.path().extension().and_then(|e| e.to_str()) != Some("jsonl") {
         return false;
@@ -165,7 +165,7 @@ pub fn resolve_git_root_cached(start_cwd: &str, last_cwd: &str, cwd_mode: &str, 
         _ => {} // "smart" — fall through
     }
 
-    // smart: last 优先，冲突时信任 start
+    // smart: last takes priority; on conflict, trust start
     let last_root = if last_cwd != start_cwd && !last_cwd.is_empty() {
         cache.entry(last_cwd.to_string()).or_insert_with(|| detect_git_root(last_cwd)).clone()
     } else {
@@ -223,10 +223,10 @@ pub fn parse_session(
         .as_ref()
         .map(|r| r.name.clone())
         .filter(|s| !s.is_empty());
-    // 优先级：rename（运行中重命名）> customTitle / agentName（claude 写的真标题）> 留空。
-    // 留空不是「没名字」，是「这里没有比首条用户消息更好的名字」—— 前端拿
-    // `display_name || first_user_msg` 兜。而 first_user_msg 一定非空：上面
-    // `user_count == 0` 直接 return None，而 user_count 和 first_msg 在同一个分支里赋值。
+    // Priority: rename (rename while running) > customTitle / agentName (the real title claude wrote) > empty.
+    // Empty does not mean "no name"; it means "there is no better name here than the first user message" -- the frontend falls back with
+    // `display_name || first_user_msg`. And first_user_msg is always non-empty: above,
+    // `user_count == 0` returns None directly, and user_count and first_msg are assigned in the same branch.
     let (display_name, name_source) = if let Some(n) = rename_name {
         (n, "rename".into())
     } else if !custom_title.is_empty() {
@@ -282,12 +282,12 @@ pub fn parse_session(
     })
 }
 
-/// 找到 cwd 所属仓库的 git 目录。`.git` 是目录就是它自己；是文件则跟着里面的
-/// `gitdir:` 跳走（linked worktree 指向 `<主仓>/.git/worktrees/<名>`，submodule
-/// 指向 `<父仓>/.git/modules/<名>`），两种情况下 HEAD 都在跳到的那个目录里。
+/// Find the git directory of the repository a cwd belongs to. If `.git` is a directory, that is it; if it is a file, follow the
+/// `gitdir:` inside it (a linked worktree points to `<main repo>/.git/worktrees/<name>`, a submodule
+/// to `<parent repo>/.git/modules/<name>`); in both cases HEAD is in the directory jumped to.
 ///
-/// 和 `detect_git_root` 不是一回事：那个要的是"归属哪个项目"，worktree 会被折回主仓根；
-/// 这里要的是"HEAD 文件在哪"，必须停在 worktree 自己的 git 目录上。
+/// Not the same thing as `detect_git_root`: that one wants "which project it belongs to", and a worktree is folded back to the main repo root;
+/// this one wants "where the HEAD file is", and must stop at the worktree's own git directory.
 pub fn git_dir_for(cwd: &str) -> Option<PathBuf> {
     let mut current = PathBuf::from(cwd);
     for _ in 0..10 {
@@ -307,13 +307,13 @@ pub fn git_dir_for(cwd: &str) -> Option<PathBuf> {
     None
 }
 
-/// 等价于 `git branch --show-current`，但不 fork 子进程 —— 那条命令做的事就是
-/// 读 `.git/HEAD` 再剥掉 `refs/heads/` 前缀，一次文件读足够。
+/// Equivalent to `git branch --show-current`, but without forking a child process -- what that command does is
+/// read `.git/HEAD` and strip the `refs/heads/` prefix; one file read is enough.
 ///
-/// 实测：每次 fork+exec 约 38ms，189 个 session 摊到几十个不同目录就是 2.3s，
-/// 占 list_sessions 总耗时的 65% —— 整个 session 列表的首屏延迟主要是这个。
-/// detached HEAD 时 HEAD 里是裸 SHA、没有 `ref: ` 前缀，返回 None，
-/// 和 `--show-current` 输出空串的行为一致。
+/// Measured: each fork+exec takes about 38ms; spread over a few dozen distinct directories for 189 sessions that is 2.3s,
+/// 65% of the total time of list_sessions -- the first-screen latency of the whole session list was mainly this.
+/// With a detached HEAD, HEAD holds a bare SHA with no `ref: ` prefix, and None is returned,
+/// matching the behaviour of `--show-current` printing an empty string.
 pub fn current_branch_for(cwd: &str) -> Option<String> {
     if cwd.is_empty() {
         return None;
@@ -351,7 +351,7 @@ pub fn extract_tool_uses(content: &serde_json::Value) -> Vec<String> {
     out
 }
 
-/// 会话 id → 会话文件和它属于哪家（先找 claude 的 projects 目录，再找 codex 的 sessions 目录，#209）
+/// Session id -> the session file and which tool it belongs to (look in claude's projects directory first, then codex's sessions directory, #209)
 pub fn locate_session_file(session_id: &str) -> Option<(PathBuf, crate::transcript::Tool)> {
     if let Some(dir) = projects_dir() {
         if let Ok(entries) = fs::read_dir(&dir) {
@@ -389,7 +389,7 @@ pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessa
     let path = match found_path {
         Some(p) => p,
         None => {
-            // 不是 Claude 的会话，再去 Codex 那边找（#209）。以前只找 Claude，Codex 会话一点开详情就报错
+            // Not a Claude session; look on the Codex side (#209). It used to look only at Claude, so opening the details of a Codex session always errored
             if let Some(codex_dir) = ai_provider::AiTool::Codex.sessions_dir() {
                 if let Some(p) = ai_provider::find_codex_session_file(&codex_dir, &session_id) {
                     let file = fs::File::open(&p).map_err(|e| e.to_string())?;
@@ -465,12 +465,12 @@ pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessa
     Ok(out)
 }
 
-/// items 分给 N 个线程抢着做。每个线程先建一份自己的 S（线程本地缓存之类），
-/// 再对抢到的每个 item 调 f，结果推进自己的 Vec，最后按线程顺序拼起来。
+/// Distributes items among N threads that grab them. Each thread first builds its own S (thread-local cache and the like),
+/// then calls f on each item it grabbed, pushes the results into its own Vec, and finally they are concatenated in thread order.
 ///
-/// 用原子游标抢任务而不是按下标均分：两个调用点的 item 耗时都差几个数量级
-/// （jsonl 最大 95MB、多数几十 KB；项目目录里的文件数从 1 到上百），
-/// 均分下标会让拿到最重那一份的线程单独决定总耗时。
+/// An atomic cursor is used to grab tasks rather than splitting evenly by index: at both call sites the items' costs differ by several orders of magnitude
+/// (a jsonl is up to 95MB but mostly a few dozen KB; the number of files in a project directory ranges from 1 to over a hundred),
+/// and an even split would let the thread that gets the heaviest share alone decide the total time.
 pub fn parallel_scan<T, S, R>(
     items: &[T],
     mk_state: impl Fn() -> S + Sync,
@@ -513,10 +513,10 @@ where
     })
 }
 
-/// 分阶段计时。默认完全静默（一次 env 读 + 一次 bool 判断），
-/// 需要看数字时跑 `MAKIT_TIMING=1`。没有它就只能靠"感觉哪里慢"猜。
+/// Per-phase timing. Fully silent by default (one env read + one bool check),
+/// run with `MAKIT_TIMING=1` when the numbers are needed. Without it you can only guess "where it feels slow".
 ///
-/// 各阶段耗时同时收进 `stages`，由 `record` 写进 perf.log（#218）—— 打包版也能看。
+/// The per-phase times are also collected into `stages` and written to perf.log by `record` (#218) -- visible in the packaged build too.
 pub struct PhaseTimer {
     on: bool,
     start: std::time::Instant,
@@ -541,7 +541,7 @@ impl PhaseTimer {
     fn total_ms(&self) -> f64 {
         self.start.elapsed().as_secs_f64() * 1000.0
     }
-    /// 写一条 perf.log：总耗时 + 各阶段
+    /// Write one perf.log entry: total time + each phase
     fn record(&self, kind: &str, extra: serde_json::Value) {
         let mut ev = serde_json::json!({
             "kind": kind,
@@ -557,24 +557,24 @@ impl PhaseTimer {
 
 pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     let mut timer = PhaseTimer::new();
-    // macOS 的 ps 本身要 0.3s（启动时抢 CPU 能到 0.55s），和下面的解析互不依赖 —— 并行跑（#216）
+    // macOS's ps itself takes 0.3s (up to 0.55s when competing for CPU at startup), and does not depend on the parsing below -- run in parallel (#216)
     let proc_table_job = std::thread::spawn(collect_process_table);
     let now = chrono::Local::now().timestamp();
     let running_info = load_running_info();
     let archived_set = load_archived();
     let mode = cwd_mode.as_deref().unwrap_or("smart");
 
-    // ── Phase 1: 收集所有工具的 raw sessions ────────────────────────────
-    // 新增工具只需在这里追加一个 scan 块，后处理自动覆盖。
+    // -- Phase 1: collect the raw sessions of all tools ------------------------
+    // To add a tool, just append a scan block here; post-processing covers it automatically.
     let mut raw: Vec<SessionMeta> = Vec::new();
 
     // Claude: ~/.claude/projects/**/*.jsonl
     if let Some(dir) = dirs::home_dir().map(|h| h.join(".claude").join("projects")) {
         if dir.exists() {
-            // file_type() 用的是 readdir 直接给出的 d_type，不额外走 syscall；
-            // 原来的 `path.is_dir() || path.read_link().is_ok()` 是 stat + readlink 两次。
-            // 语义等价：符号链接目录在两种写法下都被跳过（is_dir 跟随链接后为真但 read_link 也为真；
-            // file_type 不跟随链接，符号链接的 is_dir 直接为假）。
+            // file_type() uses the d_type that readdir gives directly, with no extra syscall;
+            // the original `path.is_dir() || path.read_link().is_ok()` was a stat + readlink, two calls.
+            // Semantically equivalent: symlinked directories are skipped under both forms (is_dir follows the link and is true, and read_link is true as well;
+            // file_type does not follow links, and is_dir on a symlink is simply false).
             let project_dirs: Vec<PathBuf> = fs::read_dir(&dir)
                 .into_iter()
                 .flatten()
@@ -582,11 +582,11 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
                 .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
                 .map(|e| e.path())
                 .collect();
-            // 这一段刻意保持串行。mtime 只能靠 stat 拿，本机实测每次约 0.7ms
-            // （远超正常的微秒级，内核态大概被 EDR / Spotlight 插了一手），
-            // 308 个文件合计约 0.5s。但试过按项目目录切给多线程：495–890ms，比串行更抖、
-            // 均值没降 —— 这部分不是 CPU 受限，是在内核里被串行化了，加线程只是加噪声。
-            // 真正的出路是持久化 mtime 缓存（#144），不在本次范围内。
+            // This section is deliberately kept serial. mtime can only be obtained via stat, which measured locally takes about 0.7ms each
+            // (far above the normal microsecond level; the kernel side is probably being interfered with by EDR / Spotlight),
+            // about 0.5s in total for 308 files. But splitting by project directory across threads was tried: 495-890ms, jitterier than serial and
+            // the mean did not drop -- this part is not CPU bound, it is serialized inside the kernel, and more threads only add noise.
+            // The real way out is a persistent mtime cache (#144), out of scope here.
             let mut files: Vec<(PathBuf, i64)> = Vec::new();
             for proj in &project_dirs {
                 for f in fs::read_dir(proj).into_iter().flatten().flatten() {
@@ -628,16 +628,16 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
         }
     }
 
-    // ── Phase 2: 统一后处理（对所有工具生效）────────────────────────────
+    // -- Phase 2: unified post-processing (applies to all tools) ---------------
 
-    // 归档标记
+    // archive marker
     for meta in &mut raw {
         if archived_set.contains(&meta.session_id) {
             meta.archived = true;
         }
     }
 
-    // 子进程收集（running session）
+    // child process collection (running session)
     let proc_table = proc_table_job.join().unwrap_or_default();
     timer.mark("进程表（等并行的 ps）");
     for meta in &mut raw {
@@ -646,7 +646,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
         }
     }
 
-    // 孤儿进程关联（通过 MAKIT_SESSION_ID 环境变量，PPID=1 的 detach 进程）
+    // orphan process association (via the MAKIT_SESSION_ID environment variable, detached processes with PPID=1)
     let orphans = collect_orphan_by_env(&proc_table);
     if !orphans.is_empty() {
         for meta in &mut raw {
@@ -661,7 +661,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
         }
     }
 
-    // 实时 git 分支覆盖
+    // live git branch override
     let mut branch_cache: HashMap<String, Option<String>> = HashMap::new();
     for meta in &mut raw {
         let cwd_key = if !meta.last_cwd.is_empty() { meta.last_cwd.clone() } else { meta.cwd.clone() };
@@ -673,7 +673,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
 
     timer.mark("git 分支覆盖");
 
-    // ── Phase 3: 按 mtime 排序 ───────────────────────────────────────────
+    // -- Phase 3: sort by mtime -------------------------------------------------
     raw.sort_by(|a, b| b.mtime.cmp(&a.mtime));
 
     save_scan_cache_throttled(true);
@@ -682,23 +682,23 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
     Ok(raw)
 }
 
-/// 增量解析：只解析 watcher 报上来的这几个 jsonl，其余文件一个都不碰。
+/// Incremental parse: parses only the few jsonl files reported by the watcher and does not touch any other file.
 ///
-/// 为什么不能直接调 list_sessions：它要 stat + 全量解析 ~220 个文件（合计 771MB），
-/// 而 projects/ 是**递归**监听、每追加一条消息就触发一次 —— 这正是前端原来把
-/// "sessions-changed" 接成空函数的原因。代价换算下来这里约是全量的 1/220。
+/// Why list_sessions cannot be called directly: it stats + fully parses ~220 files (771MB in total),
+/// while projects/ is watched **recursively** and fires on every appended message -- which is exactly why the frontend originally wired
+/// "sessions-changed" to a no-op. Converted, the cost here is about 1/220 of a full pass.
 ///
-/// 后处理刻意少做一件事：child_processes 要起 `ps -eo` 拿全表，这里省掉，
-/// 由前端合并时沿用旧值（新 session 的子进程列表等下一次全量 load 补齐）。
-/// 其余（archived 标记、实时 git 分支覆盖）和 list_sessions 的 Phase 2 一致。
+/// Post-processing deliberately does one thing less: child_processes would spawn `ps -eo` for the full table, which is skipped here,
+/// and the frontend keeps the old value when merging (a new session's child process list is filled in at the next full load).
+/// The rest (archived marker, live git branch override) matches Phase 2 of list_sessions.
 pub fn list_sessions_by_paths(
     paths: Vec<String>,
     cwd_mode: Option<String>,
 ) -> Result<Vec<SessionMeta>, String> {
     let timer = PhaseTimer::new();
     let now = chrono::Local::now().timestamp();
-    // pty_id 在这里面拿（每个 running session 一次 `ps -p`）。前端要靠它把
-    // 新 session 绑到已打开的 tab 上，所以这一份开销不能省。
+    // pty_id is obtained in here (one `ps -p` per running session). The frontend relies on it to bind
+    // a new session to an already opened tab, so this cost cannot be skipped.
     let running_info = load_running_info();
     let archived_set = load_archived();
     let mode = cwd_mode.as_deref().unwrap_or("smart");
@@ -710,8 +710,8 @@ pub fn list_sessions_by_paths(
 
     for p in &paths {
         let path = Path::new(p);
-        // 文件已被删除时 metadata 失败，紧跟着的 parse 也会失败 → 自然跳过。
-        // 也就是说"session 文件被删"这件事这里同步不了，要等一次全量 load（⌘R）。
+        // When the file has been deleted metadata fails, and the parse right after it fails too -> naturally skipped.
+        // That is, "a session file was deleted" cannot be synced here; it has to wait for a full load (manual refresh).
         let mtime = path
             .metadata()
             .and_then(|m| m.modified())
@@ -745,7 +745,7 @@ pub fn list_sessions_by_paths(
         }
     }
 
-    // 会话输出时每秒多一次，只记慢的，免得日志刷屏（#218）
+    // While a session is producing output this runs once more per second; only slow ones are recorded, to avoid flooding the log (#218)
     if timer.total_ms() > 100.0 {
         timer.record("list_sessions_by_paths", serde_json::json!({ "files": paths.len() }));
     }
@@ -757,9 +757,9 @@ pub fn list_sessions_by_paths(
 mod git_head_tests {
     use std::process::Command;
 
-    // 对照用 `symbolic-ref --short -q HEAD` 而不是 `branch --show-current`：后者 git 2.22 才有，
-    // PATH 上排在前面的若是老 git（本机 /usr/local/bin/git 是 2.15）会直接报错返回 None，
-    // 测试就把「对照组坏了」误报成「快路径错了」。两者语义相同：分支名，或 HEAD 游离时为空。
+    // The control uses `symbolic-ref --short -q HEAD` rather than `branch --show-current`: the latter only exists since git 2.22,
+    // and if an old git comes first on PATH (e.g. 2.15) it errors straight out and returns None,
+    // and the test would misreport "the control group is broken" as "the fast path is wrong". Both have the same semantics: the branch name, or empty when HEAD is detached.
     fn via_subprocess(cwd: &str) -> Option<String> {
         let out = Command::new("git")
             .args(["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"])
@@ -772,9 +772,9 @@ mod git_head_tests {
         if s.is_empty() { None } else { Some(s) }
     }
 
-    /// 回归：读 .git/HEAD 的快路径必须和 `git branch --show-current` 逐字节一致。
-    /// 拿本机真实存在的 session cwd 当语料，覆盖普通仓库 / linked worktree /
-    /// 非仓库目录 / 已删除路径几种形态。
+    /// Regression: the fast path reading .git/HEAD must match `git branch --show-current` byte for byte.
+    /// It uses session cwds that really exist locally as the corpus, covering ordinary repositories / linked worktrees /
+    /// non-repository directories / deleted paths.
     #[test]
     fn head_read_matches_git_cli() {
         let mut dirs: Vec<String> = vec![
@@ -782,11 +782,11 @@ mod git_head_tests {
             "/tmp".to_string(),
             "/definitely/not/a/path".to_string(),
         ];
-        // 空 cwd 不进对比语料：`git -C "" ...` 会退化成"在当前进程目录跑"，
-        // 于是旧实现会把 makit 自己所在仓库的分支贴到一个 cwd 未知的 session 上。
-        // 调用方本来就挡掉了空值，这里直接钉住正确行为。
+        // An empty cwd is kept out of the comparison corpus: `git -C "" ...` degrades to "run in the current process directory",
+        // so the old implementation would stick the branch of the repository makit itself lives in onto a session whose cwd is unknown.
+        // The caller already filters out empty values; here the correct behaviour is pinned down directly.
         assert_eq!(super::current_branch_for(""), None);
-        // 真实语料：所有 session 的 cwd
+        // real corpus: the cwds of all sessions
         if let Ok(sessions) = super::list_sessions(Some("smart".into())) {
             for s in sessions.iter().take(80) {
                 if !s.cwd.is_empty() { dirs.push(s.cwd.clone()); }
@@ -811,8 +811,8 @@ mod git_head_tests {
 
 #[cfg(test)]
 mod perf_tests {
-    /// 跑法：MAKIT_TIMING=1 cargo test --release -- --ignored --nocapture bench_list_sessions
-    /// release 而不是 dev：dev 下 serde_json 没内联，测出来的是编译器而不是算法。
+    /// How to run: MAKIT_TIMING=1 cargo test --release -- --ignored --nocapture bench_list_sessions
+    /// release rather than dev: under dev serde_json is not inlined, so what gets measured is the compiler, not the algorithm.
     #[test]
     #[ignore = "手动性能基线，不进常规 test"]
     fn bench_list_sessions() {
@@ -846,18 +846,18 @@ mod session_name_tests {
     }
 
     const USER_MSG: &str = r#"{"type":"user","cwd":"/tmp","isSidechain":false,"message":{"role":"user","content":"build当前项目"}}"#;
-    // slug 的真实出处：实测 8 个带 slug 的会话，8 个都是这条记录写进去的
+    // the real origin of slug: measured, of 8 sessions with a slug, all 8 were written by this record
     const COMPACT_WITH_SLUG: &str =
         r#"{"type":"system","subtype":"compact_boundary","slug":"clever-swimming-flute","content":"Conversation compacted"}"#;
     const CUSTOM_TITLE: &str = r#"{"type":"custom-title","customTitle":"oc-install-pack脚本编写"}"#;
 
-    /// 回归：`/compact` 不能改会话的显示名。
+    /// Regression: `/compact` must not change a session's display name.
     ///
-    /// claude 的 `slug`（`clever-swimming-flute` 这种随机三词代号）**只**写在
-    /// `type:"system", subtype:"compact_boundary"` 记录上，和会话内容毫无关系。
-    /// 原来它被塞进 `display_name`，而前端把 display_name 当权威
-    /// （`display_name || first_user_msg`），于是同一个会话**被 compact 一次，标题就从
-    /// 「build当前项目」退化成「clever-swimming-flute」** —— 越常用 /compact 的人越受害。
+    /// claude's `slug` (a random three-word codename like `clever-swimming-flute`) is written **only** on
+    /// `type:"system", subtype:"compact_boundary"` records and has nothing to do with the session content.
+    /// It used to be stuffed into `display_name`, and the frontend treats display_name as authoritative
+    /// (`display_name || first_user_msg`), so the same session, **after being compacted once, had its title degrade from
+    /// "build the current project" to "clever-swimming-flute"** -- the more someone uses /compact, the worse it hits them.
     #[test]
     fn compact_must_not_rename_session() {
         let before = parse(&write_jsonl("before", &[USER_MSG]));
@@ -868,12 +868,12 @@ mod session_name_tests {
             before.display_name, after.display_name
         );
         assert_eq!(before.name_source, after.name_source, "compact 前后 name_source 变了");
-        // 前端的 `display_name || first_user_msg` 得能落到首条消息上
+        // the frontend's `display_name || first_user_msg` must be able to fall back to the first message
         assert_eq!(after.first_user_msg, "build当前项目");
     }
 
-    /// 反向护栏：claude 写的真标题（customTitle / agentName）必须照旧压过一切，
-    /// 包括压过 compact 的 slug。上面那个测试不能靠「把 display_name 一律清空」来过。
+    /// Reverse guard: the real title claude wrote (customTitle / agentName) must still override everything,
+    /// including the compact slug. The test above must not pass by "clearing display_name unconditionally".
     #[test]
     fn real_title_still_wins() {
         let m = parse(&write_jsonl("title", &[USER_MSG, COMPACT_WITH_SLUG, CUSTOM_TITLE]));
@@ -882,9 +882,9 @@ mod session_name_tests {
     }
 }
 
-// 按需归因：扫 ~/.claude/projects/*/*.jsonl，找在 tab 启动之后「新建」(birthtime > after_ts) 且 cwd 匹配的
-// 用 birthtime 而非 mtime —— mtime 会被任何写入刷新，旧 session 也会被误命中
-// 用途：new/shell tab 启动后想反查到 claude 写出的 session 文件
+// On-demand attribution: scan ~/.claude/projects/*/*.jsonl for files "newly created" after the tab started (birthtime > after_ts) whose cwd matches
+// birthtime is used rather than mtime -- mtime is refreshed by any write, and old sessions would be hit by mistake
+// Purpose: after a new/shell tab starts, look up the session file claude wrote
 pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<String>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     if !dir.exists() {
@@ -917,7 +917,7 @@ pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<St
                 Ok(m) => m,
                 Err(_) => continue,
             };
-            // 优先用 birthtime（macOS APFS 支持）；不支持时退化到 mtime
+            // prefer birthtime (supported by macOS APFS); fall back to mtime when unsupported
             let ctime = match meta.created() {
                 Ok(t) => t
                     .duration_since(UNIX_EPOCH)
@@ -931,14 +931,14 @@ pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<St
                     Err(_) => 0,
                 },
             };
-            // 给 1s 余量：tab.startedAt 取秒级，文件 birthtime 也是秒级，可能同秒
+            // leave 1s of slack: tab.startedAt is second-granular and the file birthtime is second-granular too, so they may fall in the same second
             if ctime + 1 < after_ts {
                 continue;
             }
             candidates.push((fp, ctime));
         }
     }
-    // 创建时间新的优先匹配
+    // newest creation time matches first
     candidates.sort_by(|a, b| b.1.cmp(&a.1));
     for (p, _mtime) in &candidates {
         let file = match fs::File::open(p) {
@@ -946,8 +946,8 @@ pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<St
             Err(_) => continue,
         };
         let reader = BufReader::new(file);
-        // 扫前 30 行，找任何带 cwd 字段的记录
-        // claude 启动期间 SessionStart hook 写的 attachment 行就含 cwd，不必等 user 行
+        // scan the first 30 lines for any record with a cwd field
+        // the attachment line written by the SessionStart hook while claude starts already contains cwd, no need to wait for the user line
         for (i, line) in reader.lines().enumerate() {
             if i >= 30 {
                 break;
@@ -974,7 +974,7 @@ pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<St
                         if !session_id.is_empty() {
                             return Ok(Some(session_id));}
                     }
-                    // cwd 不匹配，本文件无希望
+                    // cwd does not match, this file has no hope
                     break;
                 }
             }
@@ -983,7 +983,7 @@ pub fn find_session_in_cwd_after(cwd: String, after_ts: i64) -> Result<Option<St
     Ok(None)
 }
 
-// 增量读单个 session 的 meta，避免归因后重拉整个 list_sessions（用户可见的卡顿主要来自后者）
+// Incrementally read a single session's meta, avoiding re-pulling the whole list_sessions after attribution (the visible stall mostly came from the latter)
 pub fn read_session_meta(session_id: String) -> Result<Option<SessionMeta>, String> {
     let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
     if !dir.exists() {
