@@ -3,6 +3,7 @@
 //! 不迁的：「列表显示 → 顶部需要操作区域」开关（`makit-show-attention`，没有任何地方读，#224 死开关）。
 //! 系统通知的授权状态 / 请求授权 / 测试通知归 E 通知包：它调 `set_notify_hooks` 接进来，没接之前显示「读取中…」。
 
+use crate::tr;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -65,7 +66,7 @@ pub fn switch_after_delete(order: &[String], chosen: bool, current: &str, delete
     (chosen && current == deleted).then(|| theme_after_delete(order, current, deleted))
 }
 
-pub const HOVER_MODES: [(&str, &str); 3] = [("always", "始终显示（400ms 延迟）"), ("cmd", "仅按住 ⌘ 时显示"), ("off", "关闭")];
+pub const HOVER_MODES: [(&str, &str); 3] = [("always", "settings.hover.always"), ("cmd", "settings.hover.cmd"), ("off", "settings.hover.off")];
 
 // ---------- 通知包的接口 ----------
 
@@ -103,7 +104,7 @@ impl EventEmitter<SettingsEvent> for SettingsView {}
 
 /// 系统对话框（NSAlert）提示一句话
 fn message(window: &mut Window, cx: &mut App, level: PromptLevel, title: &str, detail: &str) {
-    let _ = window.prompt(level, title, Some(detail), &[PromptButton::ok("好")], cx);
+    let _ = window.prompt(level, title, Some(detail), &[PromptButton::ok(tr!("common.ok"))], cx);
 }
 
 impl SettingsView {
@@ -146,7 +147,7 @@ impl SettingsView {
             Some(b) => (gpui::point(b.origin.x, b.origin.y + b.size.height + px(2.0)), Some(f32::from(b.size.width).min(THEME_MENU_MAX_W))),
             None => (ev.position(), None),
         };
-        super::show_searchable_menu(pos, "搜索主题…", min_w, window, cx, move |cx| {
+        super::show_searchable_menu(pos, &tr!("settings.theme.search"), min_w, window, cx, move |cx| {
             let p = &state.read(cx).prefs.theme;
             let (current, chosen) = (p.id.clone(), p.chosen);
             let pick = |t: &ThemeSource| {
@@ -157,12 +158,12 @@ impl SettingsView {
             };
             let builtin = builtin_themes();
             let follow = state.clone();
-            let mut items = vec![MenuItem::action("跟随系统", move |_, cx| Self::follow_system(&follow, cx)).checked(!chosen), MenuItem::header("深色")];
+            let mut items = vec![MenuItem::action(tr!("settings.language.system"), move |_, cx| Self::follow_system(&follow, cx)).checked(!chosen), MenuItem::header(tr!("settings.theme.dark"))];
             items.extend(builtin.iter().filter(|t| !is_light(&t.bg)).map(pick));
-            items.push(MenuItem::header("浅色"));
+            items.push(MenuItem::header(tr!("settings.theme.light")));
             items.extend(builtin.iter().filter(|t| is_light(&t.bg)).map(pick));
             if !p.imported.is_empty() {
-                items.push(MenuItem::header("导入"));
+                items.push(MenuItem::header(tr!("settings.theme.import")));
                 items.extend(p.imported.iter().map(|t| {
                     let (state, id) = (state.clone(), t.id.clone());
                     pick(t).removable(move |_, cx| Self::delete_imported_theme(&state, &id, cx))
@@ -174,19 +175,19 @@ impl SettingsView {
 
     /// 选文件 → 解析 → 同名覆盖存下 → 立即切过去；失败弹系统错误框「导入失败」
     fn import_itermcolors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some("导入".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: false, prompt: Some(tr!("settings.theme.import").into()) });
         let (state, handle) = (self.state.clone(), window.window_handle());
         cx.spawn(async move |_, cx: &mut AsyncApp| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
             let Some(path): Option<PathBuf> = paths.into_iter().next() else { return };
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let result = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}")).and_then(|xml| import_itermcolors(&name, &xml));
+            let result = std::fs::read_to_string(&path).map_err(|e| t!("settings.theme.read_failed", error = e).to_string()).and_then(|xml| import_itermcolors(&name, &xml));
             let _ = cx.update_window(handle, |_, window, cx| match result {
                 Ok(t) => {
                     let list = upsert_imported(&state.read(cx).prefs.theme.imported, t.clone());
                     Self::apply_theme(&state, t.id, Some(list), cx);
                 }
-                Err(e) => message(window, cx, PromptLevel::Critical, "导入失败", &e),
+                Err(e) => message(window, cx, PromptLevel::Critical, &tr!("settings.theme.import_failed"), &e),
             });
         })
         .detach();
@@ -245,7 +246,7 @@ impl SettingsView {
                 .map(|(id, label)| {
                     let (state, id) = (state.clone(), id.to_string());
                     let checked = id == cur;
-                    MenuItem::action(*label, move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.hover_mode = id.clone()))).checked(checked)
+                    MenuItem::action(t!(*label).to_string(), move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.sidebar.hover_mode = id.clone()))).checked(checked)
                 })
                 .collect()
         });
@@ -260,9 +261,9 @@ impl SettingsView {
                 Err(e) => log::error!(target: "hook", "安装 Claude Code Hook 失败：{e}"),
             }
             let _ = cx.update_window(handle, |_, window, cx| match r {
-                Ok(s) if s == "already_installed" => message(window, cx, PromptLevel::Info, "安装 Hook", "Hook 已安装，无需重复操作。"),
-                Ok(_) => message(window, cx, PromptLevel::Info, "安装 Hook", "Hook 安装成功！Claude Code 重启后生效。"),
-                Err(e) => message(window, cx, PromptLevel::Critical, "安装失败", &e),
+                Ok(s) if s == "already_installed" => message(window, cx, PromptLevel::Info, &tr!("settings.hook.title"), &tr!("settings.hook.already")),
+                Ok(_) => message(window, cx, PromptLevel::Info, &tr!("settings.hook.title"), &tr!("settings.hook.done")),
+                Err(e) => message(window, cx, PromptLevel::Critical, &tr!("settings.hook.failed"), &e),
             });
         })
         .detach();
@@ -325,7 +326,7 @@ impl Render for SettingsView {
         let label = |t: &str| div().text_size(px(11.0)).text_color(theme.fg_muted).mb(px(8.0)).font_weight(FontWeight::MEDIUM).child(t.to_string());
         let hint = |t: &str| div().text_size(px(11.0)).text_color(theme.fg_muted).mt(px(6.0)).child(t.to_string());
         let section = || div().px(px(16.0)).py(px(12.0)).border_b_1().border_color(theme.border);
-        let toggle = |id: &'static str, on: bool, text: &'static str| {
+        let toggle = |id: &'static str, on: bool, text: gpui::SharedString| {
             div().id(id).flex().items_center().gap(px(8.0)).text_size(px(13.0)).cursor_pointer().child(check_box(&theme, on, false, 16.0)).child(text)
         };
         let set_notify = |f: fn(&mut crate::persist::state::NotifyPrefs)| {
@@ -333,11 +334,11 @@ impl Render for SettingsView {
         };
         let effective_id = crate::theme::auto::effective_theme_id(prefs.theme.chosen, &prefs.theme.id, crate::theme::auto::system_is_dark(cx));
         let theme_name = Theme::by_id(effective_id, &prefs.theme.imported).source.name;
-        let theme_name = if prefs.theme.chosen { theme_name } else { format!("跟随系统（{theme_name}）") };
+        let theme_name = if prefs.theme.chosen { theme_name } else { t!("settings.theme.follow_system", name = theme_name).to_string() };
         let swatches = (0..8).map(|i| div().flex_1().min_w_0().h(px(14.0)).rounded(px(2.0)).bg(theme.ansi[i]).border_1().border_color(theme.border));
         let icons = pane_icons_for(&prefs.pane_icons);
         let icon_name = PANE_ICON_SETS.iter().find(|s| s.id == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).name;
-        let hover_name = HOVER_MODES.iter().find(|m| m.0 == prefs.sidebar.hover_mode).unwrap_or(&HOVER_MODES[0]).1;
+        let hover_name = t!(HOVER_MODES.iter().find(|m| m.0 == prefs.sidebar.hover_mode).unwrap_or(&HOVER_MODES[0]).1).to_string();
         let hooks = cx.try_global::<NotifyHooks>().cloned();
         let permission = hooks.as_ref().and_then(|h| (h.permission)(cx));
         let accent_text = theme.var("--accent-text");
@@ -388,7 +389,7 @@ impl Render for SettingsView {
                             .border_color(theme.border)
                             .text_size(px(14.0))
                             .font_weight(FontWeight::MEDIUM)
-                            .child("设置")
+                            .child(tr!("settings.title"))
                             .child(
                                 div()
                                     .id("settings-close")
@@ -430,7 +431,7 @@ impl Render for SettingsView {
                             // 外观主题
                             .child(
                                 section()
-                                    .child(label("外观主题"))
+                                    .child(label(&tr!("settings.theme.title")))
                                     .child({
                                         let cell = self.theme_select.clone();
                                         div()
@@ -457,18 +458,18 @@ impl Render for SettingsView {
                                             .items_center()
                                             .gap(px(8.0))
                                             .mt(px(8.0))
-                                            .child(action_btn(&theme, "import-iterm", "导入 .itermcolors").on_click(cx.listener(|this, _, window, cx| this.import_itermcolors(window, cx))))
-                                            .child(action_btn(&theme, "get-themes", "下载主题").on_click(|_, _, cx| cx.open_url(THEME_SITE)))
+                                            .child(action_btn(&theme, "import-iterm", tr!("settings.theme.import_iterm")).on_click(cx.listener(|this, _, window, cx| this.import_itermcolors(window, cx))))
+                                            .child(action_btn(&theme, "get-themes", tr!("settings.theme.download")).on_click(|_, _, cx| cx.open_url(THEME_SITE)))
                                     )
-                                    .child(hint("UI 配色由终端 16 色 + 前景/背景推导，因此任何 iTerm2 色板都能直接用。「下载主题」打开 terminalthemes.com，下载 .itermcolors 后再导入。")),
+                                    .child(hint(&tr!("settings.theme.hint"))),
                             )
                             // pane 落点图标
                             .child(
                                 section()
-                                    .child(label("pane 落点图标"))
+                                    .child(label(&tr!("settings.icons.title")))
                                     .child(select_box(&theme, "icon-select", icon_name).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_icon_menu(ev, window, cx))))
                                     .child(if icons.is_empty() {
-                                        div().mt(px(6.0)).child(hint("切 pane 时只浮出名字，不带图标。"))
+                                        div().mt(px(6.0)).child(hint(&tr!("settings.icons.none_hint")))
                                     } else {
                                         div().flex().flex_wrap().gap(px(8.0)).mt(px(6.0)).children(icons.iter().enumerate().map(|(i, ic)| {
                                             div()
@@ -481,25 +482,25 @@ impl Render for SettingsView {
                                                 .child(div().text_size(px(9.0)).text_color(theme.fg_muted).child((i + 1).to_string()))
                                         }))
                                     })
-                                    .child(hint("⌥⌘方向键 / ⌥⌘数字 切 pane 时，目标 pane 中央浮出「图标 + 名字」。图标按 pane 序号固定 —— 第 N 个 pane 永远是第 N 个图标，也就是 ⌥⌘N 里的 N。")),
+                                    .child(hint(&tr!("settings.icons.hint"))),
                             )
                             // 系统通知
                             .child(
                                 section()
-                                    .child(label("系统通知"))
+                                    .child(label(&tr!("settings.notify.title")))
                                     .child(
                                         div()
                                             .flex()
                                             .flex_col()
                                             .gap(px(6.0))
-                                            .child(toggle("n-system", prefs.notify.system, "启用 macOS 系统通知").on_click(set_notify(|n| n.system = !n.system)))
-                                            .child(toggle("n-approval", prefs.notify.approval, "等待审批时提醒（工具调用需确认）").on_click(set_notify(|n| n.approval = !n.approval)))
-                                            .child(toggle("n-user", prefs.notify.user, "等待回答时提醒（Claude 等待你输入）").on_click(set_notify(|n| n.user = !n.user)))
+                                            .child(toggle("n-system", prefs.notify.system, tr!("settings.notify.enable")).on_click(set_notify(|n| n.system = !n.system)))
+                                            .child(toggle("n-approval", prefs.notify.approval, tr!("settings.notify.approval")).on_click(set_notify(|n| n.approval = !n.approval)))
+                                            .child(toggle("n-user", prefs.notify.user, tr!("settings.notify.user")).on_click(set_notify(|n| n.user = !n.user)))
                                             // #215 新增的两项（Tauri 版没有）：不给开关的话「已完成」横幅和提示音就关不掉
-                                            .child(toggle("n-completed", prefs.notify.completed, "任务完成时提醒（静音横幅，不打断）").on_click(set_notify(|n| n.completed = !n.completed)))
-                                            .child(toggle("n-sound", prefs.notify.sound, "需要处理的提醒带提示音").on_click(set_notify(|n| n.sound = !n.sound))),
+                                            .child(toggle("n-completed", prefs.notify.completed, tr!("settings.notify.completed")).on_click(set_notify(|n| n.completed = !n.completed)))
+                                            .child(toggle("n-sound", prefs.notify.sound, tr!("settings.notify.sound")).on_click(set_notify(|n| n.sound = !n.sound))),
                                     )
-                                    .child(hint("每次 session 进入 waiting 状态触发一次，再次 waiting 才重新提醒。"))
+                                    .child(hint(&tr!("settings.notify.hint")))
                                     .child(
                                         div()
                                             .flex()
@@ -508,82 +509,82 @@ impl Render for SettingsView {
                                             .text_size(px(11.0))
                                             .text_color(theme.fg_muted)
                                             .mt(px(6.0))
-                                            .child("系统授权：")
+                                            .child(tr!("settings.notify.permission"))
                                             .map(|d| match permission {
-                                                Some(true) => d.child(div().font_weight(FontWeight::BOLD).child("已允许")),
+                                                Some(true) => d.child(div().font_weight(FontWeight::BOLD).child(tr!("settings.notify.allowed"))),
                                                 Some(false) => d
-                                                    .child(div().font_weight(FontWeight::BOLD).child("未允许"))
-                                                    .child(" —— 横幅会被系统丢弃。到「系统设置 › 通知 › makit」里打开，或")
+                                                    .child(div().font_weight(FontWeight::BOLD).child(tr!("settings.notify.denied")))
+                                                    .child(tr!("settings.notify.denied_hint"))
                                                     .child(
                                                         div()
                                                             .id("req-perm")
                                                             .text_color(accent_text)
                                                             .underline()
                                                             .cursor_pointer()
-                                                            .child("请求授权")
+                                                            .child(tr!("settings.notify.request"))
                                                             .on_click(cx.listener(|_, _, window, cx| {
                                                                 if let Some(h) = cx.try_global::<NotifyHooks>().cloned() {
                                                                     (h.request_permission)(window, cx);
                                                                 }
                                                             })),
                                                     ),
-                                                None => d.child("读取中…"),
+                                                None => d.child(tr!("settings.notify.loading")),
                                             }),
                                     )
-                                    .child(action_btn(&theme, "send-test", "发送测试通知").mt(px(8.0)).on_click(cx.listener(|_, _, window, cx| {
+                                    .child(action_btn(&theme, "send-test", tr!("settings.notify.send_test")).mt(px(8.0)).on_click(cx.listener(|_, _, window, cx| {
                                         match cx.try_global::<NotifyHooks>().cloned() {
                                             Some(h) => (h.send_test)(window, cx),
-                                            None => message(window, cx, PromptLevel::Warning, "发送失败", "系统通知还没接入（归通知模块）。"),
+                                            None => message(window, cx, PromptLevel::Warning, &tr!("settings.notify.send_failed"), &tr!("settings.notify.not_wired")),
                                         }
                                     })))
-                                    .child(hint("立刻发一条横幅验证链路，不必等真有 session 进入等待状态。"))
-                                    .child(action_btn(&theme, "install-hook", "安装 Claude Code Hook（推送模式）").mt(px(8.0)).on_click(cx.listener(|this, _, window, cx| this.install_hook(window, cx))))
-                                    .child(hint("将 makit-hook.sh 注册到 ~/.claude/settings.json 的 Notification / Stop / UserPromptSubmit / SessionEnd 四个事件：等审批实时推送，任务完成的横幅才有 Claude 的原话做正文，发消息后自动清除未读。已经装过旧版（只有 Notification）的，再点一次会补齐。")),
+                                    .child(hint(&tr!("settings.notify.test_hint")))
+                                    .child(action_btn(&theme, "install-hook", tr!("settings.hook.install")).mt(px(8.0)).on_click(cx.listener(|this, _, window, cx| this.install_hook(window, cx))))
+                                    .child(hint(&tr!("settings.hook.hint"))),
                             )
                             // 诊断（#254）：出问题时把日志目录和诊断信息交出去
                             .child(
                                 section()
-                                    .child(label("诊断"))
+                                    .child(label(&tr!("settings.diagnostics.title")))
                                     .child(
                                         div()
                                             .flex()
                                             .gap(px(8.0))
-                                            .child(action_btn(&theme, "open-logs", "打开日志目录").on_click(|_, _, cx| {
+                                            .child(action_btn(&theme, "open-logs", tr!("settings.diagnostics.open_logs")).on_click(|_, _, cx| {
                                                 if let Some(dir) = crate::logging::log_dir() {
                                                     let _ = std::fs::create_dir_all(&dir);
                                                     cx.reveal_path(&dir);
                                                 }
                                             }))
-                                            .child(action_btn(&theme, "copy-diagnostics", "复制诊断信息").on_click(|_, _, cx| {
+                                            .child(action_btn(&theme, "copy-diagnostics", tr!("settings.diagnostics.copy")).on_click(|_, _, cx| {
                                                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(crate::logging::diagnostics_text()));
-                                                super::show_toast("诊断信息已复制", super::toast::COPY_OK, cx);
+                                                super::show_toast(tr!("settings.diagnostics.copied"), super::toast::COPY_OK, cx);
                                             })),
                                     )
-                                    .child(hint("日志按天保存在 ~/.claude/makit/logs，只留最近 7 天；记的是启动、失败和关键操作，不含对话内容和终端输出，路径里的用户名已替换成 ~，但项目目录名仍可能出现，贴出去前请自己看一眼。")),
+                                    .child(hint(&tr!("settings.diagnostics.hint"))),
                             )
                             // 关于（#199）：提 issue 时要报版本号
                             .child(
                                 section()
-                                    .child(label("关于"))
+                                    .child(label(&tr!("settings.about.title")))
                                     .child(div().text_size(px(12.0)).text_color(theme.fg).child(concat!("makit ", env!("CARGO_PKG_VERSION"))))
-                                    .child(hint("提 issue 请附上这个版本号和 macOS 版本；出问题时用上面「诊断」里的按钮复制诊断信息。")),
+                                    .child(hint(&tr!("settings.about.hint"))),
                             )
                             // 对话视图（#231）
                             .child(
                                 section()
-                                    .child(label("对话视图"))
-                                    .child(toggle("reflow-view", prefs.reflow_view, "可重排（实验）").on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.reflow_view = !p.reflow_view)))))
-                                    .child(hint("绑定了会话的标签里，历史对话由 makit 按窗口宽度重排（拖宽拖窄即时跟着变），输入框、菜单仍是真终端。关掉就是原来的终端。claude 全屏模式（tui: fullscreen）下不起作用。")),
+                                    .child(label(&tr!("settings.reflow.title")))
+                                    .child(toggle("reflow-view", prefs.reflow_view, tr!("settings.reflow.toggle")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.reflow_view = !p.reflow_view)))))
+                                    .child(hint(&tr!("settings.reflow.hint"))),
                             )
                             // Hover 详情卡片
                             .child(
                                 section()
-                                    .child(label("Hover 详情卡片"))
+                                    .child(label(&tr!("settings.hover.title")))
                                     .child(select_box(&theme, "hover-select", hover_name).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_hover_menu(ev, window, cx))))
-                                    .child(hint("Hover 时在 session 旁弹出详细信息卡片（ID、路径、分支、话题等），点击可复制。")),
+                                    .child(hint(&tr!("settings.hover.hint"))),
                             )
                             // 快捷键（读唯一的快捷键表）
-                            .child(div().px(px(16.0)).py(px(12.0)).child(label("快捷键")).children(shortcut_groups_el))
+                            .child(div().px(px(16.0)).py(px(12.0)).child(label(&tr!("settings.shortcuts.title"))).children(shortcut_groups_el))
                             )
                             .child(self.scrollbar.clone()),
                     ),
