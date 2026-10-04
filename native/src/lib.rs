@@ -23,6 +23,7 @@
 pub mod actions;
 pub mod app;
 pub mod assets;
+pub mod i18n;
 pub mod logging;
 pub mod notify;
 pub mod overlays;
@@ -39,3 +40,6 @@ pub mod terminal;
 pub mod theme;
 pub mod transcript_view;
 pub mod workspace;
+
+// UI strings (#71): `locales/{zh,en}.json`, looked up with `t!("key")`. Chinese is the fallback so a missing English key never shows a raw key.
+rust_i18n::i18n!("locales", fallback = "zh");

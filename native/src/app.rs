@@ -309,6 +309,7 @@ pub fn run() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
             None => persist::NativeState::default(),
         };
+        crate::i18n::apply(&prefs.language);
         // 终端主字体 JetBrains Mono 随程序打包（对标 对标产品 / 对标终端，见 terminal/fonts.rs）
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
             log::warn!(target: "font", "加载内置字体失败：{e}");

@@ -1,0 +1,8 @@
+{
+  "_version": 1,
+  "settings.language.title": "Language",
+  "settings.language.system": "Follow system",
+  "settings.language.zh": "中文",
+  "settings.language.en": "English",
+  "settings.language.hint": "Follows the system language by default. Changes apply immediately."
+}

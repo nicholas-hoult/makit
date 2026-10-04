@@ -15,6 +15,7 @@ use super::shortcuts::{shortcut_groups, ShortcutRow};
 use super::style::*;
 use super::MenuItem;
 use crate::actions::{keymap, overlays as act};
+use rust_i18n::t;
 use crate::state::AppState;
 use crate::theme::derive::{is_light, ThemeSource};
 use crate::theme::{builtin::builtin_themes, itermcolors::import_itermcolors, ActiveTheme, Theme};
@@ -205,6 +206,21 @@ impl SettingsView {
         }
     }
 
+    fn open_language_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        super::show_context_menu(ev.position(), window, cx, move |cx| {
+            let cur = state.read(cx).prefs.language.clone();
+            [crate::i18n::PREF_SYSTEM, crate::i18n::PREF_ZH, crate::i18n::PREF_EN]
+                .into_iter()
+                .map(|pref| {
+                    let state = state.clone();
+                    MenuItem::action(language_name(pref), move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.language = pref.to_string())))
+                        .checked(language_matches(&cur, pref))
+                })
+                .collect()
+        });
+    }
+
     fn open_icon_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         let state = self.state.clone();
         super::show_context_menu(ev.position(), window, cx, move |cx| {
@@ -253,6 +269,23 @@ impl SettingsView {
     }
 }
 
+/// Menu / select label for a language preference (the two languages are named in themselves, so they stay readable after a wrong switch).
+fn language_name(pref: &str) -> String {
+    match pref {
+        crate::i18n::PREF_ZH => t!("settings.language.zh").to_string(),
+        crate::i18n::PREF_EN => t!("settings.language.en").to_string(),
+        _ => t!("settings.language.system").to_string(),
+    }
+}
+
+/// Whether the stored preference is the menu entry `pref` (unknown stored values count as "follow system").
+fn language_matches(stored: &str, pref: &str) -> bool {
+    match stored {
+        crate::i18n::PREF_ZH | crate::i18n::PREF_EN => stored == pref,
+        _ => pref == crate::i18n::PREF_SYSTEM,
+    }
+}
+
 fn select_box(theme: &Theme, id: &'static str, label: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
     // `.settings-select`：--bg 底、--border 边、6px 8px、12px
     div()
@@ -289,8 +322,8 @@ impl Render for SettingsView {
         let theme = cx.theme().clone();
         let prefs = self.state.read(cx).prefs.clone();
         let vp = window.viewport_size();
-        let label = |t: &'static str| div().text_size(px(11.0)).text_color(theme.fg_muted).mb(px(8.0)).font_weight(FontWeight::MEDIUM).child(t);
-        let hint = |t: &'static str| div().text_size(px(11.0)).text_color(theme.fg_muted).mt(px(6.0)).child(t);
+        let label = |t: &str| div().text_size(px(11.0)).text_color(theme.fg_muted).mb(px(8.0)).font_weight(FontWeight::MEDIUM).child(t.to_string());
+        let hint = |t: &str| div().text_size(px(11.0)).text_color(theme.fg_muted).mt(px(6.0)).child(t.to_string());
         let section = || div().px(px(16.0)).py(px(12.0)).border_b_1().border_color(theme.border);
         let toggle = |id: &'static str, on: bool, text: &'static str| {
             div().id(id).flex().items_center().gap(px(8.0)).text_size(px(13.0)).cursor_pointer().child(check_box(&theme, on, false, 16.0)).child(text)
@@ -387,6 +420,13 @@ impl Render for SettingsView {
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll)
                             .py(px(8.0))
+                            // Language (#71)
+                            .child(
+                                section()
+                                    .child(label(&t!("settings.language.title")))
+                                    .child(select_box(&theme, "language-select", language_name(&prefs.language)).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_language_menu(ev, window, cx))))
+                                    .child(hint(&t!("settings.language.hint"))),
+                            )
                             // 外观主题
                             .child(
                                 section()

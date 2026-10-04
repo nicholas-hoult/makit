@@ -42,6 +42,7 @@ log = "0.4"
 tracing = "0.1"
 chrono = "0.4"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "env-filter", "std", "ansi", "tracing-log", "chrono"] }
+rust-i18n = "4.2.4"
 
 # 开发用的「快 debug」（#258）：自己的 crate 仍是 debug（改一个文件增量编译快），依赖（GPUI、alacritty、字体、正则……）开优化，
 # 运行时的帧耗时接近 release；调试信息只留行号，二进制和链接都小很多。默认的 `dev` 和 `release` 不受影响。

@@ -1,0 +1,8 @@
+{
+  "_version": 1,
+  "settings.language.title": "语言",
+  "settings.language.system": "跟随系统",
+  "settings.language.zh": "中文",
+  "settings.language.en": "English",
+  "settings.language.hint": "默认跟随系统语言；切换后立刻生效。"
+}
