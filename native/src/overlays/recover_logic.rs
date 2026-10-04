@@ -119,9 +119,27 @@ pub fn step(sel: usize, len: usize, delta: i32) -> usize {
     (sel as i64 + delta as i64).rem_euclid(len as i64) as usize
 }
 
+/// 恢复过的会话记住的目录：在选择器里选定的目录优先，没有就用 jsonl 里最后的 cwd。
+/// 为什么要测：只看 jsonl 的话，选「上级目录」之后会话要再说一句话才会记住，侧栏再打开又弹选择器
+pub fn remembered_dir<'a>(chosen: Option<&'a str>, last_cwd: &'a str) -> &'a str {
+    chosen.filter(|s| !s.is_empty()).unwrap_or(last_cwd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chosen_directory_wins_over_last_cwd() {
+        assert_eq!(remembered_dir(Some("/a/上级"), "/a/项目"), "/a/上级");
+    }
+
+    #[test]
+    fn falls_back_to_last_cwd_without_a_choice() {
+        assert_eq!(remembered_dir(None, "/a/项目"), "/a/项目");
+        assert_eq!(remembered_dir(Some(""), "/a/项目"), "/a/项目", "空的选择不算");
+        assert_eq!(remembered_dir(None, ""), "", "什么都没有：返回空，调用方不走静默路径");
+    }
 
     fn tmp(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("makit-recover-test-{}-{name}", std::process::id()));

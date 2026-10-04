@@ -23,6 +23,8 @@ pub struct NativeState {
     pub workspace: Option<WorkspaceState>,
     /// `makit-pinned-sessions`
     pub pinned_sessions: Vec<String>,
+    /// 会话 id → 恢复时在选择器里选定的目录（#239）。启动目录不在了再打开会话时优先用它
+    pub session_cwd_overrides: BTreeMap<String, String>,
     pub sidebar: SidebarPrefs,
     pub theme: ThemePrefs,
     /// `makit-pane-icons`：beasts / flowers / fruits / dots / none
@@ -59,6 +61,7 @@ impl Default for NativeState {
             version: STATE_VERSION,
             workspace: None,
             pinned_sessions: Vec::new(),
+            session_cwd_overrides: BTreeMap::new(),
             sidebar: SidebarPrefs::default(),
             theme: ThemePrefs::default(),
             pane_icons: "beasts".into(),

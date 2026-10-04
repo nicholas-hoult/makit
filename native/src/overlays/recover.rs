@@ -11,7 +11,7 @@
 
 use gpui::{div, prelude::*, px, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, FontWeight, PathPromptOptions, Window};
 
-use super::recover_logic::{check_relink_target, choices, friendly_error, step, Choice, RelinkCheck};
+use super::recover_logic::{check_relink_target, choices, friendly_error, remembered_dir, step, Choice, RelinkCheck};
 use super::style::*;
 use super::{host, show_toast, toast};
 use crate::actions::overlays as act;
@@ -53,26 +53,35 @@ fn apply_recovered(tab_id: &str, new_cwd: &str, cx: &mut App) {
     }
 }
 
+fn remember_chosen(session_id: String, dir: String, cx: &mut App) {
+    AppState::global(cx).update(cx, |s, cx| s.update_prefs(cx, |p| {
+        p.session_cwd_overrides.insert(session_id, dir);
+    }));
+}
+
 /// 终端发现启动目录不在时调（A 包）。见文件头
 pub fn cwd_missing(tab_id: &str, cwd: &str, window: &mut Window, cx: &mut App) {
     let state = AppState::global(cx);
-    let (session_id, meta) = {
+    let (session_id, meta, remembered) = {
         let s = state.read(cx);
         let sid = s.workspace.locate_tab(tab_id).and_then(|(_, t)| t.session_id.clone());
         let meta = sid.as_deref().and_then(|id| s.session(id).cloned());
-        (sid, meta)
+        let chosen = sid.as_deref().and_then(|id| s.prefs.session_cwd_overrides.get(id)).map(String::as_str);
+        let remembered = remembered_dir(chosen, meta.as_ref().map_or("", |m| m.last_cwd.as_str())).to_string();
+        (sid, meta, remembered)
     };
-    // 会话最近待过的地方还在 → 悄悄用那儿（「指到新位置」恢复过一次之后走的就是这条路）
-    if let Some(m) = meta.filter(|m| !m.last_cwd.is_empty() && m.last_cwd != cwd) {
+    // 会话记住的地方还在 → 悄悄用那儿（选过一次上级目录 / 指到新位置之后走的就是这条路）
+    if let Some(m) = meta.filter(|_| !remembered.is_empty() && remembered != cwd) {
         let (tab, orig, handle) = (tab_id.to_string(), cwd.to_string(), window.window_handle());
+        let last = remembered;
         cx.spawn(async move |cx: &mut AsyncApp| {
-            let last = m.last_cwd.clone();
+            let dir = last.clone();
             let orig2 = orig.clone();
             let ok = cx
                 .background_executor()
                 .spawn(async move {
-                    makit_core::recovery::dir_exists(m.last_cwd.clone())
-                        && makit_core::recovery::recover_session_cwd("relink".into(), m.session_id, orig2, m.last_cwd, m.storage_folder).is_ok()
+                    makit_core::recovery::dir_exists(dir.clone())
+                        && makit_core::recovery::recover_session_cwd("relink".into(), m.session_id, orig2, dir, m.storage_folder).is_ok()
                 })
                 .await;
             let _ = cx.update_window(handle, |_, window, cx| {
@@ -158,6 +167,7 @@ impl RecoverPicker {
         self.error = None;
         cx.notify();
         let mode = if relink { "relink" } else { "recreate" };
+        let remember = relink.then(|| self.session_id.clone().unwrap_or_default()).filter(|s| !s.is_empty());
         let (sid, orig, storage) = (self.session_id.clone().unwrap_or_default(), self.cwd.clone(), meta.map(|m| m.storage_folder).unwrap_or_default());
         let handle = window.window_handle();
         cx.spawn(async move |this, cx| {
@@ -170,6 +180,9 @@ impl RecoverPicker {
                     d.busy = false;
                     match r {
                         Ok(r) => {
+                            if let Some(id) = remember.clone() {
+                                remember_chosen(id, r.cwd.clone(), cx);
+                            }
                             cx.emit(RecoverEvent::Close);
                             show_toast(r.detail, toast::RECOVERED, cx);
                             apply_recovered(&d.tab_id, &r.cwd, cx);
