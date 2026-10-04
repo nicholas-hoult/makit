@@ -283,27 +283,6 @@ pub fn render_welcome(
                             })),
                     )
                 })
-                .when_some(hint, |d, h| {
-                    // 没有会话时的提示（#197）：醒目但不抢戏——accent 色细边的卡片，标题 + 说明 + 检测结果
-                    d.child(
-                        div()
-                            .mt(px(16.0))
-                            .max_w(px(520.0))
-                            .w_full()
-                            .flex()
-                            .flex_col()
-                            .gap(px(6.0))
-                            .px(px(16.0))
-                            .py(px(12.0))
-                            .rounded(px(8.0))
-                            .border_1()
-                            .border_color(t.var("--accent-text"))
-                            .bg(t.bg_soft)
-                            .child(div().text_size(px(14.0)).font_weight(FontWeight::SEMIBOLD).text_color(t.fg).child(h.title))
-                            .children(h.lines.into_iter().map(|l| div().text_size(px(12.0)).line_height(px(18.0)).text_color(t.fg_muted).child(l)))
-                            .child(div().mt(px(2.0)).text_size(px(11.0)).text_color(t.fg_subtle).child(h.status)),
-                    )
-                })
                 .when(has_hint, |d| {
                     d.child(
                         div()

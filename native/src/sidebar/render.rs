@@ -140,18 +140,6 @@ impl SidebarView {
             .cursor_pointer()
             .hover(|s| s.bg(t.bg_hover).text_color(t.fg))
             .child(div().w(px(10.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(12., !collapsed, t.fg_muted, "tree-project-header", t.fg)))
-            .when(has_active, |d| {
-                d.child(
-                    div()
-                        .id(SharedString::from(format!("proj-dot-{key}")))
-                        .flex_none()
-                        .size(px(6.))
-                        .mr(px(4.))
-                        .rounded_full()
-                        .bg(t.warning)
-                        .tooltip(tip("有活跃 session")),
-                )
-            })
             .child(
                 div()
                     .flex_1()
