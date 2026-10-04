@@ -81,7 +81,7 @@ impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.first_frame_marked {
             self.first_frame_marked = true;
-            window.on_next_frame(|_, _| perf::mark("首帧画出"));
+            window.on_next_frame(|_, _| perf::mark("first frame"));
         }
         let (loaded, n, collapsed) = {
             let s = self.state.read(cx);
@@ -90,7 +90,7 @@ impl Render for Root {
         if loaded && !self.startup_reported {
             self.startup_reported = true;
             window.on_next_frame(move |_, _| {
-                perf::mark("侧栏有数据");
+                perf::mark("sidebar has data");
                 perf::report_startup(n);
             });
         }
@@ -304,7 +304,7 @@ fn save_window(state: &Entity<AppState>, window: &Window, cx: &mut App) {
 
 pub fn run() {
     crate::logging::init();
-    perf::mark("main 开始");
+    perf::mark("main start");
     Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
             Some(p) => persist::load_or_import(&p, persist::webkit::default_root().as_deref()),
@@ -313,13 +313,13 @@ pub fn run() {
         crate::i18n::apply(&prefs.language);
         // 终端主字体 JetBrains Mono 随程序打包（对标 对标产品 / 对标终端，见 terminal/fonts.rs）
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
-            log::warn!(target: "font", "加载内置字体失败：{e}");
+            log::warn!(target: "font", "failed to load the bundled fonts: {e}");
         }
         let window_prefs = prefs.window;
         // 没主动选过主题就按系统外观选（#256 A6）
         let startup_dark = crate::theme::auto::system_is_dark(cx);
         let startup_theme = crate::theme::auto::effective_theme_id(prefs.theme.chosen, &prefs.theme.id, startup_dark);
-        log::info!(target: "theme", "启动主题：{startup_theme}（{}，系统外观{}）", if prefs.theme.chosen { "用户选的" } else { "跟随系统" }, if startup_dark { "深色" } else { "浅色" });
+        log::info!(target: "theme", "startup theme: {startup_theme} ({}, system appearance {})", if prefs.theme.chosen { "chosen by the user" } else { "follows the system" }, if startup_dark { "dark" } else { "light" });
         cx.set_global(Theme::by_id(startup_theme, &prefs.theme.imported));
         crate::pulse::start(cx);
         let saver = persist::state_path().map(persist::Saver::new);
@@ -332,7 +332,7 @@ pub fn run() {
         let placement = crate::window_placement::fit_window(window_prefs.as_ref(), &display_rects(cx));
         let r = placement.rect;
         let bounds = Bounds { origin: gpui::point(px(r.x), px(r.y)), size: size(px(r.w), px(r.h)) };
-        log::info!(target: "window", "窗口：{:.0}×{:.0} @ ({:.0}, {:.0}){}", r.w, r.h, r.x, r.y, if placement.maximized { "，最大化" } else { "" });
+        log::info!(target: "window", "window: {:.0}x{:.0} at ({:.0}, {:.0}){}", r.w, r.h, r.x, r.y, if placement.maximized { ", maximized" } else { "" });
         let root_state = state.clone();
         let handle = cx
             .open_window(
@@ -347,8 +347,8 @@ pub fn run() {
                 },
                 |_, cx| cx.new(|cx| Root::new(root_state, cx)),
             )
-            .expect("窗口创建失败");
-        perf::mark("窗口创建");
+            .expect("failed to create the window");
+        perf::mark("window created");
         // 窗口失去焦点时记一下位置和大小（#256 A7）。GPUI 没有公开的「移动 / 缩放」监听，所以用失去焦点 + 退出两个时机
         {
             let window_state = state.clone();
@@ -413,10 +413,10 @@ pub fn run() {
                 let _ = cx.update_window(any, |_, window, _| {
                     let before = window.viewport_size();
                     window.resize(size(px(w), px(h)));
-                    log::debug!(target: "debug", "窗口 resize：{before:?} → 请求 {w}x{h}，现在 {:?}", window.viewport_size());
+                    log::debug!(target: "debug", "window resize: {before:?} -> requested {w}x{h}, now {:?}", window.viewport_size());
                 });
                 cx.background_executor().timer(Duration::from_millis(1000)).await;
-                let _ = cx.update_window(any, |_, window, _| log::debug!(target: "debug", "1s 后视口 {:?}", window.viewport_size()));
+                let _ = cx.update_window(any, |_, window, _| log::debug!(target: "debug", "viewport after 1s: {:?}", window.viewport_size()));
             })
             .detach();
         }

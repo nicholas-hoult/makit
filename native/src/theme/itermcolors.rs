@@ -7,6 +7,7 @@
 //! 为什么单独测：导入的配色存进持久化，错了是「导进来的主题全黑 / 颜色错位」，而且
 //! 只有用户自己的那份文件能复现。
 
+use crate::ts;
 use super::derive::ThemeSource;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,14 +81,14 @@ fn read_color_dict(body: &str) -> String {
 }
 
 pub fn parse_itermcolors(xml: &str) -> Result<ParsedItermColors, String> {
-    let start = xml.find("<plist").ok_or("plist 根节点缺失")?;
+    let start = xml.find("<plist").ok_or(ts!("theme.import.no_plist"))?;
     let body = &xml[start..];
-    let dict_start = body.find("<dict>").ok_or("plist 根节点缺失")?;
+    let dict_start = body.find("<dict>").ok_or(ts!("theme.import.no_plist"))?;
     let mut rest = &body[dict_start + "<dict>".len()..];
     let mut colors: Vec<(String, String)> = Vec::new();
     while let Some(pos) = rest.find("<key>") {
         let Some((key, after)) = take_element(&rest[pos..], "key") else {
-            return Err("XML 解析失败".into());
+            return Err(ts!("theme.import.xml_failed").into());
         };
         match take_element(after, "dict") {
             Some((dict, after_dict)) => {
@@ -99,7 +100,7 @@ pub fn parse_itermcolors(xml: &str) -> Result<ParsedItermColors, String> {
     }
     let get = |k: &str| colors.iter().find(|(n, _)| n == k).map(|(_, c)| c.clone());
     let (Some(bg), Some(fg)) = (get("Background Color"), get("Foreground Color")) else {
-        return Err("缺少 Background/Foreground Color".into());
+        return Err(ts!("theme.import.no_colors").into());
     };
     let ansi = (0..16).map(|i| get(&format!("Ansi {i} Color")).unwrap_or_else(|| fg.clone())).collect();
     Ok(ParsedItermColors { selection: get("Selection Color"), bg, fg, ansi })
@@ -110,7 +111,7 @@ pub fn import_itermcolors(file_name: &str, xml: &str) -> Result<ThemeSource, Str
     let parsed = parse_itermcolors(xml)?;
     let base = file_name.trim();
     let base = if base.to_ascii_lowercase().ends_with(".itermcolors") { &base[..base.len() - ".itermcolors".len()] } else { base };
-    let name = if base.trim().is_empty() { "导入的配色".to_string() } else { base.trim().to_string() };
+    let name = if base.trim().is_empty() { ts!("theme.import.default_name").to_string() } else { base.trim().to_string() };
     Ok(ThemeSource {
         id: format!("imported:{name}"),
         name,

@@ -7,6 +7,7 @@
 //! 结构：纯逻辑（`redact`、`diagnostics`、`format_panic`、`log_dir_in`）都有测试；`init` 装 tracing 订阅者 + panic 钩子。
 //! 库代码一律用 `log::{info,warn,error}!`，tracing-subscriber 的 `tracing-log` 特性把它们接到同一个订阅者上（GPUI 等第三方的 `log` 输出也一并进来）。
 
+use crate::ts;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -31,11 +32,11 @@ pub fn redact(text: &str, home: &str) -> String {
     let mut out = text.to_string();
     if !home.is_empty() {
         // 家目录后面必须是路径边界（斜杠 / 结尾 / 不属于文件名的字符），否则 /Users/me 会吃掉 /Users/me2 的前半截
-        let re = Regex::new(&format!(r"{}(/|$|[^A-Za-z0-9._-])", regex::escape(home))).expect("家目录转义后一定是合法正则");
+        let re = Regex::new(&format!(r"{}(/|$|[^A-Za-z0-9._-])", regex::escape(home))).expect("an escaped home folder is always a valid regex");
         out = re.replace_all(&out, "~$1").into_owned();
     }
     // 剩下的 /Users/<名字> 是别的用户的路径，也不留名字
-    let others = Regex::new(r#"/Users/[^/\s"'`:;,)\]]+"#).expect("固定正则");
+    let others = Regex::new(r#"/Users/[^/\s"'`:;,)\]]+"#).expect("fixed regex");
     others.replace_all(&out, "/Users/<user>").into_owned()
 }
 
@@ -185,7 +186,7 @@ pub fn init() {
             .downcast_ref::<&str>()
             .map(|s| s.to_string())
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "（不是字符串的 panic 内容）".into());
+            .unwrap_or_else(|| "(panic payload is not a string)".into());
         let location = info.location().map(|l| (l.file(), l.line()));
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         log::error!("{}", format_panic(&message, location, &backtrace));
@@ -193,11 +194,11 @@ pub fn init() {
     }));
 
     log::info!(
-        "makit {} 启动：{}（{}），日志目录 {}",
+        "makit {} started: {} ({}), log folder {}",
         env!("CARGO_PKG_VERSION"),
         os_description(),
         std::env::consts::ARCH,
-        log_dir().map(|d| d.display().to_string()).unwrap_or_else(|| "（建不出来）".into())
+        log_dir().map(|d| d.display().to_string()).unwrap_or_else(|| "(could not be created)".into())
     );
 }
 
@@ -223,7 +224,7 @@ pub fn diagnostics_text() -> String {
 pub fn format_panic(message: &str, location: Option<(&str, u32)>, backtrace: &str) -> String {
     let at = match location {
         Some((file, line)) => format!("{file}:{line}"),
-        None => "未知位置".to_string(),
+        None => "unknown location".to_string(),
     };
     let mut s = format!("panic：{message}（{at}）");
     for l in backtrace.lines() {
@@ -235,7 +236,7 @@ pub fn format_panic(message: &str, location: Option<(&str, u32)>, backtrace: &st
 
 /// 「复制诊断信息」的内容：版本、系统、日志目录，加最近几行日志。不含对话和终端输出
 pub fn diagnostics(version: &str, os: &str, arch: &str, log_dir: &str, recent: &[String], home: &str) -> String {
-    let mut s = format!("makit {version}\n系统：{os}（{arch}）\n日志目录：{log_dir}\n--- 最近日志 ---\n");
+    let mut s = ts!("diagnostics.header", version = version, os = os, arch = arch, log_dir = log_dir);
     for l in recent {
         s.push_str(l);
         s.push('\n');
@@ -291,7 +292,7 @@ mod tests {
         let s = format_panic("boom", Some(("src/a.rs", 12)), "0: foo\n1: bar");
         assert!(s.contains("panic") && s.contains("boom") && s.contains("src/a.rs:12"), "{s}");
         assert!(s.contains("0: foo") && s.contains("1: bar"));
-        assert!(format_panic("x", None, "").contains("未知位置"));
+        assert!(format_panic("x", None, "").contains("unknown location"));
     }
 
     #[test]

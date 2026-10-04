@@ -7,6 +7,7 @@
 //!   否则把滚轮交给程序（鼠标上报 / 方向键）。
 //! - 14 / 15 / 16 链接：整条逻辑行识别，⌘ 才画下划线、⌘+点击才打开；双击选词（链接整选 → 中文分词 → 对标终端 分隔符）。
 
+use crate::ts;
 use std::ops::Range;
 
 use alacritty_terminal::grid::{Dimensions, Scroll};
@@ -525,7 +526,7 @@ impl TerminalView {
                 let p = p.clone();
                 std::thread::spawn(move || {
                     if let Err(e) = makit_core::paths::open_path(p, false) {
-                        log::warn!(target: "终端", "打开链接失败：{e}");
+                        log::warn!(target: "terminal", "failed to open the link: {e}");
                     }
                 });
             }
@@ -623,9 +624,9 @@ impl EntityInputHandler for TerminalView {
 
 /// 终端右键菜单要不要弹、弹哪几项（同 Tauri App.tsx paneMenuItems 的 terminal 分支）：
 /// 只对选中的文字做事；没选中不弹（弹个空框更糟）。选中内容在右键那一刻取走（菜单一开焦点就离开终端，之后可能被清掉）
-pub fn terminal_menu(selection: Option<&str>) -> Option<(&'static str, &'static str)> {
+pub fn terminal_menu(selection: Option<&str>) -> Option<(String, String)> {
     // 空字符串不算选中（xterm 拿不到选区时也是这个值）；纯空白是用户真选的，照样能复制
-    selection.filter(|s| !s.is_empty()).map(|_| ("复制", "搜索选中内容"))
+    selection.filter(|s| !s.is_empty()).map(|_| (ts!("common.copy"), ts!("terminal.menu.search_selection")))
 }
 
 #[cfg(test)]
@@ -636,7 +637,7 @@ mod menu_tests {
     fn right_click_menu_only_with_selection() {
         assert_eq!(terminal_menu(None), None);
         assert_eq!(terminal_menu(Some("")), None, "空选区不弹");
-        assert_eq!(terminal_menu(Some("   ")), Some(("复制", "搜索选中内容")), "空白也是用户选的内容，照样可以复制");
-        assert_eq!(terminal_menu(Some("error: foo")), Some(("复制", "搜索选中内容")));
+        assert_eq!(terminal_menu(Some("   ")), Some(("复制".to_string(), "搜索选中内容".to_string())), "空白也是用户选的内容，照样可以复制");
+        assert_eq!(terminal_menu(Some("error: foo")), Some(("复制".to_string(), "搜索选中内容".to_string())));
     }
 }

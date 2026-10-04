@@ -3,6 +3,7 @@
 //! 值得单独测的原因全在边界上：终端给的结果下标是 **0-based**，而且匹配数超过高亮上限时下标是 **-1**。
 //! 任一处理错，用户看到的就是「0/17」这种差一错误，或者一个匹配上千次的搜索显示「0/1234」。
 
+use crate::ts;
 /// 终端报上来的搜索进度（A 包通过 `search_bar::report_progress` 推过来）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SearchProgress {
@@ -19,10 +20,10 @@ pub fn format_search_count(term: &str, p: Option<SearchProgress>) -> Option<Stri
     let p = p?;
     // count==0 必须排在 index<0 前面：没有匹配时两个条件同时成立
     if p.count == 0 {
-        return Some("无结果".into());
+        return Some(ts!("search.no_results").into());
     }
     if p.index < 0 || p.index as usize >= p.count {
-        return Some(format!("{} 个结果", p.count));
+        return Some(ts!("search.results", n = p.count));
     }
     Some(format!("{}/{}", p.index + 1, p.count))
 }

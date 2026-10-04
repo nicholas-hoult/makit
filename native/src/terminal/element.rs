@@ -10,6 +10,7 @@
 //! - 滚动条：14px 宽、方角，滑块 fg × 0.2（悬停 0.4、拖动 0.5），长度封顶 1/4 轨道、最小 20，停手 900ms 后 300ms 淡出
 //! - 最低对比度 4.5，按每个格子的实际背景（含搜索高亮底）算，dim 减半再 50% 混进背景
 
+use crate::ts;
 use gpui::{
     fill, outline, point, px, relative, size, App, BorderStyle, Bounds, CursorStyle, DispatchPhase, Element, ElementId,
     ElementInputHandler, Entity, Font, FontFallbacks, FontStyle, FontWeight, GlobalElementId, Hitbox, HitboxBehavior,
@@ -584,14 +585,14 @@ impl Element for TerminalElement {
                             let v2 = view.clone();
                             crate::overlays::show_context_menu(ev.position, window, cx, move |_| {
                                 vec![
-                                    crate::overlays::MenuItem::action("复制", {
+                                    crate::overlays::MenuItem::action(ts!("common.copy"), {
                                         let t = text.clone();
                                         move |_, cx| {
                                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(t.clone()));
-                                            crate::overlays::show_toast("已复制", crate::overlays::toast::COPY_OK, cx);
+                                            crate::overlays::show_toast(ts!("common.copied"), crate::overlays::toast::COPY_OK, cx);
                                         }
                                     }),
-                                    crate::overlays::MenuItem::action("搜索选中内容", {
+                                    crate::overlays::MenuItem::action(ts!("terminal.menu.search_selection"), {
                                         let (t, v2) = (text.clone(), v2.clone());
                                         move |window, cx| {
                                             v2.update(cx, |v, _| window.focus(&v.focus));

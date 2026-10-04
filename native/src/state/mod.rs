@@ -53,7 +53,7 @@ fn detect_tools() -> makit_core::environment::ToolPresence {
     let t = makit_core::environment::detect();
     log::info!(
         target: "environment",
-        "工具检测：Claude Code 命令 {} 会话目录 {:?}；Codex 命令 {} 会话目录 {:?}",
+        "tool detection: Claude Code command {} session folder {:?}; Codex command {} session folder {:?}",
         t.claude_bin, t.claude_dir, t.codex_bin, t.codex_dir
     );
     t
@@ -207,10 +207,10 @@ impl AppState {
                 .background_executor()
                 .spawn(async { makit_core::sessions::list_sessions(Some("smart".into())) })
                 .await;
-            crate::perf::mark("会话列表返回");
+            crate::perf::mark("session list returned");
             match &result {
-                Ok(list) => log::debug!(target: "state", "list_sessions: {} 条，{:?}", list.len(), t.elapsed()),
-                Err(e) => log::error!(target: "state", "list_sessions 失败：{e}"),
+                Ok(list) => log::debug!(target: "state", "list_sessions: {} sessions, {:?}", list.len(), t.elapsed()),
+                Err(e) => log::error!(target: "state", "list_sessions failed: {e}"),
             }
             let _ = this.update(cx, |s, cx| {
                 let first = !s.loaded;

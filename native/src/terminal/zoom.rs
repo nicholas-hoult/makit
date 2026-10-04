@@ -8,6 +8,7 @@
 //!
 //! 为什么单独测：边界值（撞上下限返回原值 = 调用方跳过 fit；0/17 这种差一错误）在界面上不显眼，但数字是错的。
 
+use crate::ts;
 pub const DEFAULT_FONT_SIZE: f32 = 13.0;
 pub const MIN_FONT_SIZE: f32 = 8.0;
 pub const MAX_FONT_SIZE: f32 = 32.0;
@@ -38,10 +39,10 @@ pub fn format_search_count(term: &str, progress: Option<(i64, usize)>) -> Option
     }
     let (index, count) = progress?;
     if count == 0 {
-        return Some("无结果".into());
+        return Some(ts!("search.no_results").into());
     }
     if index < 0 || index as usize >= count {
-        return Some(format!("{count} 个结果"));
+        return Some(ts!("search.results", n = count));
     }
     Some(format!("{}/{count}", index + 1))
 }

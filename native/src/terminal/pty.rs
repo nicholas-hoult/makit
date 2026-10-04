@@ -12,6 +12,7 @@
 //! 为什么单独测：环境变量和 cwd 决策错了，表现是「resume 找不到会话」「关标签杀不干净」「cd 之后链接指错目录」，
 //! 都要真起一个 shell 才看得出来。
 
+use crate::ts;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
@@ -81,17 +82,14 @@ pub fn user_shell() -> String {
 
 /// 降级时写进终端的那行黄字（不经过 PTY，不会被 shell 当命令执行）
 pub fn fallback_notice(from: &str, to: &str) -> String {
-    format!("\x1b[33m原目录不存在: {from} → 已切换到: {to}\x1b[0m\r\n")
+    format!("\x1b[33m{}\x1b[0m\r\n", ts!("terminal.cwd_missing", from = from, to = to))
 }
 
 /// 启动目录不存在、这个标签不许降级（resume 标签）时写进面板的说明（同 Tauri App.tsx openRecoverDialog）。
 /// 恢复对话框可能被关掉，或者同一时间已经开着别的面板的对话框（一次只弹一个）—— 这一行必须写，
 /// 不然那块面板就是一块没有任何线索的死屏。不写成红字：这不是故障，会话记录没丢，只是丢了「在哪启动」这把钥匙
 pub fn cwd_missing_notice(cwd: &str) -> String {
-    format!(
-        "\r\n\x1b[33m原启动目录已不存在: {cwd}\x1b[0m\r\n\x1b[2m会话记录没丢，丢的只是「在哪个目录启动」这把钥匙。\
-若关掉了恢复窗口：关掉本面板，再从侧栏重新打开这条会话即可重试。\x1b[0m"
-    )
+    format!("\r\n\x1b[33m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m", ts!("terminal.cwd_missing_title", cwd = cwd), ts!("terminal.cwd_missing_hint"))
 }
 
 /// 包在 alacritty 的 tty 外面：读出来的字节先过一遍 OSC 7 扫描器（alacritty 的解析器不处理 OSC 7），

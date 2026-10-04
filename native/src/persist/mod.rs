@@ -30,7 +30,7 @@ pub fn load_from(path: &Path) -> Option<NativeState> {
     match serde_json::from_slice::<NativeState>(&bytes) {
         Ok(s) => Some(s),
         Err(e) => {
-            log::warn!(target: "persist", "{} 解析失败（{e}），按默认状态启动，原文件改名 .bad", path.display());
+            log::warn!(target: "persist", "{} failed to parse ({e}), starting with defaults, original renamed to .bad", path.display());
             let _ = std::fs::rename(path, path.with_extension("json.bad"));
             Some(NativeState::default())
         }
@@ -71,7 +71,7 @@ pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
     }
     let state = match webkit_root.and_then(webkit::import_from) {
         Some((s, from)) => {
-            log::info!(target: "persist", "从 {from} 导入 Tauri 版的设置（首次启动，或 Tauri 版在这之后用过）");
+            log::info!(target: "persist", "importing the Tauri version settings from {from} (first launch, or the Tauri version was used since)");
             s
         }
         // 读不出来：有旧状态就用旧的（不能退回空白、清掉所有标签），也不写盘
@@ -81,7 +81,7 @@ pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
         },
     };
     if let Err(e) = save_to(path, &state) {
-        log::warn!(target: "persist", "写 {} 失败：{e}", path.display());
+        log::warn!(target: "persist", "writing {} failed: {e}", path.display());
     }
     state
 }
@@ -128,7 +128,7 @@ impl Saver {
                     }
                 }
             })
-            .expect("persist 线程起不来");
+            .expect("failed to start the persist thread");
         Self { tx }
     }
 
@@ -147,7 +147,7 @@ impl Saver {
 
 fn write_logged(path: &Path, s: &NativeState) {
     if let Err(e) = save_to(path, s) {
-        log::warn!(target: "persist", "写 {} 失败：{e}", path.display());
+        log::warn!(target: "persist", "writing {} failed: {e}", path.display());
     }
 }
 

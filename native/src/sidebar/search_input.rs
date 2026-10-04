@@ -10,6 +10,7 @@
 //! 注：D 浮层包（⌘K）以后如果做了通用输入框，这个可以换成那个；键位 context 故意起了侧栏专用的名字，
 //! 免得两边的快捷键表行撞车。
 
+use crate::ts;
 use std::ops::Range;
 
 use gpui::{
@@ -477,7 +478,7 @@ impl Render for SearchInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
-            .child(div().flex_1().min_w_0().overflow_hidden().child(TextElement { input: cx.entity(), placeholder: "搜索… (⌘⇧F)".into() }))
+            .child(div().flex_1().min_w_0().overflow_hidden().child(TextElement { input: cx.entity(), placeholder: ts!("sidebar.search_placeholder").into() }))
             .when(has_text, |d| {
                 // `.tree-search-clear`：right 4、14px、padding 0 4、line-height 1，hover 变 --fg
                 d.child(

@@ -17,6 +17,7 @@
 //!   它的左边界 = `BELL_LEFT`（通知抽屉按这个定位，同 TS 的 `bellBtnRef.getBoundingClientRect().left`）
 //! - 侧栏分隔线高亮（B 侧栏包）：拖 / 悬停侧栏 resizer 时 `cx.set_global(TitlebarResizerHot(true))`
 
+use crate::ts;
 use gpui::{div, prelude::*, px, svg, AnyElement, App, ClickEvent, Entity, Global, Window};
 
 use super::labels::titlebar_text;
@@ -129,7 +130,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                 .items_center()
                 .child(
                     icon_button("titlebar-sidebar-toggle", "icons/titlebar-sidebar-toggle.svg", 14.0, cx)
-                        .tooltip(crate::tooltip::tip("折叠侧栏 (⌘B)"))
+                        .tooltip(crate::tooltip::tip(ts!("titlebar.collapse_sidebar")))
                         .on_click(|_, window, cx| {
                             cx.stop_propagation();
                             window.dispatch_action(Box::new(app_act::ToggleSidebar), cx);

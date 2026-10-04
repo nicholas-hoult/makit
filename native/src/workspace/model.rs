@@ -12,6 +12,7 @@
 //! `scripts/test-workspace-invariant.ts` / `test-resume-tab.ts` / `test-context-menu.ts`（tabsToClose）/
 //! `test-tree-nav.ts`（openedOrder）里的用例逐个移植在下面的测试里。
 
+use crate::ts;
 use serde::{Deserialize, Serialize};
 
 // ---------- 数据形状 ----------
@@ -761,7 +762,7 @@ impl Workspace {
                 dir,
                 ratio: 0.5,
                 a: Box::new(LayoutNode::Container(c)),
-                b: Box::new(LayoutNode::Container(new_c.take().expect("只替换一次"))),
+                b: Box::new(LayoutNode::Container(new_c.take().expect("replaced only once"))),
             })
         });
         // container 不存在时树不变，焦点也不能指到一个不存在的 id 上
@@ -859,7 +860,7 @@ impl Workspace {
         let root = std::mem::replace(&mut self.state.root, LayoutNode::Container(empty_container(String::new())));
         let mut new_c = Some(new_c);
         self.state.root = replace_container(root, target, &mut |t| {
-            let n = LayoutNode::Container(new_c.take().expect("只替换一次"));
+            let n = LayoutNode::Container(new_c.take().expect("replaced only once"));
             let t = LayoutNode::Container(t);
             let (a, b) = if side == Side::Before { (n, t) } else { (t, n) };
             LayoutNode::Split(SplitNode { dir, ratio: 0.5, a: Box::new(a), b: Box::new(b) })
@@ -950,7 +951,7 @@ impl Workspace {
             init_command: Some(new_session_command(tool)),
             session_id: None,
             session_short_id: None,
-            label: "新会话".into(),
+            label: ts!("workspace.new_session_label").into(),
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();

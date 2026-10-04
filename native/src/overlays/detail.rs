@@ -3,6 +3,7 @@
 //! 内容是 #231 的阅读视图：`makit_core::transcript` 的 `Item` 列表（claude / codex 同一个视图），
 //! 用 GPUI 的 `list`（变高虚拟列表）只排版看得见的那几条；面板开着时每 300ms 增量读文件，新内容即时出现。
 
+use crate::ts;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -69,7 +70,7 @@ impl DetailView {
                 .background_executor()
                 .spawn(async move {
                     let t0 = std::time::Instant::now();
-                    let (path, tool) = makit_core::sessions::locate_session_file(&id).ok_or_else(|| format!("找不到 session: {id}"))?;
+                    let (path, tool) = makit_core::sessions::locate_session_file(&id).ok_or_else(|| ts!("detail.not_found", id = id))?;
                     let mut reader = TranscriptReader::new(path, tool);
                     let p = poll(&mut reader).map_err(|e| e.to_string())?;
                     Ok::<_, String>((Arc::new(Mutex::new(reader)), p, t0.elapsed().as_secs_f64() * 1000.0))
@@ -203,9 +204,9 @@ impl Render for DetailView {
         let accent_text = theme.var("--accent-text");
 
         let body: gpui::AnyElement = match &self.load {
-            Load::Loading => div().p(px(24.0)).flex().justify_center().text_color(theme.fg_muted).child("加载中…").into_any_element(),
+            Load::Loading => div().p(px(24.0)).flex().justify_center().text_color(theme.fg_muted).child(ts!("sidebar.empty.loading")).into_any_element(),
             Load::Error(e) => div().px(px(12.0)).py(px(8.0)).text_color(theme.danger).child(e.clone()).into_any_element(),
-            Load::Ready if n == 0 => div().p(px(24.0)).flex().justify_center().text_color(theme.fg_muted).child("无对话内容").into_any_element(),
+            Load::Ready if n == 0 => div().p(px(24.0)).flex().justify_center().text_color(theme.fg_muted).child(ts!("detail.no_content")).into_any_element(),
             Load::Ready => {
                 let (items, expanded, th, reversed) = (self.items.clone(), self.expanded.clone(), theme.clone(), self.reversed);
                 let font = crate::terminal::text_font(window);
@@ -282,7 +283,7 @@ impl Render for DetailView {
                                     .flex()
                                     .gap(px(6.0))
                                     .flex_none()
-                                    .child(btn(&theme, "detail-order", if self.reversed { "↓ 新→旧" } else { "↑ 旧→新" }, false).on_click(cx.listener(|this, _, _, cx| {
+                                    .child(btn(&theme, "detail-order", if self.reversed { ts!("detail.order_desc") } else { ts!("detail.order_asc") }, false).on_click(cx.listener(|this, _, _, cx| {
                                         this.reversed = !this.reversed;
                                         // 对齐方式在建列表时定死，换排序要重建，并把滚动条指过去
                                         this.list = make_list(this.reversed);
@@ -291,7 +292,7 @@ impl Render for DetailView {
                                         this.scrollbar.update(cx, |s, _| s.set_source(src));
                                         cx.notify();
                                     })))
-                                    .child(btn(&theme, "detail-close", "关闭", false).on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Close)))),
+                                    .child(btn(&theme, "detail-close", ts!("workspace.menu.close"), false).on_click(cx.listener(|_, _, _, cx| cx.emit(DetailEvent::Close)))),
                             ),
                     )
                     .child(div().relative().flex_1().min_h_0().px(px(18.0)).pt(px(14.0)).child(body).child(self.scrollbar.clone())),

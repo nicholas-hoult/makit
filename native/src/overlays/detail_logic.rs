@@ -1,5 +1,6 @@
 //! 会话详情面板的纯逻辑：头部副标题、消息时间戳、正序 / 倒序（照 App.tsx:2194-2252）。
 
+use crate::ts;
 use makit_core::SessionMeta;
 
 /// 时间戳取前 19 位、T 换成空格（`2026-09-27T10:11:12.345Z` → `2026-09-27 10:11:12`）
@@ -9,7 +10,7 @@ pub fn format_ts(ts: &str) -> String {
 
 /// 「mtime (humanize) · N 条用户消息 · M 条对话 · @branch · worktree」
 pub fn subtitle(s: &SessionMeta, n_messages: usize) -> String {
-    let mut out = format!("{} ({}) · {} 条用户消息 · {} 条对话", s.mtime_display, s.humanize, s.user_msg_count, n_messages);
+    let mut out = ts!("detail.summary", time = s.mtime_display, humanize = s.humanize, users = s.user_msg_count, msgs = n_messages);
     if !s.git_branch.is_empty() {
         out.push_str(&format!(" · @{}", s.git_branch));
     }

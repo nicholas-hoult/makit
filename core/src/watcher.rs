@@ -67,7 +67,7 @@ pub fn start(on_event: impl Fn(WatchEvent) + Send + 'static) {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut debouncer = match new_debouncer(Duration::from_millis(500), tx) {
             Ok(d) => d,
-            Err(e) => { log::error!(target: "watcher", "初始化失败: {e}"); return; }
+            Err(e) => { log::error!(target: "watcher", "failed to initialise the watcher: {e}"); return; }
         };
         let _ = debouncer.watcher().watch(&sessions_dir, RecursiveMode::NonRecursive);
         let _ = debouncer.watcher().watch(&projects_dir, RecursiveMode::Recursive);

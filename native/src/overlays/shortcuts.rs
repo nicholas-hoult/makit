@@ -5,6 +5,7 @@
 //! 为什么单独测：改键位时只改 keymap，设置页自动跟上 —— 前提是这里的分组规则把每一条都放进了
 //! 某个组（漏了就是「设置里查不到这个键」），测试逐条核对覆盖。
 
+use crate::ts;
 use crate::actions::{Owner, Shortcut};
 
 /// GPUI 键位写法 → 显示（`alt-cmd-left` → `⌥⌘←`，修饰键按 Tauri 版设置页的写法 ⌃⌥⌘⇧ 排：⌘⇧D、⌥⌘←、⌃⇧Tab）
@@ -80,7 +81,14 @@ pub struct ShortcutGroup {
 }
 
 /// 分组顺序（照 Tauri 版设置页的五组，加一组「终端」）
-pub const GROUP_TITLES: [&str; 6] = ["搜索 / 命令", "Tab（⌘ 轴）", "Pane（⌥⌘ 轴）", "侧栏 / 视图", "终端", "面板内"];
+pub const GROUP_TITLES: [&str; 6] = [
+    "shortcut.group.search",
+    "shortcut.group.tab",
+    "shortcut.group.pane",
+    "shortcut.group.sidebar",
+    "shortcut.group.terminal",
+    "shortcut.group.panel",
+];
 
 /// 输入框的编辑键不是 makit 的快捷键，不展示（浮层的单行输入框、侧栏搜索框）
 pub fn is_listed(s: &Shortcut) -> bool {
@@ -125,7 +133,7 @@ pub fn shortcut_groups(km: &[Shortcut]) -> Vec<ShortcutGroup> {
                     row.keys.push(key);
                 }
             }
-            None => rows.push((ShortcutRow { keys: vec![key], desc: s.desc.to_string(), range: false }, i)),
+            None => rows.push((ShortcutRow { keys: vec![key], desc: ts!(s.desc), range: false }, i)),
         }
     }
     GROUP_TITLES
@@ -198,7 +206,7 @@ mod tests {
             let shown = format_keys(s.keys);
             // 同一个键在不同面板里含义不同（↓ = 侧栏下一条 / 通知下一条 / ⌘K 下一项），各占一行；
             // 要核对的是：这一条落在**它自己 action 那一行**里，正好一次。行按 action 合并，说明取该 action 第一条的
-            let desc = km.iter().find(|k| is_listed(k) && k.action.partial_eq(s.action.as_ref())).unwrap().desc;
+            let desc = ts!(km.iter().find(|k| is_listed(k) && k.action.partial_eq(s.action.as_ref())).unwrap().desc);
             let hits: usize = groups
                 .iter()
                 .flat_map(|g| &g.rows)
@@ -223,24 +231,24 @@ mod tests {
     fn same_action_merges_and_numbers_collapse() {
         let groups = shortcut_groups(&keymap());
         let rows = |t: &str| groups.iter().find(|g| g.title == t).unwrap().rows.clone();
-        let tab = rows("Tab（⌘ 轴）");
+        let tab = rows("shortcut.group.tab");
         let next = tab.iter().find(|r| r.desc == "下一个标签").unwrap();
         assert!(next.keys.contains(&"⌘]".to_string()) && next.keys.contains(&"⌃Tab".to_string()), "同一个 action 并成一行");
         let n = tab.iter().find(|r| r.range).unwrap();
         assert_eq!(n.keys, ["⌘1", "⌘9"]);
         assert_eq!(n.desc, "第 N 个标签");
-        let pane = rows("Pane（⌥⌘ 轴）");
+        let pane = rows("shortcut.group.pane");
         assert!(pane.iter().any(|r| r.range && r.keys == ["⌥⌘1", "⌥⌘9"]));
         assert!(pane.iter().any(|r| r.keys == ["⌘D"]), "左右分屏归 pane 轴");
         assert!(pane.iter().any(|r| r.keys == ["⌥⌘↩"]));
-        let search = rows("搜索 / 命令");
+        let search = rows("shortcut.group.search");
         for k in ["⌘K", "⌘F", "⌘⇧F", "⌘I", "⌘R", "⌘,"] {
             assert!(search.iter().any(|r| r.keys.contains(&k.to_string())), "{k} 在搜索 / 命令组");
         }
-        let side = rows("侧栏 / 视图");
+        let side = rows("shortcut.group.sidebar");
         assert!(side.iter().any(|r| r.keys == ["⌘B"]) && side.iter().any(|r| r.keys == ["⌘L"]));
-        assert!(rows("面板内").iter().any(|r| r.keys == ["Esc"]));
-        assert!(rows("终端").iter().any(|r| r.keys.contains(&"⌘=".to_string())));
+        assert!(rows("shortcut.group.panel").iter().any(|r| r.keys == ["Esc"]));
+        assert!(rows("shortcut.group.terminal").iter().any(|r| r.keys.contains(&"⌘=".to_string())));
         let _ = Owner::F0;
     }
 }

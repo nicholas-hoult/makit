@@ -168,6 +168,48 @@ mod tests {
         }
     }
 
+    /// No Chinese string literal may be left in production code (self-tests and `#[cfg(test)]` code are exempt,
+    /// they assert on Chinese text): a leftover literal would show up untranslated in the English UI.
+    /// Whitelist: stored / compared data values, not display text.
+    #[test]
+    fn no_chinese_string_literals_in_production_code() {
+        const ALLOWED: &[(&str, &str)] = &[
+            ("overlays/palette_logic.rs", "\"全部\""),       // persisted filter value for "all types"
+            ("overlays/recover_logic.rs", "\"目标目录不存在\""), // prefix of a makit-core error message, compared as data
+        ];
+        fn has_cjk(s: &str) -> bool {
+            s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+        }
+        let mut found = Vec::new();
+        let mut stack = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                let name = path.to_string_lossy().to_string();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if !name.ends_with(".rs") || name.contains("selftest") || name.ends_with("flood_test.rs") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).unwrap();
+                let production = src.split("#[cfg(test)]").next().unwrap();
+                for (n, line) in production.lines().enumerate() {
+                    let code = line.split("//").next().unwrap_or("");
+                    if !has_cjk(code) {
+                        continue;
+                    }
+                    let allowed = ALLOWED.iter().any(|(f, lit)| name.ends_with(f) && code.contains(lit));
+                    if !allowed {
+                        found.push(format!("{}:{}: {}", name.rsplit("src/").next().unwrap(), n + 1, code.trim()));
+                    }
+                }
+            }
+        }
+        assert!(found.is_empty(), "Chinese literals left in production code:\n{}", found.join("\n"));
+    }
+
     /// Every `t!("key")` in the source must exist, otherwise the screen shows the raw key.
     #[test]
     fn every_key_used_in_source_exists() {

@@ -256,8 +256,8 @@ impl SettingsView {
         cx.spawn(async move |_, cx: &mut AsyncApp| {
             let r = cx.background_executor().spawn(async { makit_core::hook::install_claude_hook() }).await;
             match &r {
-                Ok(s) => log::info!(target: "hook", "安装 Claude Code Hook：{s}"),
-                Err(e) => log::error!(target: "hook", "安装 Claude Code Hook 失败：{e}"),
+                Ok(s) => log::info!(target: "hook", "install Claude Code hook: {s}"),
+                Err(e) => log::error!(target: "hook", "installing the Claude Code hook failed: {e}"),
             }
             let _ = cx.update_window(handle, |_, window, cx| match r {
                 Ok(s) if s == "already_installed" => message(window, cx, PromptLevel::Info, &tr!("settings.hook.title"), &tr!("settings.hook.already")),
@@ -346,7 +346,7 @@ impl Render for SettingsView {
         let shortcut_groups_el = groups.iter().enumerate().map(|(i, g)| {
             div()
                 .when(i + 1 < groups.len(), |d| d.mb(px(12.0)))
-                .child(div().text_size(px(10.0)).text_color(accent_text).font_weight(FontWeight::MEDIUM).mb(px(6.0)).child(g.title))
+                .child(div().text_size(px(10.0)).text_color(accent_text).font_weight(FontWeight::MEDIUM).mb(px(6.0)).child(ts!(g.title)))
                 .child(div().flex().flex_col().gap(px(6.0)).children(g.rows.iter().map(|r| shortcut_row(&theme, r))))
         });
 

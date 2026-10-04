@@ -13,6 +13,7 @@
 //! ```
 //! 没装 hooks 时搜索条照样能打开、能输入，只是不搜（开发期各包并行）。
 
+use crate::ts;
 use std::rc::Rc;
 
 use gpui::{div, prelude::*, px, svg, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Global, Pixels, Window};
@@ -76,7 +77,7 @@ fn hooks(cx: &App) -> Option<SearchHooks> {
 
 impl SearchBar {
     pub fn new(initial: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| TextInput::new("在当前终端搜索...", cx));
+        let input = cx.new(|cx| TextInput::new(ts!("search.placeholder_terminal"), cx));
         cx.subscribe_in(&input, window, |this, input, _: &TextInputEvent, window, cx| {
             let term = input.read(cx).text().to_string();
             if let Some(h) = hooks(cx) {

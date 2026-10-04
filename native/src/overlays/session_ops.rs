@@ -141,7 +141,7 @@ fn ensure_symlink(s: &SessionMeta) {
         return;
     }
     if let Err(e) = makit_core::recovery::ensure_session_symlink(s.session_id.clone(), s.cwd.clone(), s.storage_folder.clone()) {
-        log::warn!(target: "session", "会话 {} 恢复前建存储软链失败：{e}", s.short_id);
+        log::warn!(target: "session", "session {}: creating the storage symlink before resuming failed: {e}", s.short_id);
     }
 }
 
@@ -151,7 +151,7 @@ pub fn open_session(session_id: &str, cx: &mut App) {
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else { return };
     let decision = decide_open(&state.read(cx).workspace.state.root, &s);
-    log::info!(target: "session", "打开会话 {}：{}", s.short_id, match &decision {
+    log::info!(target: "session", "open session {}: {}", s.short_id, match &decision {
         OpenDecision::Switch { .. } => ts!("session.decision.switch").to_string(),
         OpenDecision::BlockedExternal { pid } => ts!("session.decision.external", pid = pid),
         OpenDecision::OpenNew => ts!("session.decision.open_new").to_string(),
