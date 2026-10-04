@@ -56,10 +56,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# ad-hoc 签名（-s -）：本机运行够用，给别人装要换成开发者证书 + 公证。
-# 不签的话通知授权、键盘监听这类权限申请会被系统拒掉。
-codesign --force --sign - "$app"
-codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature' || true
+# 本机运行够用，给别人装要换成开发者证书 + 公证。不签的话通知授权、键盘监听这类权限申请会被系统拒掉。
+# 优先用钥匙串里的本地自签名证书 makit-local-sign：签名身份固定，重新打包后录屏等授权不会失效；
+# ad-hoc（-s -）每次编译哈希都变，系统会把已有授权判成另一个程序。
+sign_id="-"
+if security find-identity -p codesigning | grep -q '"makit-local-sign"'; then
+    sign_id="makit-local-sign"
+fi
+codesign --force --sign "$sign_id" "$app"
+codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Authority' || true
 
 echo "→ $app"
-[[ "${1:-}" == "--open" ]] && open "$app"
+if [[ "${1:-}" == "--open" ]]; then open "$app"; fi
