@@ -7,6 +7,8 @@
   看得到哪个在跑、哪个在等你、哪个早就停了，点一下就能回到任何一个。
 </p>
 
+简体中文 | [English](README.en.md)
+
 <p align="center">
   <a href="#许可"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
   <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
