@@ -47,6 +47,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$target/release/makit-native" "$app/Contents/MacOS/$EXECUTABLE_NAME"
 cp "$root/$ICON_PATH" "$app/Contents/Resources/AppIcon.icns"
+cp "$root/THIRD_PARTY_LICENSES.md" "$app/Contents/Resources/THIRD_PARTY_LICENSES.md"
 
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
