@@ -26,6 +26,10 @@
 
 ⭐ **觉得有用的话，欢迎 Star 和 Fork。** 用着不顺、想要什么功能，直接提 [Issue](https://github.com/nicholas-hoult/makit/issues) 就行；也欢迎 PR。
 
+<p align="center">
+  <img src="screenshots/dark.jpg" alt="makit：左侧是按时间分组的会话列表，右侧是分屏终端" width="900">
+</p>
+
 > **0.1，先说清楚三件事**
 > - 只发 macOS（Intel + Apple Silicon 通用包）。Linux 计划 0.2，Windows beta 计划 0.3。
 > - **没有签名**，第一次打开需要手动放行（下面有步骤）。签名和公证要等有了开发者账号。
@@ -43,6 +47,53 @@ makit 把这件事变成一屏：
 - **一键恢复** — 选中历史会话直接接着聊，回到它原来的工作目录（Claude Code 的会话即使原目录被删也能救回来）
 - **分屏终端** — 树形分屏，可拖拽调整，一屏盯住多个会话
 - **状态通知** — 会话在等你时弹桌面通知（仅 Claude Code）
+
+---
+
+## 特点
+
+- **轻** — 不是套壳网页：纯 Rust + GPUI 原生绘制。安装包 7.7 MB（单架构 `.dmg`），Intel + Apple Silicon 通用包约 15 MB
+- **快** — 从启动到侧栏列出会话约 0.55 秒；空闲内存约 75 MB，1200 个会话也一样（数据和测法见下面「性能」）
+- **美** — 21 套精选主题（深色 11 套、浅色 10 套），自动跟随系统深浅色，也能直接导入 iTerm2 的 `.itermcolors`
+- **跨平台** — 目标是 macOS / Linux / Windows 三端。**0.1 先发 macOS**，Linux 计划 0.2、Windows 计划 0.3，还在做，没有成品
+
+### 界面
+
+<table>
+  <tr>
+    <td><img src="screenshots/light.jpg" alt="浅色主题 GitHub Light"></td>
+    <td><img src="screenshots/catppuccin.jpg" alt="深色主题 Catppuccin Mocha"></td>
+    <td><img src="screenshots/dayfox.jpg" alt="浅色主题 Dayfox"></td>
+  </tr>
+  <tr>
+    <td align="center">GitHub Light</td>
+    <td align="center">Catppuccin Mocha</td>
+    <td align="center">Dayfox</td>
+  </tr>
+</table>
+
+### 性能
+
+在 **1200 个会话**（60 个项目 × 20 个会话）的侧栏：
+
+<p align="center">
+  <img src="screenshots/stress-1200-sessions.jpg" alt="1200 个会话的侧栏" width="640">
+</p>
+
+| 指标 | 实测 |
+|---|---|
+| 安装包（`.dmg`，单架构） | 7.7 MB |
+| 可执行文件（单架构） | 18.9 MB |
+| 启动到侧栏出现会话 | 约 0.55 秒（24 / 600 / 1200 个会话分别是 567 / 553 / 577 ms） |
+| 空闲内存（RSS） | 73 MB（24 个会话）→ 77 MB（1200 个会话） |
+
+**测试条件**：Intel Core i7-1068NG7（2.3 GHz，4 核），macOS 26.6.2，release 构建。
+
+**说明**：
+- 这是 Intel 机器上的数据，Apple Silicon 上没测，可能更好。
+- 测试用的会话文件很小（每个 2 行）。真实会话动辄几 MB，首次扫描更慢（之后有缓存，只读新增部分），所以真实数据下的启动时间会比上面长。
+- 第一次启动一个新下载的程序，macOS 会多花一点时间校验，上表是之后的稳定值。
+- 复现：`python3 native/scripts/fake-sessions.py /tmp/mk 60 20`，再用 `HOME=/tmp/mk` 启动打包好的 `makit`。
 
 ---
 
