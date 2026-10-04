@@ -77,11 +77,10 @@ actions!(terminal, [Copy, Paste, ScrollPageUp, ScrollPageDown]);
 /// 等宽字体栈，同 TS 版 `fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace, …"`：
 /// ui-monospace 在 macOS 上就是 SF Mono；按顺序取第一个能加载的
 pub use fonts::FONT_STACK;
-/// 终端内容离 pane 边的留白：四边各 2px，同 对标产品 / 对标终端 的 `window-padding-x/y` 默认值
-/// （对标产品 `对标产品的默认窗口留白 = 2`，对标终端 `Config.zig` 同）。
-/// 原来是 Tauri 版 `.xterm-inner` 的 top 6 / right 10 / bottom 16 / left 10（xterm.js 的 WebView 时代留的），
-/// 用户 2026-09-29 要 对标产品 那种美感，改成 对标产品 的。用 inset 不用 padding：
-/// padding 会被算进尺寸导致行数溢出、选区坐标错位
+/// Space between the terminal content and the pane edge: 2px on every side (the usual native-terminal default).
+/// It used to be the Tauri version's `.xterm-inner` 6 / 10 / 16 / 10 left over from the WebView days.
+/// An inset rather than padding: padding would be counted into the size, so the row count overflows and
+/// selection coordinates shift.
 pub const INSET_TOP: f32 = 2.0;
 pub const INSET_RIGHT: f32 = 2.0;
 pub const INSET_BOTTOM: f32 = 2.0;

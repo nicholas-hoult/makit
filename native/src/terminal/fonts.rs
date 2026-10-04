@@ -24,20 +24,21 @@ pub fn embedded_fonts() -> Vec<Cow<'static, [u8]>> {
     ]
 }
 
-/// 按系统首选语言（`CFLocaleCopyPreferredLanguages` 的顺序）排中日韩回退：第一个 CJK 语言决定首选字体，
-/// 其余作兜底。没有 CJK 语言时按简体中文（同 对标产品 不注入时系统默认对中文的选择）
+/// The system font that covers each CJK language on macOS, keyed by lowercase BCP 47 prefix. Order matters:
+/// Traditional Chinese (script `hant`, regions TW / HK) has to be tried before the bare `zh`.
+const CJK_FONT_BY_PREFIX: &[(&[&str], &str)] = &[
+    (&["ja"], "Hiragino Sans"),
+    (&["zh-hant", "zh-tw", "zh-hk"], "PingFang TC"),
+    (&["zh"], "PingFang SC"),
+];
+
+/// CJK fallback fonts in the order of the system's preferred languages (`CFLocaleCopyPreferredLanguages`): the
+/// first CJK language picks the primary font, the rest follow as a safety net. Without any CJK language the
+/// primary one is Simplified Chinese.
 pub fn cjk_fallbacks(preferred_languages: &[String]) -> Vec<&'static str> {
-    let first = preferred_languages.iter().find_map(|l| {
-        let l = l.to_ascii_lowercase();
-        if l.starts_with("ja") {
-            Some("Hiragino Sans")
-        } else if l.starts_with("zh-hant") || l.starts_with("zh-tw") || l.starts_with("zh-hk") {
-            Some("PingFang TC")
-        } else if l.starts_with("zh") {
-            Some("PingFang SC")
-        } else {
-            None
-        }
+    let first = preferred_languages.iter().find_map(|lang| {
+        let lang = lang.to_ascii_lowercase();
+        CJK_FONT_BY_PREFIX.iter().find(|(prefixes, _)| prefixes.iter().any(|p| lang.starts_with(p))).map(|(_, font)| *font)
     });
     let mut out = vec![first.unwrap_or("PingFang SC")];
     for f in ["PingFang SC", "PingFang TC", "Hiragino Sans", "Apple SD Gothic Neo"] {

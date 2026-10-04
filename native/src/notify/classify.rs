@@ -33,7 +33,7 @@ pub fn truncate_message(s: &str) -> String {
 /// | Notification + auth_success | None（不是要你处理的事） |
 /// | Notification 没有 notification_type（老版本） | 按文本：含 permission → NeedsPermission，否则 NeedsInput |
 /// | Stop，stop_hook_active 为假、没有后台任务 | TurnComplete（正文 last_assistant_message） |
-/// | Stop，还有后台任务 / stop_hook_active | None（照 对标产品 的 whenIdle） |
+/// | Stop，还有后台任务 / stop_hook_active | None（Stop hook 在后台任务没清空时不算「完成」） |
 /// | StopFailure，或 Stop 带 error | Error |
 /// | UserPromptSubmit / SessionEnd | Clear |
 pub fn classify_hook_event(v: &Value) -> Option<(String, Signal)> {
