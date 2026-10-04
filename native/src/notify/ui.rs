@@ -3,6 +3,7 @@
 //! 尺寸 / 颜色照 App.css 的数值（行号见各处注释），颜色一律走 `cx.theme()`；
 //! `color-mix(in srgb, A p%, B)` 用 `mix(A, B, p)` 算。
 
+use crate::{tr, ts};
 use std::time::{Duration, Instant};
 
 use gpui::{
@@ -82,7 +83,7 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
     let count = records.len();
 
     let header = {
-        let btn = |id: &'static str, label: &'static str, dim: bool| {
+        let btn = |id: &'static str, label: SharedString, dim: bool| {
             // .notif-drawer-btn：padding 3/9、12px、accent、圆角 4；-dim：fg-muted、0.5（hover 1）
             div()
                 .id(id)
@@ -105,7 +106,7 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
             .px(px(16.0))
             .border_b_1()
             .border_color(theme.border)
-            .child(div().text_size(px(15.0)).font_weight(FontWeight::SEMIBOLD).text_color(theme.fg).child("通知"))
+            .child(div().text_size(px(15.0)).font_weight(FontWeight::SEMIBOLD).text_color(theme.fg).child(tr!("notify.title")))
             .child(div().ml(px(8.0)).flex_1().text_size(px(11.0)).text_color(theme.fg_muted.opacity(0.35)).child("⌘I"))
             .child(
                 div()
@@ -113,11 +114,11 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
                     .gap(px(4.0))
                     .when(unread > 0, |d| {
                         let n = n.clone();
-                        d.child(btn("notif-read-all", "全部已读", false).on_click(move |_: &ClickEvent, _, cx| n.update(cx, |n, cx| n.mark_all_read(cx))))
+                        d.child(btn("notif-read-all", tr!("notify.read_all"), false).on_click(move |_: &ClickEvent, _, cx| n.update(cx, |n, cx| n.mark_all_read(cx))))
                     })
                     .when(count > 0, |d| {
                         let n = n.clone();
-                        d.child(btn("notif-clear-all", "全部清除", true).on_click(move |_: &ClickEvent, _, cx| n.update(cx, |n, cx| n.clear_all(cx))))
+                        d.child(btn("notif-clear-all", tr!("notify.clear_all"), true).on_click(move |_: &ClickEvent, _, cx| n.update(cx, |n, cx| n.clear_all(cx))))
                     }),
             )
     };
@@ -133,8 +134,8 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
             .gap(px(10.0))
             .pb(px(60.0))
             .child(svg().path("icons/notif-empty-bell-off.svg").size(px(36.0)).text_color(theme.fg_muted.opacity(0.18)))
-            .child(div().text_size(px(14.0)).font_weight(FontWeight::MEDIUM).text_color(theme.fg.opacity(0.4)).child("暂无通知"))
-            .child(div().text_size(px(12.0)).text_color(theme.fg_muted.opacity(0.28)).child("桌面通知将在此处显示。"))
+            .child(div().text_size(px(14.0)).font_weight(FontWeight::MEDIUM).text_color(theme.fg.opacity(0.4)).child(tr!("notify.empty.title")))
+            .child(div().text_size(px(12.0)).text_color(theme.fg_muted.opacity(0.28)).child(tr!("notify.empty.hint")))
             .into_any_element()
     } else {
         let rows: Vec<AnyElement> = records
@@ -309,7 +310,7 @@ fn row(n: Entity<Notifier>, i: usize, r: &super::book::Record, name: String, pro
                 .group_hover(group, |s| s.opacity(0.3))
                 .hover(|s| s.opacity(1.0).bg(t.bg_hover))
                 .child("×")
-                .tooltip(crate::tooltip::tip("移除"))
+                .tooltip(crate::tooltip::tip(tr!("notify.remove")))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(move |_: &ClickEvent, _, cx| {
                     cx.stop_propagation();
@@ -326,7 +327,7 @@ pub fn bell(cx: &App) -> AnyElement {
     let Some(n) = Notifier::try_global(cx) else { return div().into_any_element() };
     let theme = cx.theme().clone();
     let unread = n.read(cx).unread_count();
-    let tip: SharedString = if unread > 0 { format!("通知中心 (⌘I) · {unread} 条未读").into() } else { "通知中心 (⌘I)".into() };
+    let tip: SharedString = if unread > 0 { ts!("notify.center_tip_unread", unread = unread).into() } else { tr!("notify.center_tip").into() };
     let n_bounds = n.clone();
     let n_click = n.clone();
     div()

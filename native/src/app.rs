@@ -7,6 +7,7 @@
 //! 工作区 action 转发给 `WorkspaceView`；还没实现的 action 挂占位（打一行日志，写明归哪个包）——
 //! 各包实现时删掉对应占位，在自己的视图上 `.on_action`。
 
+use crate::{tr, ts};
 use std::time::Duration;
 
 use gpui::{
@@ -186,7 +187,7 @@ impl Render for Root {
                         .border_b_1()
                         .border_color(theme.border)
                         .text_color(theme.danger)
-                        .child(format!("加载失败: {e}")),
+                        .child(ts!("app.load_failed", error = e)),
                 )
             })
             .child(titlebar)
@@ -252,9 +253,9 @@ fn wire_notify_settings(cx: &mut App) {
                     // Tauri 版：总开关关着 / 没授权时弹 warning，不静默
                     let _ = window.prompt(
                         gpui::PromptLevel::Warning,
-                        "没有发出测试通知",
-                        Some("系统通知总开关关着，或 makit 还没拿到通知权限（需要装在「应用程序」里的签名包）。"),
-                        &["好"],
+                        &ts!("app.test_notify.none"),
+                        Some(&ts!("app.test_notify.hint")),
+                        &[ts!("common.ok").as_str()],
                         cx,
                     );
                 }

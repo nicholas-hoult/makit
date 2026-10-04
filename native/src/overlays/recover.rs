@@ -9,6 +9,7 @@
 //! 恢复成功后：更新标签 cwd（持久化的布局里那个死路径也换掉）+ 把这个标签的终端关掉，
 //! 工作区下一帧按新 cwd 重新起（= Tauri 版的 retrySpawn）。
 
+use crate::ts;
 use gpui::{div, prelude::*, px, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, FontWeight, PathPromptOptions, Window};
 
 use super::recover_logic::{check_relink_target, choices, friendly_error, remembered_dir, step, Choice, RelinkCheck};
@@ -159,7 +160,7 @@ impl RecoverPicker {
         // 会话信息到点击这一刻再查：出选择器时列表可能还没扫完
         let meta = self.session_id.as_deref().and_then(|id| self.state.read(cx).session(id).cloned());
         if relink && meta.is_none() {
-            self.error = Some("会话信息还没加载完，稍等一下再选".into());
+            self.error = Some(ts!("recover.err.not_loaded").into());
             cx.notify();
             return;
         }
@@ -197,7 +198,7 @@ impl RecoverPicker {
     }
 
     fn pick_dir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("选这个目录".into()) });
+        let rx = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some(ts!("recover.pick_prompt").into()) });
         let handle = window.window_handle();
         cx.spawn(async move |this, cx: &mut AsyncApp| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
@@ -235,9 +236,9 @@ impl Render for RecoverPicker {
             .map(|(ix, c)| {
                 let selected = ix == self.sel;
                 let (main, note): (String, String) = match c {
-                    Choice::Relink { path, why } => (path.clone(), (*why).to_string()),
-                    Choice::Recreate => ("重建原目录".into(), "在原路径建空目录；代码没了，但会话能接着聊".into()),
-                    Choice::Pick => ("选择其他目录…".into(), "打开系统目录选择框".into()),
+                    Choice::Relink { path, why } => (path.clone(), ts!(*why)),
+                    Choice::Recreate => (ts!("recover.choice.recreate").into(), ts!("recover.choice.recreate_desc").into()),
+                    Choice::Pick => (ts!("recover.choice.pick").into(), ts!("recover.choice.pick_desc").into()),
                 };
                 div()
                     .id(gpui::SharedString::from(format!("recover-choice-{ix}")))
@@ -294,12 +295,12 @@ impl Render for RecoverPicker {
                     .px(px(10.0))
                     .pb(px(4.0))
                     .text_size(px(12.0))
-                    .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.warning).child("启动目录已不存在"))
+                    .child(div().font_weight(FontWeight::MEDIUM).text_color(theme.warning).child(ts!("recover.title")))
                     .child(div().font(mono_font()).text_size(px(11.0)).text_color(theme.fg_muted).child(self.cwd.clone()))
-                    .child(div().text_size(px(11.0)).text_color(theme.fg_subtle).child("会话记录没丢。选一个目录继续  ·  ↑↓ 选择  Enter 确认  Esc 暂不处理")),
+                    .child(div().text_size(px(11.0)).text_color(theme.fg_subtle).child(ts!("recover.hint"))),
             )
             .children(rows)
-            .children(if busy { Some(div().px(px(10.0)).pt(px(4.0)).text_size(px(11.0)).text_color(theme.fg_muted).child("处理中…")) } else { None })
+            .children(if busy { Some(div().px(px(10.0)).pt(px(4.0)).text_size(px(11.0)).text_color(theme.fg_muted).child(ts!("recover.busy"))) } else { None })
             .children(self.error.clone().map(|e| div().px(px(10.0)).pt(px(4.0)).text_size(px(11.0)).text_color(theme.danger).child(e)))
     }
 }

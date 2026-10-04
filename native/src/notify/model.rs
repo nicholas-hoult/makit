@@ -1,5 +1,6 @@
 //! 通知的数据形状（纯数据，#215 第 2 节「四类通知」）。
 
+use crate::ts;
 use serde::{Deserialize, Serialize};
 
 /// 通知分四类（#215）。「长时间没动静」并入 `NeedsInput`
@@ -18,12 +19,12 @@ pub enum Kind {
 
 impl Kind {
     /// 通知中心行里、横幅标题里的叫法。前两个和 Tauri 版一字不差（清单 G 节）
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Kind::NeedsPermission => "等待审批",
-            Kind::NeedsInput => "等待回答",
-            Kind::TurnComplete => "已完成",
-            Kind::Error => "出错",
+            Kind::NeedsPermission => ts!("status.waiting_approval"),
+            Kind::NeedsInput => ts!("status.waiting_user"),
+            Kind::TurnComplete => ts!("notify.kind.completed"),
+            Kind::Error => ts!("notify.kind.error"),
         }
     }
 

@@ -7,6 +7,7 @@
 //! 4. 报错改成面向用户的话（`friendly_error`）。
 //! （第 3 点「启动恢复时不要每次都弹」归触发方 A / C 包，这里只保证同一时间只弹一个。）
 
+use crate::ts;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,9 +34,9 @@ pub fn check_relink_target(input: &str, home: Option<&Path>) -> RelinkCheck {
     } else {
         Some(t.to_string())
     };
-    let Some(mut p) = expanded else { return RelinkCheck::Invalid("找不到 home 目录，请填完整路径".into()) };
+    let Some(mut p) = expanded else { return RelinkCheck::Invalid(ts!("recover.check.no_home").into()) };
     if !p.starts_with('/') {
-        return RelinkCheck::Invalid("请填绝对路径（以 / 或 ~ 开头）".into());
+        return RelinkCheck::Invalid(ts!("recover.check.not_absolute").into());
     }
     while p.len() > 1 && p.ends_with('/') {
         p.pop();
@@ -44,16 +45,16 @@ pub fn check_relink_target(input: &str, home: Option<&Path>) -> RelinkCheck {
     if path.is_dir() {
         RelinkCheck::Ok(p)
     } else if path.exists() {
-        RelinkCheck::Invalid("这是一个文件，不是目录".into())
+        RelinkCheck::Invalid(ts!("recover.check.is_file").into())
     } else {
-        RelinkCheck::Invalid("这个目录也不存在，请选一个已有的目录".into())
+        RelinkCheck::Invalid(ts!("recover.check.missing").into())
     }
 }
 
 /// 后端（makit_core::recovery）的报错 → 面向用户的话
 pub fn friendly_error(e: &str) -> String {
     if e.starts_with("目标目录不存在") {
-        "这个目录也不存在，请选一个已有的目录".into()
+        ts!("recover.check.missing").into()
     } else {
         e.to_string()
     }
@@ -88,7 +89,7 @@ pub fn choices(orig: &str, last_cwd: Option<&str>, home: Option<&str>, is_dir: &
         }
     };
     if let Some(l) = last_cwd {
-        add(l, "会话最近待过的目录", &mut out);
+        add(l, "recover.suggest.last_cwd", &mut out);
     }
     // 原目录往上最近一个还在的祖先（不给文件系统根：不是有意义的工作目录）
     let mut cur = Path::new(orig).parent();
@@ -98,13 +99,13 @@ pub fn choices(orig: &str, last_cwd: Option<&str>, home: Option<&str>, is_dir: &
             break;
         }
         if is_dir(&s) {
-            add(&s, "上级目录", &mut out);
+            add(&s, "recover.suggest.parent", &mut out);
             break;
         }
         cur = p.parent();
     }
     if let Some(h) = home {
-        add(h, "主目录", &mut out);
+        add(h, "recover.suggest.home", &mut out);
     }
     out.push(Choice::Recreate);
     out.push(Choice::Pick);
@@ -212,9 +213,9 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                relink("/w/a", "会话最近待过的目录"),
-                relink("/w/a/b", "上级目录"),
-                relink("/Users/me", "主目录"),
+                relink("/w/a", "recover.suggest.last_cwd"),
+                relink("/w/a/b", "recover.suggest.parent"),
+                relink("/Users/me", "recover.suggest.home"),
                 Choice::Recreate,
                 Choice::Pick,
             ]
@@ -226,7 +227,7 @@ mod tests {
         // last_cwd 也不在了、和原目录相同、祖先就是主目录：不重复列
         let is_dir = dirs(&["/Users/me"]);
         let got = choices("/Users/me/proj/x", Some("/Users/me/proj/x"), Some("/Users/me"), &is_dir);
-        assert_eq!(got, vec![relink("/Users/me", "上级目录"), Choice::Recreate, Choice::Pick]);
+        assert_eq!(got, vec![relink("/Users/me", "recover.suggest.parent"), Choice::Recreate, Choice::Pick]);
         // 什么候选都没有：至少还有重建和选择
         assert_eq!(choices("/gone", None, None, &dirs(&[])), vec![Choice::Recreate, Choice::Pick]);
     }

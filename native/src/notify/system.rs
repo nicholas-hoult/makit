@@ -16,6 +16,7 @@
 //!
 //! 回调在系统的任意线程上来，统一塞进 channel，由 `Notifier` 在主线程上消费。
 
+use crate::ts;
 use std::sync::OnceLock;
 
 use block2::RcBlock;
@@ -45,13 +46,13 @@ pub enum Permission {
 }
 
 impl Permission {
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Permission::Unknown => "查询中",
-            Permission::NotDetermined => "未请求",
-            Permission::Denied => "已拒绝",
-            Permission::Granted => "已授权",
-            Permission::Unavailable => "不可用（没有 app 身份）",
+            Permission::Unknown => ts!("notify.permission.unknown"),
+            Permission::NotDetermined => ts!("notify.permission.not_determined"),
+            Permission::Denied => ts!("notify.permission.denied"),
+            Permission::Granted => ts!("notify.permission.granted"),
+            Permission::Unavailable => ts!("notify.permission.unavailable"),
         }
     }
 }

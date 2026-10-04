@@ -230,7 +230,7 @@ impl SettingsView {
                 .map(|set| {
                     let (state, id) = (state.clone(), set.id.to_string());
                     let checked = id == cur;
-                    MenuItem::action(set.name, move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.pane_icons = id.clone()))).checked(checked)
+                    MenuItem::action(ts!(set.name), move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.pane_icons = id.clone()))).checked(checked)
                 })
                 .collect()
         });
@@ -336,7 +336,7 @@ impl Render for SettingsView {
         let theme_name = if prefs.theme.chosen { theme_name } else { ts!("settings.theme.follow_system", name = theme_name) };
         let swatches = (0..8).map(|i| div().flex_1().min_w_0().h(px(14.0)).rounded(px(2.0)).bg(theme.ansi[i]).border_1().border_color(theme.border));
         let icons = pane_icons_for(&prefs.pane_icons);
-        let icon_name = PANE_ICON_SETS.iter().find(|s| s.id == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).name;
+        let icon_name = ts!(PANE_ICON_SETS.iter().find(|s| s.id == prefs.pane_icons).unwrap_or(&PANE_ICON_SETS[0]).name);
         let hover_name = ts!(HOVER_MODES.iter().find(|m| m.0 == prefs.sidebar.hover_mode).unwrap_or(&HOVER_MODES[0]).1);
         let hooks = cx.try_global::<NotifyHooks>().cloned();
         let permission = hooks.as_ref().and_then(|h| (h.permission)(cx));

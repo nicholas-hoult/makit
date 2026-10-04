@@ -17,14 +17,14 @@ pub struct PaneIconSet {
 }
 
 pub const PANE_ICON_SETS: &[PaneIconSet] = &[
-    PaneIconSet { id: "beasts", name: "灵兽", icons: &["🐉", "🐯", "🦊", "🐳", "🦉", "🐝", "🦄", "🐙", "🐺"] },
-    PaneIconSet { id: "flowers", name: "花木", icons: &["🌸", "🌹", "🌻", "🌷", "🌺", "🌼", "🪷", "💐", "🌾"] },
-    PaneIconSet { id: "fruits", name: "果园", icons: &["🍎", "🍊", "🍋", "🍇", "🍓", "🍑", "🥝", "🍒", "🥭"] },
-    PaneIconSet { id: "dots", name: "色点", icons: &["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫️", "⚪️"] },
-    PaneIconSet { id: "cosmos", name: "宇宙", icons: &["🚀", "🛸", "🪐", "🌌", "☄️", "🌋", "🌪️", "⚡️", "🔥"] },
-    PaneIconSet { id: "arms", name: "兵器", icons: &["⚔️", "🛡️", "🏹", "🔱", "🪓", "🗡️", "👑", "💎", "🔮"] },
-    PaneIconSet { id: "wild", name: "夸张表情", icons: &["🤯", "🥶", "🥵", "😈", "👻", "🤡", "💀", "👽", "🤖"] },
-    PaneIconSet { id: "none", name: "不显示", icons: &[] },
+    PaneIconSet { id: "beasts", name: "settings.icons.set.beasts", icons: &["🐉", "🐯", "🦊", "🐳", "🦉", "🐝", "🦄", "🐙", "🐺"] },
+    PaneIconSet { id: "flowers", name: "settings.icons.set.flowers", icons: &["🌸", "🌹", "🌻", "🌷", "🌺", "🌼", "🪷", "💐", "🌾"] },
+    PaneIconSet { id: "fruits", name: "settings.icons.set.fruits", icons: &["🍎", "🍊", "🍋", "🍇", "🍓", "🍑", "🥝", "🍒", "🥭"] },
+    PaneIconSet { id: "dots", name: "settings.icons.set.dots", icons: &["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫️", "⚪️"] },
+    PaneIconSet { id: "cosmos", name: "settings.icons.set.cosmos", icons: &["🚀", "🛸", "🪐", "🌌", "☄️", "🌋", "🌪️", "⚡️", "🔥"] },
+    PaneIconSet { id: "arms", name: "settings.icons.set.arms", icons: &["⚔️", "🛡️", "🏹", "🔱", "🪓", "🗡️", "👑", "💎", "🔮"] },
+    PaneIconSet { id: "wild", name: "settings.icons.set.wild", icons: &["🤯", "🥶", "🥵", "😈", "👻", "🤡", "💀", "👽", "🤖"] },
+    PaneIconSet { id: "none", name: "settings.icons.set.none", icons: &[] },
 ];
 
 /// 闪牌总时长。比 TS 版的 700ms 长一点，给「弹出 → 回弹 → 光晕散开」留够时间（#201）

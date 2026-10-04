@@ -1,6 +1,7 @@
 //! 会话操作（界面清单 M 节）：置顶、归档 / 取消归档（运行中先弹系统确认框）、复制、Finder 显示、打开会话。
 //! 侧栏右键菜单、⌘K、详情面板共用这一份，别的包直接调。
 
+use crate::ts;
 use gpui::{App, AsyncApp, ClipboardItem, PromptButton, PromptLevel, Window};
 use makit_core::SessionMeta;
 
@@ -40,7 +41,7 @@ pub fn reveal_in_finder(path: String, cx: &mut App) {
     cx.spawn(async move |cx: &mut AsyncApp| {
         let r = cx.background_executor().spawn(async move { makit_core::paths::open_path(path, true) }).await;
         if let Err(e) = r {
-            let _ = cx.update(|cx| show_toast(format!("打开失败: {e}"), toast::REVEAL_FAIL, cx));
+            let _ = cx.update(|cx| show_toast(ts!("session.toast.open_failed", error = e), toast::REVEAL_FAIL, cx));
         }
     })
     .detach();
@@ -73,7 +74,7 @@ pub fn toggle_archive(session_id: &str, window: &mut Window, cx: &mut App) {
             let r = cx.background_executor().spawn(async move { makit_core::archive::unarchive_session(sid) }).await;
             let _ = cx.update(|cx| match r {
                 Ok(()) => update_session(&id, cx, |m| m.archived = false),
-                Err(e) => show_toast(format!("归档失败: {e}"), toast::ARCHIVE_FAIL, cx),
+                Err(e) => show_toast(ts!("sidebar.toast.archive_failed", error = e), toast::ARCHIVE_FAIL, cx),
             });
         })
         .detach();
@@ -82,9 +83,9 @@ pub fn toggle_archive(session_id: &str, window: &mut Window, cx: &mut App) {
     let confirm = s.running.then(|| {
         window.prompt(
             PromptLevel::Warning,
-            "确定归档？",
-            Some(&format!("该 session 正在运行中（PID {}），归档将关闭终端并杀死子进程。", s.pid)),
-            &[PromptButton::ok("归档"), PromptButton::cancel("取消")],
+            &ts!("sidebar.archive.confirm_title"),
+            Some(&ts!("sidebar.archive.confirm_detail", pid = s.pid)),
+            &[PromptButton::ok(ts!("sidebar.menu.archive")), PromptButton::cancel(ts!("common.cancel"))],
             cx,
         )
     });
@@ -110,7 +111,7 @@ pub fn toggle_archive(session_id: &str, window: &mut Window, cx: &mut App) {
                         m.status = "idle".into();
                     });
                 }
-                Err(e) => show_toast(format!("归档失败: {e}"), toast::ARCHIVE_FAIL, cx),
+                Err(e) => show_toast(ts!("sidebar.toast.archive_failed", error = e), toast::ARCHIVE_FAIL, cx),
             }
         });
     })
@@ -151,9 +152,9 @@ pub fn open_session(session_id: &str, cx: &mut App) {
     let Some(s) = state.read(cx).session(session_id).cloned() else { return };
     let decision = decide_open(&state.read(cx).workspace.state.root, &s);
     log::info!(target: "session", "打开会话 {}：{}", s.short_id, match &decision {
-        OpenDecision::Switch { .. } => "已在本软件的标签里，切过去".to_string(),
-        OpenDecision::BlockedExternal { pid } => format!("在别的终端里运行（PID {pid}），不重复启动"),
-        OpenDecision::OpenNew => "新开 resume 标签".to_string(),
+        OpenDecision::Switch { .. } => ts!("session.decision.switch").to_string(),
+        OpenDecision::BlockedExternal { pid } => ts!("session.decision.external", pid = pid),
+        OpenDecision::OpenNew => ts!("session.decision.open_new").to_string(),
     });
     match decision {
         OpenDecision::Switch { container_id, tab_id } => {
@@ -163,7 +164,7 @@ pub fn open_session(session_id: &str, cx: &mut App) {
             });
         }
         OpenDecision::BlockedExternal { pid } => {
-            show_toast(format!("该 session 正在运行中（PID {pid}），不能重复启动"), toast::ALREADY_RUNNING, cx);
+            show_toast(ts!("sidebar.toast.already_running", pid = pid), toast::ALREADY_RUNNING, cx);
         }
         OpenDecision::OpenNew => {
             ensure_symlink(&s);

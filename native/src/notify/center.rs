@@ -10,6 +10,7 @@
 //! 已读时机（#215 第 4 节）：窗口聚焦时 active tab 就是它（切标签、窗口回到前台）；点横幅；点通知中心那条；
 //! 在终端里打字（A 包调 `mark_session_read`）。
 
+use crate::tr;
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
@@ -406,7 +407,7 @@ impl Notifier {
         if !self.state.read(cx).prefs.notify.system || !self.system.available() {
             return false;
         }
-        self.system.post("makit-selftest", "makit 通知自检", "", "能看到这条横幅，说明系统通知链路是通的", false, false);
+        self.system.post("makit-selftest", &tr!("notify.selftest.title"), "", &tr!("notify.selftest.body"), false, false);
         true
     }
 

@@ -2,6 +2,7 @@
 //!
 //! 为什么单独测：错了在界面上是「代码块把后面的正文吞掉 / 折叠行看不出调用了什么 / 新消息插到错误位置、高度不刷新」。
 
+use crate::ts;
 use std::ops::Range;
 
 use makit_core::transcript::Changes;
@@ -97,7 +98,7 @@ pub fn tool_input_text(input: &Value) -> String {
         None => serde_json::to_string_pretty(input).unwrap_or_default(),
     };
     if text.chars().count() > MAX_INPUT_CHARS {
-        format!("{}\n…（已截断，共 {} 字符）", text.chars().take(MAX_INPUT_CHARS).collect::<String>(), text.chars().count())
+        format!("{}\n{}", text.chars().take(MAX_INPUT_CHARS).collect::<String>(), ts!("transcript.truncated_chars", n = text.chars().count()))
     } else {
         text
     }
