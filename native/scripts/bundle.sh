@@ -7,6 +7,8 @@
 #
 #   bash native/scripts/bundle.sh          # release 构建并打包
 #   bash native/scripts/bundle.sh --open   # 打包完顺手启动
+#   UNIVERSAL=1 bash native/scripts/bundle.sh   # Intel + Apple Silicon 通用包（要先 rustup target add 两个目标）
+#   DMG=1 bash native/scripts/bundle.sh         # 再生成 .dmg 安装镜像
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,9 +26,19 @@ if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
     fi
 fi
 
-cargo build --release --manifest-path "$root/native/Cargo.toml"
-
 target="${CARGO_TARGET_DIR:-$root/native/target}"
+if [[ "${UNIVERSAL:-}" == "1" ]]; then
+    # 通用包（Intel + Apple Silicon 同一个文件，#191）：两个目标各编一次，lipo 合成一个二进制放回 release/ 下，后面照常打包
+    for t in aarch64-apple-darwin x86_64-apple-darwin; do
+        cargo build --release --target "$t" --manifest-path "$root/native/Cargo.toml"
+    done
+    mkdir -p "$target/release"
+    lipo -create -output "$target/release/makit-native" \
+        "$target/aarch64-apple-darwin/release/makit-native" "$target/x86_64-apple-darwin/release/makit-native"
+else
+    cargo build --release --manifest-path "$root/native/Cargo.toml"
+fi
+
 app="$target/release/bundle/$APP_NAME.app"
 # 整个删掉重建：留着旧的会让上一次的残留文件（改名前的图标、删掉的资源）混在里面，
 # 而 codesign 会把它们一起签进去，之后排查起来看不出是陈的。
@@ -67,4 +79,16 @@ codesign --force --sign "$sign_id" "$app"
 codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Authority' || true
 
 echo "→ $app"
+if [[ "${DMG:-}" == "1" ]]; then
+    # 拖进「应用程序」的安装镜像；版本号进文件名，release 里一眼分得出
+    dmg="$target/release/bundle/$APP_NAME-$version.dmg"
+    rm -f "$dmg"
+    # 镜像里放 .app 和「应用程序」的快捷方式，打开后直接拖过去
+    stage="$(mktemp -d)"
+    cp -R "$app" "$stage/"
+    ln -s /Applications "$stage/Applications"
+    hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$stage" -ov -format UDZO "$dmg"
+    rm -rf "$stage"
+    echo "→ $dmg"
+fi
 if [[ "${1:-}" == "--open" ]]; then open "$app"; fi

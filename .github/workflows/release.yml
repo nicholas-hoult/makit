@@ -1,5 +1,8 @@
 name: Release
 
+# 推 v* tag 触发：打 macOS 通用包（Intel + Apple Silicon），上传成草稿 Release，检查无误后手动发布。
+# 0.1 只发 macOS（#191）；Linux 0.2、Windows 0.3 到时再加 job。
+# 没有签名证书：CI 里走 ad-hoc 签名，用户第一次打开要手动放行（README 有步骤）。
 on:
   push:
     tags:
@@ -7,56 +10,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  release:
+  macos:
+    runs-on: macos-latest
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest'
-            args: '--target universal-apple-darwin'
-          - platform: 'ubuntu-22.04'
-            args: ''
-          - platform: 'windows-latest'
-            args: ''
-
-    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Install dependencies (ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          version: 8
+          workspaces: native
 
-      - name: Install frontend dependencies
-        run: pnpm install
+      - name: Test
+        run: cargo test --manifest-path native/Cargo.toml
 
-      - name: Build
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Bundle (universal .app + .dmg)
+        run: UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Makit ${{ github.ref_name }}'
-          releaseBody: 'See CHANGELOG.md for details.'
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
+          name: makit-macos-universal
+          path: native/target/release/bundle/makit-*.dmg
+
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: makit ${{ github.ref_name }}
+          body: 详见 CHANGELOG.md。未签名，第一次打开需要手动放行（见 README）。
+          files: native/target/release/bundle/makit-*.dmg
