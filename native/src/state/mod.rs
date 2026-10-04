@@ -87,13 +87,18 @@ impl Global for GlobalAppState {}
 impl AppState {
     /// 建实体并挂成全局；启动全量扫描和目录监听。`saver` 为 None 时不写盘（测试用）
     pub fn init(mut prefs: NativeState, saver: Option<Saver>, cx: &mut App) -> Entity<Self> {
-        let ws = prefs.workspace.take().unwrap_or_else(default_workspace);
+        let first_launch = prefs.workspace.is_none();
+        let mut workspace = Workspace::new(prefs.workspace.take().unwrap_or_else(default_workspace));
+        if first_launch {
+            let home = dirs::home_dir().map(|h| h.display().to_string()).unwrap_or_else(|| "/".into());
+            workspace.open_shell(&home);
+        }
         let state = cx.new(|cx| {
             let mut s = Self {
                 sessions: Vec::new(),
                 loaded: false,
                 tools: detect_tools(),
-                workspace: Workspace::new(ws),
+                workspace,
                 prefs,
                 archiving: HashSet::new(),
                 saver,
