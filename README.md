@@ -32,7 +32,7 @@ makit 把这件事变成一屏：
 
 0.1 只有 macOS 通用包，Intel 和 Apple Silicon 共用同一个文件。
 
-**[→ 前往 Releases 下载最新版](https://gitee.com/nicholas-hoult/makit/releases)**
+**[→ 前往 Releases 下载最新版](https://github.com/nicholas-hoult/makit/releases)**（0.1 还没发布，之前可以按文末「从源码构建」自己打包）
 
 下载 `.dmg`，打开后把 makit 拖进「应用程序」。
 
@@ -199,32 +199,31 @@ Codex 这条路还没在真机上全面验证，0.1 当它是**已知限制**而
 ## 从源码构建
 
 ```bash
-git clone https://gitee.com/nicholas-hoult/makit.git
+git clone https://github.com/nicholas-hoult/makit.git
 cd makit
-pnpm install
 
-# 开发模式（会起 Vite + Rust，第一次编译要几分钟）
-pnpm tauri dev
+# 开发模式（日常用 --fast：依赖开优化、自己的代码仍是 debug；第一次编译要几分钟到二十几分钟）
+bash native/scripts/dev.sh --fast
 
-# 构建 .app
-pnpm tauri build --bundles app
-# 产物在 src-tauri/target/release/bundle/macos/makit.app
+# 打包 .app（release 构建，本机签名）
+bash native/scripts/bundle.sh
+# 产物在 .worktrees/.target-gpui/release/bundle/makit.app（在主目录跑）；没有 .worktrees 时在 native/target/release/bundle/
 ```
 
-环境要求：macOS、Rust stable、Node.js 18+、pnpm。
+环境要求：macOS、Rust stable。
 
 跑测试：
 
 ```bash
-pnpm test        # 前端
-pnpm test:rust   # Rust
+cargo test --manifest-path native/Cargo.toml   # 主程序
+cargo test --manifest-path core/Cargo.toml     # 会话扫描、恢复等核心
 ```
 
 ---
 
 ## 技术栈
 
-Tauri 2 + Rust 后端，React 19 + TypeScript 前端，终端是 xterm.js。构建产物是自包含的 `.app`，装完不需要 Node 或 Rust。
+纯 Rust：界面是 [GPUI](https://www.gpui.rs/)（Zed 的 UI 框架），终端内核是 [alacritty_terminal](https://github.com/alacritty/alacritty)。构建产物是自包含的 `.app`，装完不需要 Node 或 Rust。
 
 ---
 
@@ -234,5 +233,5 @@ MIT，见 [LICENSE](LICENSE)。
 
 ## 致谢
 
-- [Tauri](https://tauri.app/)、[xterm.js](https://xtermjs.org/) —— 这个 app 的地基
+- [GPUI](https://www.gpui.rs/)、[alacritty_terminal](https://github.com/alacritty/alacritty) —— 这个 app 的地基
 - [Claude Code](https://claude.ai/code) —— 先有了它带来的工作方式，才有管理这种工作方式的需求
