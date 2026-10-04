@@ -5,6 +5,7 @@
 //! （菜单项内容 `session_menu` / `project_menu` 不用动）。点菜单外关闭用 `on_mouse_down_out`，
 //! Esc 走快捷键表（context `SidebarMenu` → `DismissMenu`）。
 
+use crate::{tr, ts};
 use gpui::{
     anchored, deferred, div, img, point, prelude::*, px, AnyElement, BoxShadow, ClickEvent, Context, Corner, Div, FontWeight,
     MouseDownEvent, Pixels, Point, Stateful, Window,
@@ -77,28 +78,28 @@ impl SidebarView {
         // last_cwd 优先：会话跑起来之后可能 cd 走了，右键要去的是它现在在的目录
         let cwd = if m.last_cwd.is_empty() { m.cwd.clone() } else { m.last_cwd.clone() };
         vec![
-            item(if s.is_pinned(id) { "取消置顶" } else { "置顶" }, Cmd::TogglePin(id.into())),
-            item(if m.archived { "取消归档" } else { "归档" }, Cmd::ToggleArchive(id.into())),
+            item(if s.is_pinned(id) { tr!("sidebar.menu.unpin") } else { tr!("sidebar.menu.pin") }, Cmd::TogglePin(id.into())),
+            item(if m.archived { tr!("sidebar.menu.unarchive") } else { tr!("sidebar.menu.archive") }, Cmd::ToggleArchive(id.into())),
             MenuLine::Sep,
-            item("查看对话", Cmd::Detail(id.into())),
+            item(tr!("sidebar.menu.detail"), Cmd::Detail(id.into())),
             MenuLine::Sep,
-            item("在 Finder 中显示", Cmd::Reveal(cwd.clone())),
-            item("复制路径", Cmd::Copy(cwd)),
-            item("复制 ID", Cmd::Copy(m.session_id.clone())),
-            item("复制恢复命令", Cmd::Copy(Self::resume_command_line(m))),
+            item(tr!("sidebar.menu.reveal"), Cmd::Reveal(cwd.clone())),
+            item(tr!("sidebar.menu.copy_path"), Cmd::Copy(cwd)),
+            item(tr!("sidebar.menu.copy_id"), Cmd::Copy(m.session_id.clone())),
+            item(tr!("sidebar.menu.copy_resume"), Cmd::Copy(Self::resume_command_line(m))),
         ]
     }
 
     /// 项目头右键
     fn project_menu(&self, key: &str, cwd: &str) -> Vec<MenuLine> {
         vec![
-            item("在 Finder 中显示", Cmd::Reveal(cwd.into())),
-            item("复制路径", Cmd::Copy(cwd.into())),
+            item(tr!("sidebar.menu.reveal"), Cmd::Reveal(cwd.into())),
+            item(tr!("sidebar.menu.copy_path"), Cmd::Copy(cwd.into())),
             MenuLine::Sep,
-            item("新建 shell", Cmd::NewShell(cwd.into())),
+            item(tr!("sidebar.menu.new_shell"), Cmd::NewShell(cwd.into())),
             MenuLine::Sep,
             // 只有一个组时这项没有意义，灰掉而不是让它假装能用
-            if self.project_keys.len() <= 1 { disabled("只看这个项目") } else { item("只看这个项目", Cmd::OnlyProject(key.into())) },
+            if self.project_keys.len() <= 1 { disabled(tr!("sidebar.menu.only_project")) } else { item(tr!("sidebar.menu.only_project"), Cmd::OnlyProject(key.into())) },
         ]
     }
 
@@ -161,7 +162,7 @@ impl SidebarView {
         let p = self.state.read(cx).prefs.sidebar.clone();
         let project_view = p.view == "project";
         let sort = SortKey::parse(&p.sort);
-        let title = |text: &'static str| div().pt(px(6.)).pb(px(2.)).pl(px(28.)).pr(px(12.)).text_size(px(10.)).line_height(px(14.)).text_color(t.fg_muted).child(text);
+        let title = |text: &str| div().pt(px(6.)).pb(px(2.)).pl(px(28.)).pr(px(12.)).text_size(px(10.)).line_height(px(14.)).text_color(t.fg_muted).child(text.to_string());
         let sep = || div().h(px(1.)).my(px(4.)).bg(t.border);
         let row = |id: &'static str, checked: bool, label: String, kbd: Option<&'static str>, enabled: bool| {
             div()
@@ -189,26 +190,26 @@ impl SidebarView {
             .shadow(shadow(t.shadow, 4., 12.))
             .text_size(px(12.))
             .line_height(px(15.))
-            .child(title("分组"))
-            .child(row("view-status", !project_view, "按状态".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.view = "status".into()))))
-            .child(row("view-project", project_view, "按项目".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.view = "project".into()))));
+            .child(title(&tr!("sidebar.options.group")))
+            .child(row("view-status", !project_view, ts!("sidebar.options.by_status"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.view = "status".into()))))
+            .child(row("view-project", project_view, ts!("sidebar.options.by_project"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.view = "project".into()))));
         // 项目视图里组内固定按优先级排，排序选了也不起作用，干脆不给
         if !project_view {
-            menu = menu.child(title("排序"));
-            for (id, key, label) in [("sort-recent", SortKey::Recent, "最近活动"), ("sort-count", SortKey::Count, "消息数"), ("sort-first", SortKey::FirstMsg, "首条消息")] {
+            menu = menu.child(title(&tr!("sidebar.options.sort")));
+            for (id, key, label) in [("sort-recent", SortKey::Recent, tr!("sidebar.options.sort_recent")), ("sort-count", SortKey::Count, tr!("sidebar.options.sort_count")), ("sort-first", SortKey::FirstMsg, tr!("sidebar.options.sort_first"))] {
                 menu = menu.child(row(id, sort == key, label.into(), None, true).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.sort = key.as_str().into()))));
             }
         }
         menu.child(sep())
-            .child(row("show-archived", p.show_archived, "显示已归档".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.show_archived = !p.show_archived))))
-            .child(row("show-logo", p.row_logo, "显示模型图标".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_logo = !p.row_logo))))
-            .child(row("show-project", p.row_project, "显示项目名".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_project = !p.row_project))))
-            .child(row("show-time", p.row_time, "显示活跃时间".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_time = !p.row_time))))
-            .child(row("show-short-id", p.row_short_id, "显示短 ID".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_short_id = !p.row_short_id))))
-            .child(row("show-branch", p.row_branch, "显示分支".into(), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_branch = !p.row_branch))))
+            .child(row("show-archived", p.show_archived, ts!("sidebar.options.show_archived"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.show_archived = !p.show_archived))))
+            .child(row("show-logo", p.row_logo, ts!("sidebar.options.show_logo"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_logo = !p.row_logo))))
+            .child(row("show-project", p.row_project, ts!("sidebar.options.show_project"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_project = !p.row_project))))
+            .child(row("show-time", p.row_time, ts!("sidebar.options.show_time"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_time = !p.row_time))))
+            .child(row("show-short-id", p.row_short_id, ts!("sidebar.options.show_short_id"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_short_id = !p.row_short_id))))
+            .child(row("show-branch", p.row_branch, ts!("sidebar.options.show_branch"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_branch = !p.row_branch))))
             .child(sep())
             .child({
-                let r = row("refresh", false, if self.refreshing { "刷新中…".into() } else { "刷新".into() }, Some("⌘R"), !self.refreshing);
+                let r = row("refresh", false, if self.refreshing { ts!("sidebar.options.refreshing") } else { ts!("sidebar.options.refresh") }, Some("⌘R"), !self.refreshing);
                 if self.refreshing {
                     r
                 } else {
@@ -218,7 +219,7 @@ impl SidebarView {
                     }))
                 }
             })
-            .child(row("settings", false, "设置…".into(), Some("⌘,"), true).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+            .child(row("settings", false, ts!("sidebar.options.settings"), Some("⌘,"), true).on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.close_popup(cx);
                 window.dispatch_action(Box::new(ov::OpenSettings), cx);
             })))
@@ -282,7 +283,7 @@ impl SidebarView {
                     .cursor_pointer()
                     .hover(|s| s.bg(t.bg_hover))
                     .active(|s| s.bg(mix(t.accent, 0.2)))
-                    .tooltip(tip("点击复制"))
+                    .tooltip(tip(tr!("common.click_to_copy")))
                     .child(div().w(px(50.)).flex_none().pr(px(8.)).whitespace_nowrap().text_color(t.fg_muted).child(label))
                     .child(div().flex_1().min_w_0().text_color(t.fg).child(super::groups::flatten(&value)))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.copy(copy.clone(), cx))),

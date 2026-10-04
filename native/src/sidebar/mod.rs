@@ -29,6 +29,7 @@ pub mod search_input;
 pub mod selftest;
 pub mod tree;
 
+use crate::{tr, ts};
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -273,7 +274,7 @@ impl SidebarView {
         let g = status_groups(list, &filtered, &opened, &pinned, sort);
         let project_view = p.view == "project";
         let group = |id: &str, label: &str, warn: bool, rows: &[usize]| TreeGroup { id: id.into(), label: label.into(), warn, rows: rows.to_vec() };
-        let top = vec![group("pinned", "置顶", false, &g.pinned), group("opened", "已打开", false, &g.opened)];
+        let top = vec![group("pinned", &tr!("sidebar.menu.pin"), false, &g.pinned), group("opened", &tr!("sidebar.group.opened"), false, &g.opened)];
         let (mut labeled, mut history, mut projects) = (Vec::new(), Vec::new(), Vec::new());
         self.project_keys.clear();
         self.project_active.clear();
@@ -294,9 +295,9 @@ impl SidebarView {
             }
         } else {
             labeled = vec![
-                group("attention", "需要回应", true, &g.attention),
-                group("busy", groups::status_label::BUSY, false, &g.busy),
-                group("idle", groups::status_label::IDLE, false, &g.idle),
+                group("attention", &tr!("sidebar.group.attention"), true, &g.attention),
+                group("busy", &groups::status_label::busy(), false, &g.busy),
+                group("idle", &groups::status_label::idle(), false, &g.idle),
             ];
             // 历史按日期分段只在「最近活动」排序时做；别的排序是一个没有标题、不可折叠的组
             history = if sort == SortKey::Recent {
@@ -381,7 +382,7 @@ impl SidebarView {
         let Some(m) = self.state.read(cx).session(id).cloned() else { return };
         let already_open = opened_order(&self.state.read(cx).workspace.state).iter().any(|x| *x == m.session_id);
         if !already_open && m.running && m.pid != 0 {
-            toast(format!("该 session 正在运行中（PID {}），不能重复启动", m.pid), crate::overlays::toast::ALREADY_RUNNING, cx);
+            toast(ts!("sidebar.toast.already_running", pid = m.pid), crate::overlays::toast::ALREADY_RUNNING, cx);
             return;
         }
         if !already_open && !m.cwd.is_empty() && !m.storage_folder.is_empty() {
@@ -428,7 +429,7 @@ impl SidebarView {
         if m.archived {
             match makit_core::archive::unarchive_session(m.session_id.clone()) {
                 Ok(()) => self.patch_session(&m.session_id, cx, |x| x.archived = false),
-                Err(e) => toast(format!("归档失败: {e}"), crate::overlays::toast::ARCHIVE_FAIL, cx),
+                Err(e) => toast(ts!("sidebar.toast.archive_failed", error = e), crate::overlays::toast::ARCHIVE_FAIL, cx),
             }
             return;
         }
@@ -436,11 +437,13 @@ impl SidebarView {
             self.do_archive(m, cx);
             return;
         }
+        let (confirm_title, confirm_detail) = (ts!("sidebar.archive.confirm_title"), ts!("sidebar.archive.confirm_detail", pid = m.pid));
+        let (archive_label, cancel_label) = (ts!("sidebar.menu.archive"), ts!("common.cancel"));
         let answer = window.prompt(
             gpui::PromptLevel::Warning,
-            "确定归档？",
-            Some(&format!("该 session 正在运行中（PID {}），归档将关闭终端并杀死子进程。", m.pid)),
-            &["归档", "取消"],
+            &confirm_title,
+            Some(&confirm_detail),
+            &[archive_label.as_str(), cancel_label.as_str()],
             cx,
         );
         cx.spawn(async move |this, cx| {
@@ -461,7 +464,7 @@ impl SidebarView {
             s.archiving.remove(&id);
         });
         if let Err(e) = res {
-            toast(format!("归档失败: {e}"), crate::overlays::toast::ARCHIVE_FAIL, cx);
+            toast(ts!("sidebar.toast.archive_failed", error = e), crate::overlays::toast::ARCHIVE_FAIL, cx);
             return;
         }
         // 关它的全部标签。子进程先杀（closeTabWithChildren：逃出进程组的那些不杀会留在机器上）

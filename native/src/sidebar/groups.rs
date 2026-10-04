@@ -6,6 +6,7 @@
 //! `[短 id]`、昨天的会话出现在「今天」下面、时间显示成「200d」—— 肉眼很难对出来。
 //! 测试向量逐条移植自 `scripts/test-sidebar-groups.ts`、`test-session-status.ts`、`test-session-title.ts`。
 
+use crate::{tr, ts};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
@@ -13,17 +14,30 @@ use makit_core::SessionMeta;
 
 /// 状态的**唯一一套叫法**（`sessionStatus.ts` 的 STATUS_LABEL），侧栏和 ⌘K 都从这里取（#187）
 pub mod status_label {
-    pub const WAITING_APPROVAL: &str = "等待审批";
-    pub const WAITING_USER: &str = "等待回答";
-    pub const BUSY: &str = "进行中";
-    pub const IDLE: &str = "空闲";
-    pub const STOPPED: &str = "已停止";
-    pub const ARCHIVED: &str = "已归档";
+    use crate::ts;
+    pub fn waiting_approval() -> String {
+        ts!("status.waiting_approval")
+    }
+    pub fn waiting_user() -> String {
+        ts!("status.waiting_user")
+    }
+    pub fn busy() -> String {
+        ts!("status.busy")
+    }
+    pub fn idle() -> String {
+        ts!("status.idle")
+    }
+    pub fn stopped() -> String {
+        ts!("status.stopped")
+    }
+    pub fn archived() -> String {
+        ts!("status.archived")
+    }
 }
 
 /// 在等你的会话具体在等什么：`waiting_for == "user"` 是等你回答问题，其余都是等你批准操作
-pub fn waiting_label(waiting_for: &str) -> &'static str {
-    if waiting_for == "user" { status_label::WAITING_USER } else { status_label::WAITING_APPROVAL }
+pub fn waiting_label(waiting_for: &str) -> String {
+    if waiting_for == "user" { status_label::waiting_user() } else { status_label::waiting_approval() }
 }
 
 /// 状态点的四档，顺序即优先级：等你处理 > 正在跑 > 活着但闲着 > 已停止
@@ -55,12 +69,12 @@ impl RunState {
     }
 
     /// 状态点的 tooltip（`runStateTitle`），开头的词和分组名一致
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            RunState::Waiting => "需要回应：在等你批准操作或回答问题",
-            RunState::Busy => "进行中：进程活着且在产出",
-            RunState::Idle => "空闲：进程活着，点进去可以直接接着用",
-            RunState::Stopped => "已停止：进程不在了，打开会恢复之前的上下文",
+            RunState::Waiting => ts!("status.hint.waiting"),
+            RunState::Busy => ts!("status.hint.busy"),
+            RunState::Idle => ts!("status.hint.idle"),
+            RunState::Stopped => ts!("status.hint.stopped"),
         }
     }
 }
@@ -90,7 +104,7 @@ pub fn session_title(display_name: &str, first_user_msg: &str, short_id: &str) -
 pub fn project_name(git_root: &str, cwd: &str) -> String {
     let path = if git_root.is_empty() { cwd } else { git_root };
     let name = path.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    if name.is_empty() { "其他".to_string() } else { name.to_string() }
+    if name.is_empty() { tr!("sidebar.group.other").to_string() } else { name.to_string() }
 }
 
 /// 同 SessionTree.tsx 的 `basename`：去掉结尾的 `/` 取最后一段，取不到就原样返回
@@ -106,7 +120,7 @@ pub fn basename(path: &str) -> String {
 pub fn relative_time(mtime: i64, now: i64) -> String {
     let diff = now - mtime;
     if diff < 60 {
-        "刚刚".to_string()
+        tr!("time.just_now").to_string()
     } else if diff < 3600 {
         format!("{}m", diff / 60)
     } else if diff < 86400 {
@@ -159,12 +173,12 @@ pub fn reveal_show_archived(target_archived: bool) -> bool {
 }
 
 /// 定位结果对用户说的话。**只有真的定位到了才说「已定位」**：以前不管找没找到都弹，用户看到「已定位」却什么都没发生
-pub fn reveal_message(r: RevealResult) -> &'static str {
+pub fn reveal_message(r: RevealResult) -> String {
     match r {
-        RevealResult::Located => "已定位 session",
-        RevealResult::LocatedArchived => "已定位（这条会话已归档，已显示归档的会话）",
-        RevealResult::NotInList => "没有找到这条会话（可能还没有第一条消息，或已被清理）",
-        RevealResult::NotShown => "没能在侧栏里定位到这条会话",
+        RevealResult::Located => ts!("sidebar.reveal.located"),
+        RevealResult::LocatedArchived => ts!("sidebar.reveal.located_archived"),
+        RevealResult::NotInList => ts!("sidebar.reveal.not_in_list"),
+        RevealResult::NotShown => ts!("sidebar.reveal.not_shown"),
     }
 }
 
@@ -299,13 +313,13 @@ pub fn day_buckets_with(list: &[SessionMeta], rows: &[usize], now: i64, ymd: imp
         let (y, m, d) = ymd(list[i].mtime);
         let diff = today - days_from_civil(y, m, d);
         let (id, label) = if diff <= 0 {
-            ("day-today".to_string(), "今天".to_string())
+            ("day-today".to_string(), tr!("time.today").to_string())
         } else if diff == 1 {
-            ("day-yesterday".to_string(), "昨天".to_string())
+            ("day-yesterday".to_string(), tr!("time.yesterday").to_string())
         } else if diff < SINGLE_DAYS {
-            (format!("day-{y}-{m}-{d}"), format!("{m}月{d}日"))
+            (format!("day-{y}-{m}-{d}"), ts!("time.month_day", m = m, d = d))
         } else {
-            ("day-older".to_string(), "更早".to_string())
+            ("day-older".to_string(), tr!("time.older").to_string())
         };
         match buckets.iter_mut().find(|(b, _)| b.id == id) {
             Some((b, newest)) => {
@@ -376,8 +390,9 @@ pub fn project_groups(list: &[SessionMeta], rows: &[usize]) -> Vec<ProjectGroup>
         .map(|git_root| {
             let mut rows = map.remove(&git_root).unwrap_or_default();
             let name = if git_root.is_empty() {
-                let first_cwd = rows.first().map(|&i| list[i].cwd.as_str()).filter(|c| !c.is_empty()).unwrap_or("其他");
-                Some(basename(first_cwd)).filter(|n| !n.is_empty()).unwrap_or_else(|| "其他".into())
+                let other = ts!("sidebar.group.other");
+                let first_cwd = rows.first().map(|&i| list[i].cwd.as_str()).filter(|c| !c.is_empty()).unwrap_or(other.as_str());
+                Some(basename(first_cwd)).filter(|n| !n.is_empty()).unwrap_or_else(|| tr!("sidebar.group.other").into())
             } else {
                 basename(&git_root)
             };
@@ -437,7 +452,7 @@ pub(crate) mod tests {
         assert_eq!(RunState::Idle.icon(), "●");
         assert_eq!(RunState::Stopped.icon(), "○");
         let all = [RunState::Waiting, RunState::Busy, RunState::Idle, RunState::Stopped];
-        let titles: HashSet<&str> = all.iter().map(|s| s.title()).collect();
+        let titles: HashSet<String> = all.iter().map(|s| s.title()).collect();
         assert_eq!(titles.len(), 4, "四档 tooltip 互不相同");
         assert!(all.iter().all(|s| s.title().chars().count() > 4));
     }
@@ -623,7 +638,17 @@ pub(crate) mod tests {
     #[test]
     fn status_vocabulary() {
         use status_label::*;
-        assert_eq!([WAITING_APPROVAL, WAITING_USER, BUSY, IDLE, STOPPED, ARCHIVED], ["等待审批", "等待回答", "进行中", "空闲", "已停止", "已归档"]);
+        assert_eq!([waiting_approval(), waiting_user(), busy(), idle(), stopped(), archived()], ["等待审批", "等待回答", "进行中", "空闲", "已停止", "已归档"]);
+        for (key, en) in [
+            ("status.waiting_approval", "Waiting for approval"),
+            ("status.waiting_user", "Waiting for answer"),
+            ("status.busy", "Running"),
+            ("status.idle", "Idle"),
+            ("status.stopped", "Stopped"),
+            ("status.archived", "Archived"),
+        ] {
+            assert_eq!(ts!(key, locale = "en"), en);
+        }
         assert_eq!(waiting_label("user"), "等待回答");
         assert_eq!(waiting_label("permission"), "等待审批");
         assert_eq!(waiting_label(""), "等待审批");

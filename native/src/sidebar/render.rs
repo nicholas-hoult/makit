@@ -1,6 +1,7 @@
 //! 侧栏的画法。数值全部照 `SessionTree.css`（注释里写着对应的选择器），颜色走主题派生色。
 
 
+use crate::{tr, ts};
 use gpui::{
     div, img, list, prelude::*, px, radians, rgb, svg, AnyElement, ClickEvent, Context,
     CursorStyle, DragMoveEvent, FontWeight, Hsla, MouseButton, MouseDownEvent, SharedString, Transformation, Window,
@@ -73,7 +74,7 @@ impl SidebarView {
     /// `.tree-group-label`：10px 弱文字，padding 2 12 3 4，gap 5；可折叠时整行可点，hover 才给底色
     fn render_group_header(&mut self, id: String, label: String, count: usize, collapsed: bool, warn: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let color = if warn { t.warning } else { t.fg_muted };
-        let tooltip = if collapsed { format!("展开「{label}」") } else { format!("折叠「{label}」") };
+        let tooltip = if collapsed { ts!("sidebar.tooltip.expand", label = label) } else { ts!("sidebar.tooltip.collapse", label = label) };
         div()
             .h(px(GROUP_LABEL_H))
             // 列表条目默认按内容宽：不撑满的话 hover 底色只盖住文字（Tauri 的 .tree-group-label 是整行块级）
@@ -177,7 +178,7 @@ impl SidebarView {
                     .invisible()
                     .group_hover("tree-project-header", |s| s.visible())
                     .hover(|s| s.bg(t.bg_active).text_color(t.fg))
-                    .tooltip(tip(format!("在 {name2} 新建 session（⌘点击新建 shell）")))
+                    .tooltip(tip(ts!("sidebar.tooltip.new_session", name = name2)))
                     .child("+")
                     .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                         cx.stop_propagation();
@@ -322,7 +323,7 @@ impl SidebarView {
                 ),
                 _ => d,
             })
-            .when(m.status == "busy", |d| d.child(div().flex_none().text_color(t.info).child(status_label::BUSY)))
+            .when(m.status == "busy", |d| d.child(div().flex_none().text_color(t.info).child(status_label::busy())))
             .when(show_project, |d| d.child(div().min_w_0().truncate().opacity(0.7).child(project)))
             // 「·」只在前面已经有文字段的时候才画（项目名被隐藏时，第一段前面不该有点）
             .when(show_id, |d| d.when(show_project, |d| d.child(sub(div()).child("·"))).child(sub(div()).child(format!("[{}]", m.short_id))))
@@ -409,7 +410,7 @@ impl SidebarView {
                     .rounded(px(4.))
                     .cursor_pointer()
                     .hover(|s| s.bg(t.bg_hover))
-                    .tooltip(tip(if any_collapsed { "展开全部分组（⌘⇧E）" } else { "折叠全部分组（⌘⇧E）" }))
+                    .tooltip(tip(if any_collapsed { tr!("sidebar.tooltip.expand_all") } else { tr!("sidebar.tooltip.collapse_all") }))
                     .child(svg().path(if any_collapsed { "icons/sidebar-expand-all.svg" } else { "icons/sidebar-collapse-all.svg" }).size(px(14.)).text_color(t.fg_muted))
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_all_groups(cx))),
             )
@@ -427,7 +428,7 @@ impl SidebarView {
                     .cursor_pointer()
                     .hover(|s| s.bg(t.bg_hover))
                     .when(open, |d| d.bg(t.bg_hover))
-                    .tooltip(tip("显示选项"))
+                    .tooltip(tip(tr!("sidebar.tooltip.options")))
                     .child(svg().path("icons/sidebar-options.svg").size(px(14.)).text_color(if changed { t.var("--accent-text") } else { t.fg_muted }))
                     .on_mouse_down(
                         MouseButton::Left,
@@ -582,7 +583,7 @@ impl Render for SidebarView {
             .cursor(CursorStyle::ResizeLeftRight)
             .when(self.resizing, |d| d.bg(theme.accent))
             .hover(|s| s.bg(theme.accent))
-            .tooltip(tip("拖拽调整宽度"))
+            .tooltip(tip(tr!("sidebar.tooltip.resize")))
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                 this.resizer_hovered = *hovered;
                 cx.notify();

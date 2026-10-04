@@ -10,6 +10,7 @@
 //! 忘了摘掉折叠组，↑↓ 就走到不存在的行上、选中框凭空消失。用例移植自 `scripts/test-tree-order.ts`、
 //! `scripts/test-tree-nav.ts`（moveSelection 部分），外加几何（居中 / 贴边 / 增量 splice）的边界。
 
+use crate::ts;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -143,15 +144,15 @@ impl Tree {
 }
 
 /// 列表为空时侧栏显示的那一行字（#256 B1：读不了会话目录时不能说「无 session」）
-pub fn empty_text(loaded: bool, has_query: bool, unreadable_dirs: bool) -> &'static str {
+pub fn empty_text(loaded: bool, has_query: bool, unreadable_dirs: bool) -> String {
     if !loaded {
-        "加载中…"
+        ts!("sidebar.empty.loading")
     } else if has_query {
-        "无匹配 session"
+        ts!("sidebar.empty.no_match")
     } else if unreadable_dirs {
-        "读不了会话目录"
+        ts!("sidebar.empty.unreadable")
     } else {
-        "无 session"
+        ts!("sidebar.empty.none")
     }
 }
 

@@ -4,6 +4,7 @@
 //! shell / claude 自己……），条件写错在界面上是「多了一行重复信息」或「该有的 PID 没了」，
 //! 而卡片要悬停 400ms 才出来，肉眼回归很难覆盖全。
 
+use crate::{tr, ts};
 use makit_core::SessionMeta;
 
 /// 悬停多久出卡片：`makit-hover-mode` = always（400ms）/ cmd（按住 ⌘ 才出，立刻）/ off。None = 不出
@@ -89,7 +90,7 @@ fn clip(s: &str, n: usize) -> String {
 }
 
 /// 卡片的每一行（标签, 值）。点一行复制它的值
-pub fn card_rows(s: &SessionMeta) -> Vec<(&'static str, String)> {
+pub fn card_rows(s: &SessionMeta) -> Vec<(String, String)> {
     const HIDDEN: [&str; 6] = ["sh", "bash", "zsh", "ps", "claude", "caffeinate"];
     let procs: Vec<String> = s
         .child_processes
@@ -98,30 +99,30 @@ pub fn card_rows(s: &SessionMeta) -> Vec<(&'static str, String)> {
         .map(|p| format!("{}({})", command_head(&p.command), p.pid))
         .collect();
     let cwd_same = s.last_cwd.is_empty() || s.last_cwd == s.cwd;
-    let mut rows = vec![("ID", s.session_id.clone()), ("启动 cwd", s.cwd.clone())];
+    let mut rows = vec![("ID".to_string(), s.session_id.clone()), (ts!("sidebar.hover.start_cwd"), s.cwd.clone())];
     if !cwd_same {
-        rows.push(("当前 cwd", s.last_cwd.clone()));
+        rows.push((ts!("sidebar.hover.current_cwd"), s.last_cwd.clone()));
     }
     if !s.git_root.is_empty() && s.git_root != s.cwd {
-        rows.push(("项目", s.git_root.clone()));
+        rows.push((ts!("sidebar.hover.project"), s.git_root.clone()));
     }
     if !s.git_branch.is_empty() {
-        rows.push(("分支", s.git_branch.clone()));
+        rows.push((ts!("sidebar.hover.branch"), s.git_branch.clone()));
     }
-    rows.push(("消息", format!("{} 条", s.user_msg_count)));
+    rows.push((ts!("sidebar.hover.messages"), ts!("sidebar.hover.count", n = s.user_msg_count)));
     if !s.first_user_msg.is_empty() {
-        rows.push(("首话题", clip(&s.first_user_msg, 80)));
+        rows.push((ts!("sidebar.hover.first_topic"), clip(&s.first_user_msg, 80)));
     }
     if !s.last_user_msg.is_empty() && s.last_user_msg != s.first_user_msg {
-        rows.push(("末话题", clip(&s.last_user_msg, 80)));
+        rows.push((ts!("sidebar.hover.last_topic"), clip(&s.last_user_msg, 80)));
     }
     if s.running {
-        rows.push(("PID", s.pid.to_string()));
+        rows.push(("PID".to_string(), s.pid.to_string()));
     }
     if !procs.is_empty() {
-        rows.push(("子进程", procs.join(", ")));
+        rows.push((ts!("sidebar.hover.child_procs"), procs.join(", ")));
     }
-    rows.push(("时间", s.mtime_display.clone()));
+    rows.push((ts!("sidebar.hover.time"), s.mtime_display.clone()));
     rows
 }
 
@@ -180,7 +181,7 @@ mod tests {
     fn minimal_rows() {
         let s = SessionMeta { mtime_display: "2026-09-27 10:00".into(), last_cwd: String::new(), first_user_msg: String::new(), ..session("abc") };
         let rows = card_rows(&s);
-        let labels: Vec<&str> = rows.iter().map(|r| r.0).collect();
+        let labels: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
         assert_eq!(labels, ["ID", "启动 cwd", "消息", "时间"], "cwd 相同、没分支、没话题、没在跑");
         assert_eq!(rows[2].1, "1 条");
         assert_eq!(card_title(&s), "[abc]");
@@ -209,15 +210,15 @@ mod tests {
             ..session("abc")
         };
         let rows = card_rows(&s);
-        let labels: Vec<&str> = rows.iter().map(|r| r.0).collect();
+        let labels: Vec<String> = rows.iter().map(|r| r.0.clone()).collect();
         assert_eq!(labels, ["ID", "启动 cwd", "当前 cwd", "项目", "分支", "消息", "首话题", "末话题", "PID", "子进程", "时间"]);
         assert_eq!(rows[6].1.chars().count(), 80, "首话题截 80 字");
         assert_eq!(rows[8].1, "42");
         assert_eq!(rows[9].1, "node(2), cargo(5)", "滤掉 sh/bash/zsh/ps/claude/caffeinate");
         assert_eq!(card_title(&s), "改过名");
         let same = SessionMeta { last_user_msg: long.clone(), first_user_msg: long, git_root: "/p".into(), ..s };
-        let labels: Vec<&str> = card_rows(&same).iter().map(|r| r.0).collect();
-        assert!(!labels.contains(&"末话题"), "末话题和首话题相同不重复");
-        assert!(!labels.contains(&"项目"), "项目和 cwd 相同不重复");
+        let labels: Vec<String> = card_rows(&same).iter().map(|r| r.0.clone()).collect();
+        assert!(!labels.iter().any(|l| l == "末话题"), "末话题和首话题相同不重复");
+        assert!(!labels.iter().any(|l| l == "项目"), "项目和 cwd 相同不重复");
     }
 }
