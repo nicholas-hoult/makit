@@ -4,6 +4,7 @@
 //! 为什么单独测：这块文字错了，用户第一眼就被误导——明明装了却说没找到（以为 makit 坏了），或没装却让人去「新建会话」。
 //! 另外**不能说「没安装」**：我们只能检测到命令在不在常见位置、会话目录在不在，检测不到不等于没装（可能装在 shell 配置的路径里）。
 
+use crate::ts;
 use makit_core::environment::{ErrKind, ToolPresence};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,8 +16,8 @@ pub struct EmptyHint {
     pub status: String,
 }
 
-fn mark(found: bool) -> &'static str {
-    if found { "已检测到" } else { "没检测到" }
+fn mark(found: bool) -> String {
+    if found { ts!("hint.detected") } else { ts!("hint.not_detected") }
 }
 
 /// 没加载完、或已经有会话 → 不显示。`new_tab_key` 是「新建终端」的键帽文字（从快捷键表取，不写死）
@@ -31,26 +32,26 @@ pub fn empty_hint(tools: &ToolPresence, session_count: usize, loaded: bool, new_
         let lines = unreadable
             .iter()
             .map(|(path, kind)| match kind {
-                ErrKind::PermissionDenied => format!("makit 想读取 {path}，但系统拒绝了（权限不足）。请检查这个目录的读取权限。"),
-                ErrKind::Other => format!("makit 想读取 {path}，但读取失败。请检查这个目录是否可用（比如外置盘有没有挂载）。"),
+                ErrKind::PermissionDenied => ts!("hint.read_denied", path = path),
+                ErrKind::Other => ts!("hint.read_failed", path = path),
             })
             .collect();
-        return Some(EmptyHint { title: "读不了会话目录".into(), lines, status });
+        return Some(EmptyHint { title: ts!("sidebar.empty.unreadable").into(), lines, status });
     }
     if !tools.any() {
         return Some(EmptyHint {
-            title: "还没有找到 Claude Code 或 Codex".into(),
+            title: ts!("hint.not_found.title").into(),
             lines: vec![
-                "makit 管理本机的 Claude Code 和 Codex 会话，请先安装其中一个。".into(),
-                "装好后在终端里运行 claude 或 codex 开始第一个会话，它会自动出现在左侧。".into(),
-                "已经装过？可能装在我们没有检索的位置：直接在 makit 的终端里运行 claude / codex 也行，会话出现后会被识别。".into(),
+                ts!("hint.not_found.line1").into(),
+                ts!("hint.not_found.line2").into(),
+                ts!("hint.not_found.line3").into(),
             ],
             status,
         });
     }
     Some(EmptyHint {
-        title: "还没有会话".into(),
-        lines: vec![format!("按 {new_tab_key} 新建一个终端，运行 claude 或 codex 开始第一个会话，它会自动出现在左侧。")],
+        title: ts!("hint.no_sessions.title").into(),
+        lines: vec![ts!("hint.no_sessions.line", key = new_tab_key)],
         status,
     })
 }

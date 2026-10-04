@@ -5,6 +5,7 @@
 //! 错了在界面上是「搜得到但没高亮」「置顶的沉到下面」「上次的筛选忘了清、打开一片空白」——
 //! 肉眼回归不了，TS 版也没有测试钉住。
 
+use crate::ts;
 use std::ops::Range;
 
 use makit_core::SessionMeta;
@@ -15,12 +16,6 @@ use crate::sidebar::groups::session_title;
 // ---------- 状态 ----------
 
 /// 状态的唯一一套叫法（`sessionStatus.ts` 的 STATUS_LABEL，#187：侧栏和 ⌘K 同一套词）
-pub const LABEL_WAITING_APPROVAL: &str = "等待审批";
-pub const LABEL_WAITING_USER: &str = "等待回答";
-pub const LABEL_BUSY: &str = "进行中";
-pub const LABEL_IDLE: &str = "空闲";
-pub const LABEL_STOPPED: &str = "已停止";
-pub const LABEL_ARCHIVED: &str = "已归档";
 
 /// 条目上的状态（决定状态点颜色、药丸）
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,14 +58,14 @@ impl StatusKey {
         Self::ALL.into_iter().find(|k| k.as_str() == s)
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            StatusKey::WaitingApproval => LABEL_WAITING_APPROVAL,
-            StatusKey::WaitingUser => LABEL_WAITING_USER,
-            StatusKey::Busy => LABEL_BUSY,
-            StatusKey::Idle => LABEL_IDLE,
-            StatusKey::Stopped => LABEL_STOPPED,
-            StatusKey::Archived => LABEL_ARCHIVED,
+            StatusKey::WaitingApproval => crate::sidebar::groups::status_label::waiting_approval(),
+            StatusKey::WaitingUser => crate::sidebar::groups::status_label::waiting_user(),
+            StatusKey::Busy => crate::sidebar::groups::status_label::busy(),
+            StatusKey::Idle => crate::sidebar::groups::status_label::idle(),
+            StatusKey::Stopped => crate::sidebar::groups::status_label::stopped(),
+            StatusKey::Archived => crate::sidebar::groups::status_label::archived(),
         }
     }
 
@@ -113,11 +108,11 @@ impl SortKey {
             SortKey::FirstMsg => "firstMsg",
         }
     }
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            SortKey::Recent => "最近活动",
-            SortKey::Count => "消息数",
-            SortKey::FirstMsg => "首条消息",
+            SortKey::Recent => ts!("sidebar.options.sort_recent"),
+            SortKey::Count => ts!("sidebar.options.sort_count"),
+            SortKey::FirstMsg => ts!("sidebar.options.sort_first"),
         }
     }
     pub const ALL: [SortKey; 3] = [SortKey::Recent, SortKey::Count, SortKey::FirstMsg];
@@ -142,12 +137,12 @@ impl TimeFilter {
             TimeFilter::Month => "month",
         }
     }
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            TimeFilter::All => "全部",
-            TimeFilter::Today => "今天",
-            TimeFilter::Week => "最近一周",
-            TimeFilter::Month => "最近一个月",
+            TimeFilter::All => ts!("palette.filter.all"),
+            TimeFilter::Today => ts!("time.today"),
+            TimeFilter::Week => ts!("palette.time.week"),
+            TimeFilter::Month => ts!("palette.time.month"),
         }
     }
     fn parse(s: &str) -> Option<Self> {
@@ -299,12 +294,12 @@ pub fn build_items(sessions: &[SessionMeta], pinned: &[String], sort: SortKey) -
             ItemStatus::Stopped
         };
         let status_label = match status {
-            ItemStatus::Waiting if s.waiting_for == "user" => LABEL_WAITING_USER,
-            ItemStatus::Waiting => LABEL_WAITING_APPROVAL,
-            ItemStatus::Busy => LABEL_BUSY,
-            ItemStatus::Idle => LABEL_IDLE,
-            ItemStatus::Stopped => LABEL_STOPPED,
-            ItemStatus::Archived => LABEL_ARCHIVED,
+            ItemStatus::Waiting if s.waiting_for == "user" => crate::sidebar::groups::status_label::waiting_user(),
+            ItemStatus::Waiting => crate::sidebar::groups::status_label::waiting_approval(),
+            ItemStatus::Busy => crate::sidebar::groups::status_label::busy(),
+            ItemStatus::Idle => crate::sidebar::groups::status_label::idle(),
+            ItemStatus::Stopped => crate::sidebar::groups::status_label::stopped(),
+            ItemStatus::Archived => crate::sidebar::groups::status_label::archived(),
         };
         let root = s.cwd.rsplit('/').next().unwrap_or("");
         let branch = if s.git_branch.is_empty() { String::new() } else { format!(" · @{}", s.git_branch) };
@@ -328,22 +323,22 @@ pub fn build_items(sessions: &[SessionMeta], pinned: &[String], sort: SortKey) -
         });
     };
     for s in sort_sessions(waiting(true), sort, pinned) {
-        push(s, LABEL_WAITING_USER);
+        push(s, &crate::sidebar::groups::status_label::waiting_user());
     }
     for s in sort_sessions(waiting(false), sort, pinned) {
-        push(s, LABEL_WAITING_APPROVAL);
+        push(s, &crate::sidebar::groups::status_label::waiting_approval());
     }
     for s in sort_sessions(busy, sort, pinned) {
-        push(s, LABEL_BUSY);
+        push(s, &crate::sidebar::groups::status_label::busy());
     }
     for s in sort_sessions(idle, sort, pinned) {
-        push(s, LABEL_IDLE);
+        push(s, &crate::sidebar::groups::status_label::idle());
     }
     for s in sort_sessions(stopped, sort, pinned).into_iter().take(GROUP_CAP) {
-        push(s, LABEL_STOPPED);
+        push(s, &crate::sidebar::groups::status_label::stopped());
     }
     for s in sort_sessions(archived, sort, pinned).into_iter().take(GROUP_CAP) {
-        push(s, LABEL_ARCHIVED);
+        push(s, &crate::sidebar::groups::status_label::archived());
     }
     items
 }

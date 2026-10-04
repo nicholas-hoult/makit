@@ -34,6 +34,7 @@ pub mod splitter;
 pub mod titlebar;
 pub mod welcome;
 
+use crate::tr;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -545,12 +546,12 @@ impl WorkspaceView {
                 let (w1, w2, w3, w4) = (w.clone(), w.clone(), w.clone(), w);
                 let tid_empty = tid.is_empty();
                 vec![
-                    OM::action("左右分屏", move |_, cx| drop(w1.update(cx, |v, cx| v.split_container(&c1, Dir::V, cx)))),
-                    OM::action("上下分屏", move |_, cx| drop(w2.update(cx, |v, cx| v.split_container(&c2, Dir::H, cx)))),
-                    OM::action("新终端", move |_, cx| drop(w3.update(cx, |v, cx| v.new_shell_in(&c3, cx)))),
+                    OM::action(tr!("workspace.menu.split_right"), move |_, cx| drop(w1.update(cx, |v, cx| v.split_container(&c1, Dir::V, cx)))),
+                    OM::action(tr!("workspace.menu.split_down"), move |_, cx| drop(w2.update(cx, |v, cx| v.split_container(&c2, Dir::H, cx)))),
+                    OM::action(tr!("workspace.menu.new_terminal"), move |_, cx| drop(w3.update(cx, |v, cx| v.new_shell_in(&c3, cx)))),
                     OM::separator(),
                     // 明确写「当前」：这个菜单是在 pane 上右键弹的，没有「某个 tab」可指
-                    OM::action("关闭当前 tab", move |_, cx| drop(w4.update(cx, |v, cx| v.close_tab(&c4, &tid, cx)))).disabled(tid_empty),
+                    OM::action(tr!("workspace.menu.close_current"), move |_, cx| drop(w4.update(cx, |v, cx| v.close_tab(&c4, &tid, cx)))).disabled(tid_empty),
                 ]
             }
             MenuTarget::Tab { cid, tid } => {
@@ -587,25 +588,25 @@ impl WorkspaceView {
                 let (p1, p2) = (cwd.clone(), cwd.clone());
                 let resume_has = resume.is_some();
                 vec![
-                    OM::action("关闭", close_one),
-                    OM::action("关闭其他", close_others).disabled(others.is_empty()),
-                    OM::action("关闭右侧", close_right).disabled(right.is_empty()),
+                    OM::action(tr!("workspace.menu.close"), close_one),
+                    OM::action(tr!("workspace.menu.close_others"), close_others).disabled(others.is_empty()),
+                    OM::action(tr!("workspace.menu.close_right"), close_right).disabled(right.is_empty()),
                     OM::separator(),
                     // 只有一个 tab 时禁用：拆出去还是「一个 pane 一个 tab」，而且源 container 会先被摘掉
-                    OM::action("移到左右分屏", mv(Dir::V)).disabled(single),
-                    OM::action("移到上下分屏", mv(Dir::H)).disabled(single),
+                    OM::action(tr!("workspace.menu.move_right"), mv(Dir::V)).disabled(single),
+                    OM::action(tr!("workspace.menu.move_down"), mv(Dir::H)).disabled(single),
                     OM::separator(),
-                    OM::action("在 Finder 中显示", move |_, _| {
+                    OM::action(tr!("sidebar.menu.reveal"), move |_, _| {
                         let _ = makit_core::paths::open_path(p1.clone(), true);
                     }),
-                    OM::action("复制路径", move |_, cx| {
+                    OM::action(tr!("sidebar.menu.copy_path"), move |_, cx| {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(p2.clone()));
-                        show_toast("已复制", toast::COPY_OK, cx);
+                        show_toast(tr!("common.copied"), toast::COPY_OK, cx);
                     }),
-                    OM::action("复制恢复命令", move |_, cx| {
+                    OM::action(tr!("sidebar.menu.copy_resume"), move |_, cx| {
                         if let Some(r) = &resume {
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(r.clone()));
-                            show_toast("已复制", toast::COPY_OK, cx);
+                            show_toast(tr!("common.copied"), toast::COPY_OK, cx);
                         }
                     })
                     .disabled(!resume_has),
@@ -811,7 +812,7 @@ impl WorkspaceView {
                             .text_size(px(9.0))
                             .opacity(0.7)
                             .child(kind_icon(t.kind))
-                            .tooltip(crate::tooltip::tip("在侧栏定位 session"))
+                            .tooltip(crate::tooltip::tip(tr!("workspace.tooltip.locate")))
                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                                 cx.stop_propagation();
                                 // 先切到这个标签，再让侧栏定位「当前会话」（B 包的 RevealActive）
@@ -887,7 +888,7 @@ impl WorkspaceView {
             })
             .collect();
 
-        let btn = |id: String, icon: &'static str, on: bool, tip: &'static str| {
+        let btn = |id: String, icon: &'static str, on: bool, tip: SharedString| {
             let gid = SharedString::from(id.clone());
             div()
                 .id(SharedString::from(id))
@@ -920,19 +921,19 @@ impl WorkspaceView {
             .items_center()
             // 多 pane 时非活跃 pane 的按钮收起来，hover 再露出
             .when(!is_active, |d| d.opacity(0.0).group_hover(pane_group, |s| s.opacity(1.0)))
-            .child(btn(format!("btn-new-{}", c.id), "icons/container-new-terminal.svg", false, "新终端 (⌘T)").on_click(cx.listener(
+            .child(btn(format!("btn-new-{}", c.id), "icons/container-new-terminal.svg", false, tr!("workspace.tooltip.new_terminal")).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
                     this.new_shell_in(&c1, cx)
                 },
             )))
-            .child(btn(format!("btn-splitv-{}", c.id), "icons/container-split-v.svg", false, "左右分屏 (⌘D)").on_click(cx.listener(
+            .child(btn(format!("btn-splitv-{}", c.id), "icons/container-split-v.svg", false, tr!("workspace.tooltip.split_right")).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
                     this.split_container(&c2, Dir::V, cx)
                 },
             )))
-            .child(btn(format!("btn-splith-{}", c.id), "icons/container-split-h.svg", false, "上下分屏 (⌘⇧D)").on_click(cx.listener(
+            .child(btn(format!("btn-splith-{}", c.id), "icons/container-split-h.svg", false, tr!("workspace.tooltip.split_down")).on_click(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();
                     this.split_container(&c3, Dir::H, cx)
@@ -943,7 +944,7 @@ impl WorkspaceView {
                     format!("btn-max-{}", c.id),
                     if is_max { "icons/container-restore.svg" } else { "icons/container-maximize.svg" },
                     is_max,
-                    if is_max { "还原 (⌘⌥↩)" } else { "最大化 (⌘⌥↩)" },
+                    if is_max { tr!("workspace.tooltip.restore") } else { tr!("workspace.tooltip.maximize") },
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     cx.stop_propagation();

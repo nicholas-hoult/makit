@@ -4,6 +4,7 @@
 //! `useEffect([open])` 里重置的那几样。筛选 / 排序 / 折叠组 / 历史存在 `prefs.palette`。
 
 
+use crate::tr;
 use gpui::{
     div, prelude::*, px, relative, svg, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle,
     Focusable, FontWeight, HighlightStyle, Hsla, ScrollHandle, SharedString, StyledText, Transformation, Window,
@@ -50,7 +51,7 @@ impl EventEmitter<PaletteEvent> for PaletteView {}
 
 impl PaletteView {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| TextInput::new("搜索 session...  (⌘K)", cx));
+        let input = cx.new(|cx| TextInput::new(tr!("palette.placeholder"), cx));
         cx.subscribe(&input, |this, input, _: &TextInputEvent, cx| {
             this.query = input.read(cx).text().to_string();
             this.active = 0;
@@ -179,7 +180,7 @@ impl PaletteView {
             }
         };
         super::show_context_menu(ev.position(), window, cx, move |_| {
-            let mut items = vec![MenuItem::action("全部", pick(String::new())).checked(current.is_empty())];
+            let mut items = vec![MenuItem::action(tr!("palette.filter.all"), pick(String::new())).checked(current.is_empty())];
             for r in &roots {
                 items.push(MenuItem::action(project_label(r).to_string(), pick(r.clone())).checked(*r == current));
             }
@@ -338,10 +339,10 @@ impl PaletteView {
     }
 
     fn render_filter_panel(&self, theme: &Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let label = |t: &'static str| {
-            div().text_size(px(11.0)).text_color(theme.fg_subtle).mb(px(6.0)).font_weight(FontWeight::SEMIBOLD).child(t)
+        let label = |t: &str| {
+            div().text_size(px(11.0)).text_color(theme.fg_subtle).mb(px(6.0)).font_weight(FontWeight::SEMIBOLD).child(t.to_string())
         };
-        let row = |id: SharedString, checked: bool, radio: bool, glyph: Option<(&'static str, Hsla)>, text: &'static str| {
+        let row = |id: SharedString, checked: bool, radio: bool, glyph: Option<(&'static str, Hsla)>, text: &str| {
             let hover = theme.bg_hover;
             div()
                 .id(id)
@@ -358,13 +359,13 @@ impl PaletteView {
                 .hover(move |s| s.bg(hover))
                 .child(check_box(theme, checked, radio, 13.0))
                 .when_some(glyph, |d, (g, c)| d.child(div().w(px(13.0)).flex_none().flex().justify_center().text_size(px(11.0)).text_color(c).child(g)))
-                .child(text)
+                .child(text.to_string())
         };
         let section = || div().px(px(14.0)).py(px(12.0));
-        let project_name = if self.filter.project.is_empty() { "全部".to_string() } else { project_label(&self.filter.project).to_string() };
+        let project_name = if self.filter.project.is_empty() { tr!("palette.filter.all").to_string() } else { project_label(&self.filter.project).to_string() };
 
         let time_rows = TimeFilter::ALL.map(|t| {
-            row(SharedString::from(format!("ft-{}", t.as_str())), self.filter.time == t, true, None, t.label())
+            row(SharedString::from(format!("ft-{}", t.as_str())), self.filter.time == t, true, None, &t.label())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.filter.time = t;
                     this.save_filter(cx);
@@ -377,14 +378,14 @@ impl PaletteView {
                 StatusKey::Archived => theme.accent_alt,
                 _ => theme.fg_subtle,
             };
-            row(SharedString::from(format!("fs-{}", k.as_str())), self.filter.status.contains(&k), false, Some((k.glyph(), c)), k.label())
+            row(SharedString::from(format!("fs-{}", k.as_str())), self.filter.status.contains(&k), false, Some((k.glyph(), c)), &k.label())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.filter.toggle_status(k);
                     this.save_filter(cx);
                 }))
         });
         let sort_rows = SortKey::ALL.map(|k| {
-            row(SharedString::from(format!("fo-{}", k.as_str())), self.sort == k, true, None, k.label()).on_click(cx.listener(move |this, _, _, cx| this.set_sort(k, cx)))
+            row(SharedString::from(format!("fo-{}", k.as_str())), self.sort == k, true, None, &k.label()).on_click(cx.listener(move |this, _, _, cx| this.set_sort(k, cx)))
         });
         let (hover_bg, strong) = (theme.bg_hover, theme.border_strong);
 
@@ -410,14 +411,14 @@ impl PaletteView {
                     .border_color(theme.border)
                     .text_size(px(13.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("筛选")
+                    .child(tr!("palette.filter.title"))
                     .child(icon_btn(theme, "filter-close", "×", 22.0).on_click(cx.listener(|this, _, _, cx| {
                         this.filter_open = false;
                         cx.notify();
                     }))),
             )
             .child(
-                section().child(label("项目")).child(
+                section().child(label(&tr!("palette.filter.project"))).child(
                     div()
                         .id("filter-project")
                         .w_full()
@@ -438,18 +439,18 @@ impl PaletteView {
                         .on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_project_menu(ev, window, cx))),
                 ),
             )
-            .child(section().border_t_1().border_color(theme.border).child(label("时间")).children(time_rows))
-            .child(section().border_t_1().border_color(theme.border).child(label("运行状态（多选）")).children(status_rows))
+            .child(section().border_t_1().border_color(theme.border).child(label(&tr!("palette.filter.time"))).children(time_rows))
+            .child(section().border_t_1().border_color(theme.border).child(label(&tr!("palette.filter.status"))).children(status_rows))
             .child(
                 section()
                     .border_t_1()
                     .border_color(theme.border)
-                    .child(label("标签"))
-                    .child(row("f-pinned".into(), self.filter.pinned_only, false, None, "只看置顶").on_click(cx.listener(|this, _, _, cx| {
+                    .child(label(&tr!("palette.filter.tags")))
+                    .child(row("f-pinned".into(), self.filter.pinned_only, false, None, &tr!("palette.filter.pinned_only")).on_click(cx.listener(|this, _, _, cx| {
                         this.filter.pinned_only = !this.filter.pinned_only;
                         this.save_filter(cx);
                     })))
-                    .child(label("排序").mt(px(12.0)))
+                    .child(label(&tr!("sidebar.options.sort")).mt(px(12.0)))
                     .children(sort_rows),
             )
             .when(self.filter.has_filters(), |d| {
@@ -470,7 +471,7 @@ impl PaletteView {
                         .text_size(px(12.0))
                         .cursor_pointer()
                         .hover(move |s| s.bg(hover_bg).border_color(strong))
-                        .child("清除全部筛选")
+                        .child(tr!("palette.filter.clear_all"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.filter.clear();
                             this.save_filter(cx);
@@ -535,7 +536,7 @@ impl Render for PaletteView {
                             .text_size(px(11.0))
                             .text_color(theme.fg_subtle)
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("搜索历史")
+                            .child(tr!("palette.history"))
                             .child(
                                 div()
                                     .id("hist-clear")
@@ -566,15 +567,15 @@ impl Render for PaletteView {
                     .items_center()
                     .gap(px(12.0))
                     .child(if q.is_empty() {
-                        div().text_color(theme.fg_muted).text_size(px(13.0)).child("这里什么都没有")
+                        div().text_color(theme.fg_muted).text_size(px(13.0)).child(tr!("palette.empty"))
                     } else {
                         div()
                             .flex()
                             .text_color(theme.fg_muted)
                             .text_size(px(13.0))
-                            .child("没有匹配 ")
+                            .child(tr!("palette.no_match_before"))
                             .child(div().text_color(theme.var("--accent-text")).font_weight(FontWeight::SEMIBOLD).child(q.clone()))
-                            .child(" 的结果")
+                            .child(tr!("palette.no_match_after"))
                     })
                     // 筛选是跨次启动留着的：上次筛了「只看置顶」忘了清，这里是唯一该说这句话的地方
                     .when(has_filters, |d| {
@@ -590,7 +591,7 @@ impl Render for PaletteView {
                                 .text_size(px(11.0))
                                 .cursor_pointer()
                                 .hover(move |s| s.bg(hover).text_color(fg).border_color(strong))
-                                .child("当前有筛选生效，点这里清除")
+                                .child(tr!("palette.filter.active_hint"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.filter.clear();
                                     this.save_filter(cx);
@@ -691,7 +692,7 @@ impl Render for PaletteView {
                     }
                 })
                 .child(svg().path(icons::FILTER).size(px(14.0)).text_color(if open { accent_text } else { theme.fg_muted }))
-                .child("筛选")
+                .child(tr!("palette.filter.title"))
                 .when(has_filters, |d| d.child(div().size(px(5.0)).rounded(px(3.0)).bg(theme.warning).flex_none()))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.filter_open = !this.filter_open;
@@ -699,7 +700,7 @@ impl Render for PaletteView {
                 }))
         };
         let footer_kbd = |k: &'static str| kbd(&theme, k, theme.fg_muted, 5.0).mr(px(4.0));
-        let hint = |k: &'static str, t: &'static str| div().flex().items_center().child(footer_kbd(k)).child(t);
+        let hint = |k: &'static str, t: &str| div().flex().items_center().child(footer_kbd(k)).child(t.to_string());
 
         div()
             .id("palette-backdrop")
@@ -788,11 +789,11 @@ impl Render for PaletteView {
                                     .border_color(theme.border)
                                     .text_size(px(11.0))
                                     .text_color(theme.fg_subtle)
-                                    .child(hint("↑↓", "选择"))
-                                    .child(hint("↵", "打开"))
-                                    .child(hint("⌘↵", "拆分"))
-                                    .child(hint("⌘⇧↵", "新容器"))
-                                    .child(hint("Esc", "取消").ml_auto()),
+                                    .child(hint("↑↓", &tr!("palette.hint.select")))
+                                    .child(hint("↵", &tr!("palette.hint.open")))
+                                    .child(hint("⌘↵", &tr!("palette.hint.split")))
+                                    .child(hint("⌘⇧↵", &tr!("palette.hint.new_container")))
+                                    .child(hint("Esc", &tr!("common.cancel")).ml_auto()),
                             ),
                     )
                     .when(self.filter_open, |d| d.child(self.render_filter_panel(&theme, cx))),
