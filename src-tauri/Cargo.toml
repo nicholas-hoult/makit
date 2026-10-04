@@ -3,7 +3,7 @@ name = "makit"
 version = "0.1.0"
 description = "macOS 桌面应用：浏览、恢复、分屏管理本机的 Claude Code / Codex 会话"
 authors = ["hoult"]
-license = "MIT"
+license = "MIT OR Apache-2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

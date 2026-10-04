@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="#许可"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
   <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
   <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange.svg">
   <img alt="Status: 0.1" src="https://img.shields.io/badge/version-0.1-green.svg">
@@ -272,7 +272,12 @@ cargo test --manifest-path core/Cargo.toml     # 会话扫描、恢复等核心
 
 ## 许可
 
-MIT，见 [LICENSE](LICENSE)。
+双许可，任选其一：
+
+- [MIT](LICENSE-MIT)
+- [Apache License 2.0](LICENSE-APACHE)
+
+除非你另外明确说明，你提交到本项目的任何贡献，都按上述双许可发布，不附加其他条款。
 
 ## 致谢
 
