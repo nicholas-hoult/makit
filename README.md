@@ -1,10 +1,30 @@
-# makit
+<h1 align="center">makit</h1>
 
-**Make It Happen ——  让任务成真**
+<p align="center"><b>Make It Happen —— 让任务成真</b></p>
 
-一个原生的 AI 编码会话管理器（0.1 先发 macOS，Linux、Windows 正在做），把你散落在各个终端窗口里的 AI 编码会话收进一个界面：看得到哪个在跑、哪个在等你、哪个早就停了，点一下就能回到任何一个。
+<p align="center">
+  把散落在各个终端窗口里的 AI 编码会话收进一个界面：<br>
+  看得到哪个在跑、哪个在等你、哪个早就停了，点一下就能回到任何一个。
+</p>
 
-支持 **Claude Code** 和 **Codex**。
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
+  <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange.svg">
+  <img alt="Status: 0.1" src="https://img.shields.io/badge/version-0.1-green.svg">
+</p>
+
+<p align="center">
+  <a href="#安装">安装</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#快捷键">快捷键</a> ·
+  <a href="#它会碰你哪些东西">隐私说明</a> ·
+  <a href="#从源码构建">从源码构建</a>
+</p>
+
+原生应用（Rust + GPUI，不是 Electron 套壳），0.1 先发 macOS，Linux、Windows 正在做。支持 **Claude Code** 和 **Codex**。
+
+⭐ **觉得有用的话，欢迎 Star 和 Fork。** 用着不顺、想要什么功能，直接提 [Issue](https://github.com/nicholas-hoult/makit/issues) 就行；也欢迎 PR。
 
 > **0.1，先说清楚三件事**
 > - 只发 macOS（Intel + Apple Silicon 通用包）。Linux 计划 0.2，Windows beta 计划 0.3。
@@ -80,10 +100,27 @@ makit 管理的是**你已经装好的** AI CLI，所以至少要有其中一个
 
 ## 快捷键
 
-**会话**
+最常用的几个：
 
 | 按键 | 作用 |
 |---|---|
+| `⌘K` | 命令面板：搜项目 / 任务，回车恢复会话 |
+| `⌘T` | 新建终端标签 |
+| `⌘D` / `⌘⇧D` | 左右 / 上下分屏 |
+| `⌘L` | 在侧栏里定位当前标签对应的会话 |
+| `⌘,` | 设置 |
+
+<details>
+<summary>全部快捷键</summary>
+
+**会话**
+
+| 按键 | 作用 |
+|
+
+</details>
+
+---|---|
 | `⌘K` | 命令面板：搜项目 / 任务，回车恢复会话 |
 | `⌘⇧F` | 聚焦侧栏搜索框 |
 | `⌘L` | 在侧栏里定位当前标签对应的会话 |
@@ -222,6 +259,14 @@ cargo test --manifest-path core/Cargo.toml     # 会话扫描、恢复等核心
 ## 技术栈
 
 纯 Rust：界面是 [GPUI](https://www.gpui.rs/)（Zed 的 UI 框架），终端内核是 [alacritty_terminal](https://github.com/alacritty/alacritty)。构建产物是自包含的 `.app`，装完不需要 Node 或 Rust。
+
+---
+
+## 参与
+
+- ⭐ 觉得有用，点个 **Star**；想改点什么，**Fork** 之后随便折腾
+- 碰到问题或想要新功能，开 [Issue](https://github.com/nicholas-hoult/makit/issues)（模板里会提示附上版本号和诊断信息）
+- 改动想合进来，直接提 PR；比较大的改动建议先开 Issue 聊一下
 
 ---
 
