@@ -56,6 +56,7 @@ makit turns that into a single screen:
 
 - **Light** — not a wrapped web page: pure Rust + GPUI native rendering. The installer is 7.7 MB (single-architecture `.dmg`); the universal Intel + Apple Silicon package is about 15 MB
 - **Fast** — about 0.55 s from launch to sessions listed in the sidebar; idle memory about 75 MB, the same with 1200 sessions (data and method in "Performance" below)
+- **Chinese / English** — the interface follows the system language by default and can be switched in Settings, taking effect immediately
 - **Beautiful** — 21 curated themes (11 dark, 10 light), automatically follows the system light/dark setting, and can import iTerm2 `.itermcolors` files directly
 - **Cross-platform** — the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Linux is planned for 0.2 and Windows for 0.3. Still in progress, nothing finished yet
 
