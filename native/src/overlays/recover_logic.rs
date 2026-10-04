@@ -53,7 +53,7 @@ pub fn check_relink_target(input: &str, home: Option<&Path>) -> RelinkCheck {
 
 /// 后端（makit_core::recovery）的报错 → 面向用户的话
 pub fn friendly_error(e: &str) -> String {
-    if e.starts_with("目标目录不存在") {
+    if makit_core::recovery::is_target_missing_error(e) {
         ts!("recover.check.missing").into()
     } else {
         e.to_string()

@@ -1,5 +1,6 @@
 //! Recovery after a session's start directory is deleted / moved (#173): storage-key encoding, symlinks, rebuild or point to a new location.
 
+use crate::ts;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -15,6 +16,17 @@ use crate::paths::projects_dir;
 ///
 /// When the path does not exist canonicalize fails and we fall back to encoding it as-is. That is exactly the "original directory was deleted" case, and
 /// falling back as-is is right there: the cwd recorded in the jsonl is itself the real path claude wrote back then.
+/// Whether `err` (an error message returned by `recover_session_cwd`) says the chosen target folder does not
+/// exist. The UI uses it to show a friendlier message; it works in every language because it compares with the
+/// start of the message in each locale.
+pub fn is_target_missing_error(err: &str) -> bool {
+    ["zh", "en"].iter().any(|locale| {
+        let text = rust_i18n::t!("core.recovery.target_missing", locale = *locale, dir = "\u{1}");
+        let prefix = text.split('\u{1}').next().unwrap_or("");
+        !prefix.is_empty() && err.starts_with(prefix)
+    })
+}
+
 pub fn encode_project_path(path: &str) -> String {
     let resolved = std::fs::canonicalize(path)
         .map(|p| p.to_string_lossy().into_owned())
@@ -26,20 +38,20 @@ pub fn encode_project_path(path: &str) -> String {
 }
 
 pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: String) -> Result<String, String> {
-    let dir = projects_dir().ok_or("无法定位 home 目录")?;
+    let dir = projects_dir().ok_or(ts!("core.err.no_home"))?;
     let encoded = encode_project_path(&cwd);
     if encoded == storage_folder {
-        return Ok("无需处理".into());
+        return Ok(ts!("core.recovery.nothing_to_do").into());
     }
     let session_file = format!("{}.jsonl", session_id);
     let target_dir = dir.join(&encoded);
     let target_file = target_dir.join(&session_file);
     if target_file.exists() {
-        return Ok("已存在".into());
+        return Ok(ts!("core.recovery.exists").into());
     }
     let source_file = dir.join(&storage_folder).join(&session_file);
     if !source_file.exists() {
-        return Err(format!("源文件不存在: {}/{}", storage_folder, session_file));
+        return Err(ts!("core.recovery.source_missing", folder = storage_folder, file = session_file));
     }
     #[cfg(unix)]
     {
@@ -47,10 +59,10 @@ pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: S
         if !target_dir.exists() {
             let source_dir = dir.join(&storage_folder);
             std::os::unix::fs::symlink(&source_dir, &target_dir)
-                .map_err(|e| format!("创建目录 symlink 失败: {}", e))?;
+                .map_err(|e| ts!("core.recovery.dir_symlink_failed", error = e))?;
         } else {
             std::os::unix::fs::symlink(&source_file, &target_file)
-                .map_err(|e| format!("创建文件 symlink 失败: {}", e))?;
+                .map_err(|e| ts!("core.recovery.file_symlink_failed", error = e))?;
         }
     }
     Ok(format!("symlink: {}/{}", encoded, session_file))
@@ -93,23 +105,19 @@ pub fn recover_session_cwd_in(
             let parent = Path::new(original_cwd).parent();
             match parent {
                 Some(p) if !p.as_os_str().is_empty() && !p.is_dir() => {
-                    return Err(format!(
-                        "父目录也不存在：{}。这看起来不只是删掉了一个项目目录（可能是外置盘没挂载，或整个上级被搬走了），\
-                         没有替你把整棵目录树造出来。挂上盘、或改用「指到新位置」",
-                        p.display()
-                    ));
+                    return Err(ts!("core.recovery.parent_missing", dir = p.display()));
                 }
                 _ => {}
             }
-            fs::create_dir_all(original_cwd).map_err(|e| format!("重建目录失败: {}", e))?;
+            fs::create_dir_all(original_cwd).map_err(|e| ts!("core.recovery.recreate_failed", error = e))?;
             Ok(RecoveredSession {
                 cwd: original_cwd.to_string(),
-                detail: format!("已重建空目录 {}（未改动 ~/.claude）", original_cwd),
+                detail: ts!("core.recovery.recreated", dir = original_cwd),
             })
         }
         "relink" => {
             if !Path::new(target_cwd).is_dir() {
-                return Err(format!("目标目录不存在: {}", target_cwd));
+                return Err(ts!("core.recovery.target_missing", dir = target_cwd));
             }
             // codex sessions are stored layered by **date** under `~/.codex/sessions/year/month/day/`, **not by cwd key**
             // (that is what codex's `storage_folder` being always an empty string in `ai_provider.rs` means).
@@ -118,37 +126,37 @@ pub fn recover_session_cwd_in(
             if storage_folder.is_empty() {
                 return Ok(RecoveredSession {
                     cwd: target_cwd.to_string(),
-                    detail: format!("已切到 {}（这个工具的会话不按目录索引，无需改动存储）", target_cwd),
+                    detail: ts!("core.recovery.switched", dir = target_cwd),
                 });
             }
             let session_file = format!("{}.jsonl", session_id);
             let source = projects_root.join(storage_folder).join(&session_file);
             // Confirm the source exists first, then act -- otherwise a dangling symlink is left behind, which is harder to track down than an error
             if !source.exists() {
-                return Err(format!("找不到会话记录: {}/{}", storage_folder, session_file));
+                return Err(ts!("core.recovery.record_missing", folder = storage_folder, file = session_file));
             }
             let key = encode_project_path(target_cwd);
             if key == storage_folder {
                 return Ok(RecoveredSession {
                     cwd: target_cwd.to_string(),
-                    detail: "钥匙本来就对得上，无需处理".into(),
+                    detail: ts!("core.recovery.already_matches").into(),
                 });
             }
             let target_dir = projects_root.join(&key);
             // a real directory + file-level symlinks inside it, no directory-level symlink
-            fs::create_dir_all(&target_dir).map_err(|e| format!("创建目录失败: {}", e))?;
+            fs::create_dir_all(&target_dir).map_err(|e| ts!("core.recovery.mkdir_failed", error = e))?;
             let target_file = target_dir.join(&session_file);
             if !target_file.exists() {
                 #[cfg(unix)]
                 std::os::unix::fs::symlink(&source, &target_file)
-                    .map_err(|e| format!("创建 symlink 失败: {}", e))?;
+                    .map_err(|e| ts!("core.recovery.symlink_failed", error = e))?;
             }
             Ok(RecoveredSession {
                 cwd: target_cwd.to_string(),
-                detail: format!("已在 {}/ 下建软链指向原会话记录", key),
+                detail: ts!("core.recovery.linked", key = key),
             })
         }
-        other => Err(format!("未知恢复方式: {}", other)),
+        other => Err(ts!("core.recovery.unknown_mode", mode = other)),
     }
 }
 
@@ -167,7 +175,7 @@ pub fn recover_session_cwd(
     target_cwd: String,
     storage_folder: String,
 ) -> Result<RecoveredSession, String> {
-    let root = projects_dir().ok_or("无法定位 home 目录")?;
+    let root = projects_dir().ok_or(ts!("core.err.no_home"))?;
     recover_session_cwd_in(&root, &mode, &session_id, &original_cwd, &target_cwd, &storage_folder)
 }
 
@@ -401,5 +409,18 @@ mod session_recovery_tests {
 
         assert_eq!(picked, vec!["real.jsonl".to_string()], "symlink 的 jsonl 必须被跳过");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod target_missing_tests {
+    use super::*;
+
+    #[test]
+    fn target_missing_error_is_recognised_in_both_languages() {
+        assert!(is_target_missing_error("目标目录不存在: /x/y"));
+        assert!(is_target_missing_error("Target folder does not exist: /x/y"));
+        assert!(!is_target_missing_error("创建目录失败: permission denied"));
+        assert!(!is_target_missing_error(""));
     }
 }

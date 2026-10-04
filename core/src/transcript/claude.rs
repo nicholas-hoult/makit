@@ -1,5 +1,6 @@
 //! Line-by-line parsing of claude's jsonl (rules in TRD section 11.4).
 
+use crate::ts;
 use serde_json::Value;
 
 use super::model::{DividerKind, Item, ItemKind, Level, ToolResult};
@@ -31,7 +32,7 @@ pub(super) fn feed(st: &mut State, v: &Value) -> Vec<usize> {
         return vec![];
     }
     if !matches!(ty, "user" | "assistant" | "system" | "attachment" | "progress") {
-        st.count_unknown(if ty.is_empty() { "<无 type>".into() } else { ty.into() });
+        st.count_unknown(if ty.is_empty() { "<no type>".into() } else { ty.into() });
         return vec![];
     }
     // Subagent sidechain: the main conversation keeps only that tool call and its final result
@@ -144,7 +145,7 @@ fn user_text(o: &mut Items, s: &str) {
     } else if t.starts_with("<system-reminder>") || t.starts_with("<local-command-caveat>") {
         // For the model, not said by the user
     } else if t.starts_with("[Request interrupted") {
-        o.add(ItemKind::Notice { level: Level::Warn, text: "已中断".into() });
+        o.add(ItemKind::Notice { level: Level::Warn, text: ts!("core.transcript.interrupted").into() });
     } else {
         o.add(ItemKind::User(s.to_string()));
     }
@@ -225,7 +226,7 @@ fn system(o: &mut Items, v: &Value) {
         "api_error" => {
             let n = v.get("retryAttempt").and_then(Value::as_u64).unwrap_or(0);
             let max = v.get("maxRetries").and_then(Value::as_u64).unwrap_or(0);
-            o.add(ItemKind::Notice { level: Level::Warn, text: format!("API 请求出错，正在重试 {n}/{max}") });
+            o.add(ItemKind::Notice { level: Level::Warn, text: ts!("core.transcript.api_retry", n = n, max = max) });
         }
         "informational" => {
             if !content.is_empty() {

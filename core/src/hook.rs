@@ -6,6 +6,7 @@
 //! No UI framework / async runtime dependency: it brings its own accept thread, with a short-lived thread per connection
 //! (a hook sends one line at a time and rarely, so a runtime is not worth pulling in).
 
+use crate::ts;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -68,7 +69,7 @@ pub const HOOK_EVENTS: [&str; 4] = ["Notification", "Stop", "UserPromptSubmit", 
 
 /// Create the hook script and register `HOOK_EVENTS` in ~/.claude/settings.json
 pub fn install_claude_hook() -> Result<String, String> {
-    let home = dirs::home_dir().ok_or("无法定位 home 目录")?;
+    let home = dirs::home_dir().ok_or(ts!("core.err.no_home"))?;
     install_claude_hook_in(&home)
 }
 
@@ -97,7 +98,7 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
     let mut settings: serde_json::Value = if settings_path.exists() {
         let raw = fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
         serde_json::from_str(&raw).map_err(|e| {
-            format!("~/.claude/settings.json 不是合法的 JSON（{e}），为避免覆盖你的配置没有改动；请先修好它再装")
+            ts!("core.hook.invalid_json", error = e)
         })?
     } else {
         serde_json::json!({})
@@ -115,11 +116,11 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
     let hook_cmd = format!("{} 2>/dev/null || echo '{{}}'", hook_script.display());
     let hooks = settings
         .as_object_mut()
-        .ok_or("settings.json 格式错误")?
+        .ok_or(ts!("core.hook.bad_settings"))?
         .entry("hooks")
         .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
-        .ok_or("hooks 格式错误")?;
+        .ok_or(ts!("core.hook.bad_hooks"))?;
     let had_any = HOOK_EVENTS.iter().any(|e| hooks.get(*e).is_some_and(&has_makit));
     let mut added = 0;
     for ev in HOOK_EVENTS {
@@ -129,7 +130,7 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
         }
         groups
             .as_array_mut()
-            .ok_or_else(|| format!("hooks.{ev} 不是数组"))?
+            .ok_or_else(|| ts!("core.hook.not_array", ev = ev))?
             .push(serde_json::json!({"hooks": [{"type": "command", "command": hook_cmd}]}));
         added += 1;
     }

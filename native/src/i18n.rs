@@ -28,12 +28,11 @@ macro_rules! tr {
     };
 }
 
-static INIT: std::sync::Once = std::sync::Once::new();
-
 /// Make Chinese the locale if nothing has chosen one yet (rust-i18n's own default would be English).
-/// `apply` marks the locale as chosen, so this never overrides the user's preference.
+/// `apply` marks the locale as chosen, so this never overrides the user's preference. The "chosen" flag lives in
+/// makit-core (it reads the same process-wide locale), so both crates agree.
 pub fn ensure_init() {
-    INIT.call_once(|| rust_i18n::set_locale("zh"));
+    makit_core::i18n::ensure_init();
 }
 
 /// Preference values stored in `NativeState.language`.
@@ -65,13 +64,12 @@ pub fn resolve(pref: &str, system_languages: &[String]) -> &'static str {
 /// Switch the process-wide locale to the given preference. Self-tests (`MAKIT_NATIVE_SELFTEST`) assert on
 /// Chinese text, so they always run in Chinese whatever the preference or system language is.
 pub fn apply(pref: &str) {
-    INIT.call_once(|| {});
     let locale = if std::env::var_os("MAKIT_NATIVE_SELFTEST").is_some() {
         "zh"
     } else {
         resolve(pref, &crate::terminal::fonts::system_preferred_languages())
     };
-    rust_i18n::set_locale(locale);
+    makit_core::i18n::apply(locale);
 }
 
 /// `%{name}` placeholders in a translation, as a set.
@@ -175,7 +173,6 @@ mod tests {
     fn no_chinese_string_literals_in_production_code() {
         const ALLOWED: &[(&str, &str)] = &[
             ("overlays/palette_logic.rs", "\"全部\""),       // persisted filter value for "all types"
-            ("overlays/recover_logic.rs", "\"目标目录不存在\""), // prefix of a makit-core error message, compared as data
         ];
         fn has_cjk(s: &str) -> bool {
             s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))

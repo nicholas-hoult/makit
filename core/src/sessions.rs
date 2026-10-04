@@ -1,6 +1,7 @@
 //! Session scanning: enumerates `~/.claude/projects/**/*.jsonl` (and Codex), parses into `SessionMeta`,
 //! plus single-session details / meta / reverse lookup by cwd. For the incremental cursor see `scan_cache`.
 
+use crate::ts;
 use chrono::{DateTime, Local, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -98,21 +99,21 @@ pub fn extract_text(value: &serde_json::Value) -> String {
 
 pub fn humanize_duration(delta_secs: i64) -> String {
     if delta_secs < 0 || delta_secs < 60 {
-        return "刚刚".into();
+        return ts!("core.time.just_now").into();
     }
     if delta_secs < 3600 {
-        return format!("{}分钟前", delta_secs / 60);
+        return ts!("core.time.minutes", n = delta_secs / 60);
     }
     if delta_secs < 86400 {
-        return format!("{}小时前", delta_secs / 3600);
+        return ts!("core.time.hours", n = delta_secs / 3600);
     }
     if delta_secs < 86400 * 30 {
-        return format!("{}天前", delta_secs / 86400);
+        return ts!("core.time.days", n = delta_secs / 86400);
     }
     if delta_secs < 86400 * 365 {
-        return format!("{}个月前", delta_secs / (86400 * 30));
+        return ts!("core.time.months", n = delta_secs / (86400 * 30));
     }
-    format!("{}年前", delta_secs / (86400 * 365))
+    ts!("core.time.years", n = delta_secs / (86400 * 365))
 }
 
 pub fn is_worktree_path(cwd: &str) -> bool {
@@ -371,7 +372,7 @@ pub fn locate_session_file(session_id: &str) -> Option<(PathBuf, crate::transcri
 }
 
 pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessage>, String> {
-    let dir = projects_dir().ok_or_else(|| "无法定位 home 目录".to_string())?;
+    let dir = projects_dir().ok_or_else(|| ts!("core.err.no_home").to_string())?;
     let mut found_path: Option<PathBuf> = None;
     if let Ok(entries) = fs::read_dir(&dir) {
         for e in entries.flatten() {
@@ -396,7 +397,7 @@ pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessa
                     return Ok(ai_provider::parse_codex_messages(BufReader::new(file)));
                 }
             }
-            return Err(format!("找不到 session: {}", session_id));
+            return Err(ts!("core.err.session_not_found", id = session_id));
         }
     };
     let file = fs::File::open(&path).map_err(|e| e.to_string())?;
@@ -533,7 +534,7 @@ impl PhaseTimer {
         let ms = now.duration_since(self.last).as_secs_f64() * 1000.0;
         self.stages.push((label.to_string(), (ms * 10.0).round() / 10.0));
         if self.on {
-            eprintln!("[timing] {:<22} {:>8.1}ms  (累计 {:.1}ms)",
+            eprintln!("[timing] {:<22} {:>8.1}ms  (total {:.1}ms)",
                 label, ms, now.duration_since(self.start).as_secs_f64() * 1000.0);
         }
         self.last = now;
@@ -599,7 +600,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
                 }
             }
             files.sort_by(|a, b| b.1.cmp(&a.1));
-            timer.mark("claude 枚举文件");
+            timer.mark("claude enumerate files");
             raw.extend(parallel_scan(
                 &files,
                 HashMap::<String, Option<String>>::new,
@@ -609,7 +610,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
                     }
                 },
             ));
-            timer.mark("claude 解析");
+            timer.mark("claude parse");
         }
     }
 
@@ -624,7 +625,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
                     raw.push(meta);
                 }
             }
-            timer.mark("codex 解析");
+            timer.mark("codex parse");
         }
     }
 
@@ -639,7 +640,7 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
 
     // child process collection (running session)
     let proc_table = proc_table_job.join().unwrap_or_default();
-    timer.mark("进程表（等并行的 ps）");
+    timer.mark("process table (waiting for the parallel ps)");
     for meta in &mut raw {
         if meta.running && meta.pid > 0 {
             meta.child_processes = descendants_of(meta.pid, &proc_table);
@@ -671,13 +672,13 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
         }
     }
 
-    timer.mark("git 分支覆盖");
+    timer.mark("git branch overlay");
 
     // -- Phase 3: sort by mtime -------------------------------------------------
     raw.sort_by(|a, b| b.mtime.cmp(&a.mtime));
 
     save_scan_cache_throttled(true);
-    timer.mark("缓存写盘");
+    timer.mark("write cache");
     timer.record("list_sessions", serde_json::json!({ "sessions": raw.len() }));
     Ok(raw)
 }

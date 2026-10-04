@@ -6,6 +6,7 @@
 //! the dedup record is kept only within the last few records (when a user really sends the same message twice in a row, the second one must not be swallowed).
 //! If a later version has only one copy, the first to arrive is the only one and is still displayed.
 
+use crate::ts;
 use serde_json::Value;
 
 use super::model::{Item, ItemKind, Level, ToolResult};
@@ -97,7 +98,7 @@ pub(super) fn feed(st: &mut State, v: &Value, seq: usize) -> Vec<usize> {
             vec![]
         }
         ("event_msg", "turn_aborted") => {
-            add(st, seq, time, ItemKind::Notice { level: Level::Warn, text: "已中断".into() });
+            add(st, seq, time, ItemKind::Notice { level: Level::Warn, text: ts!("core.transcript.interrupted").into() });
             vec![]
         }
         ("event_msg", "task_started" | "task_complete" | "token_count" | "thread_settings_applied") => vec![],

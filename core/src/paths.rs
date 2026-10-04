@@ -1,5 +1,6 @@
 //! Path utilities: data directory, opening paths, batch existence checks, tool logos.
 
+use crate::ts;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -13,7 +14,7 @@ pub fn projects_dir() -> Option<PathBuf> {
 pub fn open_path(path: String, reveal: bool) -> Result<(), String> {
     // Expand ~ to $HOME
     let expanded = if path.starts_with("~/") || path == "~" {
-        let home = std::env::var("HOME").map_err(|_| "无法获取 HOME".to_string())?;
+        let home = std::env::var("HOME").map_err(|_| ts!("core.err.no_home_env").to_string())?;
         if path == "~" {
             home
         } else {
@@ -24,14 +25,14 @@ pub fn open_path(path: String, reveal: bool) -> Result<(), String> {
     };
     let p = std::path::Path::new(&expanded);
     if !p.exists() {
-        return Err(format!("路径不存在: {}", expanded));
+        return Err(ts!("core.paths.missing", path = expanded));
     }
     let mut cmd = Command::new("open");
     if reveal {
         cmd.arg("-R");
     }
     cmd.arg(&expanded);
-    cmd.spawn().map_err(|e| format!("open 失败: {}", e))?;
+    cmd.spawn().map_err(|e| ts!("core.paths.open_failed", error = e))?;
     Ok(())
 }
 

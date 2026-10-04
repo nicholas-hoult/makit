@@ -1,5 +1,6 @@
 //! Archive: `~/.claude/makit/archived.json`, a sorted array of session_ids.
 
+use crate::ts;
 use std::fs;
 use std::path::PathBuf;
 
@@ -35,7 +36,7 @@ pub fn load_archived() -> std::collections::HashSet<String> {
 }
 
 pub fn save_archived(set: &std::collections::HashSet<String>) -> Result<(), String> {
-    let path = archived_store_path().ok_or_else(|| "无法定位 home".to_string())?;
+    let path = archived_store_path().ok_or_else(|| ts!("core.err.no_home").to_string())?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -47,7 +48,7 @@ pub fn save_archived(set: &std::collections::HashSet<String>) -> Result<(), Stri
 
 pub fn archive_session(session_id: String) -> Result<(), String> {
     if session_id.is_empty() {
-        return Err("session_id 为空".into());
+        return Err(ts!("core.err.empty_session_id").into());
     }
     let mut set = load_archived();
     set.insert(session_id);
@@ -56,7 +57,7 @@ pub fn archive_session(session_id: String) -> Result<(), String> {
 
 pub fn unarchive_session(session_id: String) -> Result<(), String> {
     if session_id.is_empty() {
-        return Err("session_id 为空".into());
+        return Err(ts!("core.err.empty_session_id").into());
     }
     let mut set = load_archived();
     set.remove(&session_id);

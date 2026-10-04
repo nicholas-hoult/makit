@@ -20,6 +20,7 @@
 //! | `transcript` | Conversation model: claude jsonl / codex rollout -> unified `Item` list + incremental reader (#231) |
 //! | `worktree` | git worktree listing |
 
+pub mod i18n;
 pub mod ai_provider;
 pub mod archive;
 pub mod environment;
@@ -40,3 +41,6 @@ pub mod worktree;
 pub use process::ProcessInfo;
 pub use running::{PtyBinding, RunningMeta};
 pub use sessions::{ConversationMessage, SessionMeta};
+
+// UI-facing strings: `locales/{zh,en}.json`, looked up with `ts!("key")`. Chinese is the fallback.
+rust_i18n::i18n!("locales", fallback = "zh");
