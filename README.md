@@ -55,7 +55,7 @@ makit turns that into a single screen:
 ## Features
 
 - **Light** — not a wrapped web page: pure Rust + GPUI native rendering. The installer is 7.7 MB (single-architecture `.dmg`); the universal Intel + Apple Silicon package is about 15 MB
-- **Fast** — about 0.55 s from launch to sessions listed in the sidebar; idle memory about 75 MB, the same with 1200 sessions (data and method in "Performance" below)
+- **Fast** — the session list is ready in about 0.6–0.9 s with up to 5,000 sessions, and the first launch over 1 GB of session data takes about 3 s (later launches are faster); memory stays around 55–75 MB (data, method and limits in "Performance" below)
 - **Chinese / English** — the interface is in English by default; switch to Chinese or "Follow system" in Settings, taking effect immediately
 - **Beautiful** — 21 curated themes (11 dark, 10 light), automatically follows the system light/dark setting, and can import iTerm2 `.itermcolors` files directly
 - **Cross-platform** — the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Linux is planned for 0.2 and Windows for 0.3. Still in progress, nothing finished yet
@@ -77,26 +77,51 @@ makit turns that into a single screen:
 
 ### Performance
 
-With a sidebar of **1200 sessions** (60 projects × 20 sessions):
+With a sidebar of **1,200 sessions** (60 projects × 20 sessions):
 
 <p align="center">
-  <img src="screenshots/stress-1200-sessions.jpg" alt="Sidebar with 1200 sessions" width="640">
+  <img src="screenshots/stress-1200-sessions.jpg" alt="Sidebar with 1,200 sessions" width="640">
 </p>
+
+**Size**
 
 | Metric | Measured |
 |---|---|
 | Installer (`.dmg`, single architecture) | 7.7 MB |
 | Executable (single architecture) | 18.9 MB |
-| Launch to sessions in the sidebar | about 0.55 s (24 / 600 / 1200 sessions: 567 / 553 / 577 ms) |
-| Idle memory (RSS) | 73 MB (24 sessions) → 77 MB (1200 sessions) |
+| Installer, universal (Intel + Apple Silicon) | about 15 MB |
 
-**Test conditions**: Intel Core i7-1068NG7 (2.3 GHz, 4 cores), macOS 26.6.2, release build.
+**Startup and memory with many sessions**
+
+"Session list ready" is the time from the process start until the session list is available to the sidebar. "Cold" is the first launch (no scan cache), "warm" is median (min–max) over the following launches. Memory is the resident memory 8 s after launch.
+
+| Scenario | Sessions | On disk | Cold | Warm | makit memory |
+|---|---|---|---|---|---|
+| Small sessions | 24 | 1 MB | 561 ms | 616 (562–745) ms | 55 MB |
+| Small sessions | 600 | 3 MB | 778 ms | 594 (560–742) ms | 57 MB |
+| Small sessions | 1,200 | 5 MB | 736 ms | 691 (587–753) ms | 59 MB |
+| Small sessions | 5,000 | 20 MB | 1,049 ms | 890 (770–1,450) ms | 73 MB |
+| 2 MB sessions | 200 | 401 MB | 1,644 ms | 703 (513–1,325) ms | 57 MB |
+| 1 MB sessions | 1,000 | 1,004 MB | 3,258 ms | 1,519 (864–4,634) ms | 67 MB |
+| 8 terminal panes, each with a shell | 24 | 1 MB | 595 ms | 724 (636–949) ms | 64 MB (80 MB with the 8 shells) |
+
+**One very long conversation** (opening it in the conversation view: first full read, then the cost of each newly appended record, 3 runs):
+
+| Session file | Conversation items | First full read | Each new record afterwards |
+|---|---|---|---|
+| 5 MB | 2,774 | about 40 ms | about 1.4 ms |
+| 50 MB | 27,718 | 340–430 ms | 18–27 ms |
+| 200 MB | 110,814 | 1.6–1.9 s | 105–110 ms |
+
+**Test conditions**: Intel Core i7-1068NG7 (2.3 GHz, 4 cores), macOS 26.6.2, release build, single architecture. The machine was not completely idle (an IDE and other tools were running), hence the ranges.
 
 **Notes**:
+- The first read of a long conversation is linear in its size. The cost of each *later* update also grows with the size of the conversation (about 1.4 ms at 5 MB, about 110 ms at 200 MB), so a live conversation of hundreds of MB updates visibly slower. Typical sessions are a few MB; we are tracking this.
+- The session files are synthetic (alternating user / assistant records of about 1.7 KB, linked like a real session), not real conversations.
+- "Warm" uses the scan cache makit wrote on the previous run. If a run was stopped before the cache was flushed, the next launch behaves like a cold one, which is why the warm range can be wide.
 - These numbers are from an Intel machine. Apple Silicon was not tested and may do better.
-- The session files used in the test are tiny (2 lines each). Real sessions are often several MB, so the first scan is slower (after that there is a cache and only the newly appended part is read), which means launch time with real data will be longer than the table above.
-- The first time a freshly downloaded program is launched, macOS spends a bit more time verifying it; the table shows the steady-state values after that.
-- To reproduce: `python3 native/scripts/fake-sessions.py /tmp/mk 60 20`, then launch the packaged `makit` with `HOME=/tmp/mk`.
+- Not measured yet: scrolling and search latency with a huge list, throughput with very large terminal output.
+- To reproduce: `bash native/scripts/bench.sh` (uses the packaged app from `bundle.sh`; for one long file use `python3 native/scripts/fake-sessions.py /tmp/mk 1 1 en 51200`, which makes one 50 MB session).
 
 ---
 
