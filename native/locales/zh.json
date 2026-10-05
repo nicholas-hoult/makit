@@ -4,7 +4,7 @@
   "settings.language.system": "跟随系统",
   "settings.language.zh": "中文",
   "settings.language.en": "English",
-  "settings.language.hint": "默认跟随系统语言；切换后立刻生效。",
+  "settings.language.hint": "默认英文；切换后立即生效。",
   "settings.hover.always": "始终显示（400ms 延迟）",
   "settings.hover.cmd": "仅按住 ⌘ 时显示",
   "settings.hover.off": "关闭",

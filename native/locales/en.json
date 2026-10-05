@@ -4,7 +4,7 @@
   "settings.language.system": "Follow system",
   "settings.language.zh": "中文",
   "settings.language.en": "English",
-  "settings.language.hint": "Follows the system language by default. Changes apply immediately.",
+  "settings.language.hint": "English by default. Changes apply immediately.",
   "settings.hover.always": "Always show (400 ms delay)",
   "settings.hover.cmd": "Only while holding ⌘",
   "settings.hover.off": "Off",

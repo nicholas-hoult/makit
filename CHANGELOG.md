@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 分屏终端：树形分屏、标签拖拽、关标签彻底清理会话进程；终端内链接、双击选词、字号缩放、滚动手感
 - ⌘K 命令面板：搜项目 / 任务，按项目 / 时间 / 状态筛选
 - 状态通知：会话等你审批或回答、任务完成时弹桌面通知，通知中心（仅 Claude Code）
-- 界面：21 套内置主题（深 / 浅色，自动跟随系统），可导入 iTerm2 `.itermcolors`；中文 / English，默认跟随系统，设置里可切换
+- 界面：21 套内置主题（深 / 浅色，自动跟随系统），可导入 iTerm2 `.itermcolors`；中文 / English，默认英文，设置里可切成中文或跟随系统
 - 首次启动自动开一个家目录 shell；记住窗口位置和大小
 - 设置里的「诊断」：打开日志目录、复制诊断信息；日志按本地日期保存，保留最近 7 天
 - 随应用打包第三方许可证清单（`THIRD_PARTY_LICENSES.md`）
