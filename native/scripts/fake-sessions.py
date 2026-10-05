@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """在假 HOME 里造一批 Claude 会话（给 sidebar 自检和 dev 里看侧栏用，#259）。
 
-    python3 native/scripts/fake-sessions.py <假 HOME> [项目数=6] [每个项目的会话数=4] [zh|en]
+    python3 native/scripts/fake-sessions.py <假 HOME> [项目数=6] [每个项目的会话数=4] [zh|en] [每个会话的大小 KB=0]
 
 第 4 个参数给了就用「像真的一样」的项目名和任务标题（截图 / 压测用，中文或英文）；不给就是 projN 和「做点事」。
 
@@ -48,6 +48,31 @@ REAL = {
     ),
 }
 real = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] in REAL else None
+# 第 5 个参数：每个会话文件补到多大（KB）。真实会话动辄几 MB，压测要用大文件才有意义（#264）
+size_kb = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+FILLER = ("Let me look at the existing implementation first and then make the change in small steps. " * 18)[:1700]
+
+
+def pad(f, cwd_real, target_bytes):
+    """Append alternating user / assistant records (about 1.7 KB of text each) until the file is target_bytes long.
+    Each record points at the previous one with parentUuid and carries a timestamp, like a real session: the transcript
+    reader only shows the chain that leads to the newest record, so unlinked records would all be skipped."""
+    written = f.tell()
+    n = 0
+    parent = None
+    while written < target_bytes:
+        role = "user" if n % 2 == 0 else "assistant"
+        body = '"%s"' % FILLER if role == "user" else '[{"type":"text","text":"%s"}]' % FILLER
+        uid = str(uuid.uuid4())
+        parent_json = "null" if parent is None else '"%s"' % parent
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(1790000000 + n))
+        line = '{"type":"%s","cwd":"%s","isSidechain":false,"uuid":"%s","parentUuid":%s,"timestamp":"%s","message":{"role":"%s","content":%s}}\n' % (role, cwd_real, uid, parent_json, ts, role, body)
+        f.write(line)
+        written += len(line.encode("utf-8"))
+        parent = uid
+        n += 1
+
+
 now = time.time()
 ages_h = [1, 3, 26, 30, 50, 80, 170, 400]  # 小时：今天、昨天、前天、上周、更早
 for p in range(1, projects + 1):
@@ -66,6 +91,9 @@ for p in range(1, projects + 1):
             title = f"项目{p} 的第{s + 1}个会话：做点事" if not real else REAL[real][1][(p * 3 + s) % len(REAL[real][1])]
             f.write('{"type":"user","cwd":"%s","isSidechain":false,"message":{"role":"user","content":"%s"}}\n' % (cwd_real, title))
             f.write('{"type":"assistant","cwd":"%s","isSidechain":false,"message":{"role":"assistant","content":[{"type":"text","text":"好的"}]}}\n' % cwd_real)
+            if size_kb:
+                f.flush()
+                pad(f, cwd_real, size_kb * 1024)
         t = now - ages_h[(p + s) % len(ages_h)] * 3600
         os.utime(path, (t, t))
 print(f"造了 {projects} 个项目 × {per} 个会话 = {projects * per} 个，在 {home}")
