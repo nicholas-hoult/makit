@@ -1,72 +1,72 @@
 <h1 align="center">makit</h1>
 
-<p align="center"><b>Make It Happen —— 让任务成真</b></p>
+<p align="center"><b>Make It Happen</b></p>
 
 <p align="center">
-  把散落在各个终端窗口里的 AI 编码会话收进一个界面：<br>
-  看得到哪个在跑、哪个在等你、哪个早就停了，点一下就能回到任何一个。
+  Gather the AI coding sessions scattered across your terminal windows into one interface:<br>
+  see which are running, which are waiting for you, and which stopped long ago, and jump back into any of them with one click.
 </p>
 
-简体中文 | [English](README.en.md)
+[简体中文](README.zh-CN.md) | English
 
 <p align="center">
-  <a href="#许可"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
+  <a href="#license"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
   <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
   <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange.svg">
   <img alt="Status: 0.1" src="https://img.shields.io/badge/version-0.1-green.svg">
 </p>
 
 <p align="center">
-  <a href="#安装">安装</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#快捷键">快捷键</a> ·
-  <a href="#它会碰你哪些东西">隐私说明</a> ·
-  <a href="#从源码构建">从源码构建</a>
+  <a href="#install">Install</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#keyboard-shortcuts">Shortcuts</a> ·
+  <a href="#what-it-touches-on-your-machine">Privacy</a> ·
+  <a href="#build-from-source">Build from source</a>
 </p>
 
-原生应用（Rust + GPUI，不是 Electron 套壳），0.1 先发 macOS，Linux、Windows 正在做。支持 **Claude Code** 和 **Codex**。
+A native app (Rust + GPUI, not an Electron wrapper). 0.1 ships on macOS only; Linux and Windows are in the works. Supports **Claude Code** and **Codex**.
 
-⭐ **觉得有用的话，欢迎 Star 和 Fork。** 用着不顺、想要什么功能，直接提 [Issue](https://github.com/nicholas-hoult/makit/issues) 就行；也欢迎 PR。
+⭐ **If you find it useful, a Star or a Fork is very welcome.** If something feels off or you want a feature, just open an [Issue](https://github.com/nicholas-hoult/makit/issues). PRs are welcome too.
 
 <p align="center">
-  <img src="screenshots/dark.jpg" alt="makit：左侧是按时间分组的会话列表，右侧是分屏终端" width="900">
+  <img src="screenshots/dark.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="900">
 </p>
 
-> **0.1，先说清楚三件事**
-> - 只发 macOS（Intel + Apple Silicon 通用包）。Linux 计划 0.2，Windows beta 计划 0.3。
-> - **没有签名**，第一次打开需要手动放行（下面有步骤）。签名和公证要等有了开发者账号。
-> - 需要你本机已经装好 Claude Code 或 Codex。makit 不代替它们，只是管理它们的会话。
+> **0.1: three things up front**
+> - macOS only (a universal package for Intel + Apple Silicon). Linux is planned for 0.2, Windows beta for 0.3.
+> - **Not signed.** You have to allow it manually the first time you open it (steps below). Signing and notarization will wait until there is a developer account.
+> - You need Claude Code or Codex already installed on your machine. makit does not replace them; it only manages their sessions.
 
 ---
 
-## 它解决什么
+## What it solves
 
-开三个项目，每个项目挂着一个 AI 会话：A 在等你批一个重构，B 刚跑完测试，C 的 bug 还在修。终端窗口散在四处，哪个还活着、哪个在等你，只能一个个点开看。
+Say you have three projects, each with an AI session attached. A is waiting for you to approve a refactor, B just finished running its tests, and C's bug is still being fixed. The terminal windows are scattered everywhere, and the only way to tell which is still alive and which is waiting for you is to open them one by one.
 
-makit 把这件事变成一屏：
+makit turns that into a single screen:
 
-- **会话列表** — 扫描本机已有的会话，按项目归组，显示每个的状态（运行中 / 等待审批 / 空闲 / 已停止 / 已归档）
-- **一键恢复** — 选中历史会话直接接着聊，回到它原来的工作目录（Claude Code 的会话即使原目录被删也能救回来）
-- **分屏终端** — 树形分屏，可拖拽调整，一屏盯住多个会话
-- **状态通知** — 会话在等你时弹桌面通知（仅 Claude Code）
+- **Session list** — scans the sessions already on your machine, groups them by project, and shows each one's state (running / waiting for approval / idle / stopped / archived)
+- **One-click resume** — pick a past session and keep chatting, back in its original working directory (Claude Code sessions can be rescued even if the original directory was deleted)
+- **Split terminals** — tree-style splits you can resize by dragging, so one screen keeps an eye on several sessions
+- **Status notifications** — a desktop notification when a session is waiting for you (Claude Code only)
 
 ---
 
-## 特点
+## Features
 
-- **轻** — 不是套壳网页：纯 Rust + GPUI 原生绘制。安装包 7.7 MB（单架构 `.dmg`），Intel + Apple Silicon 通用包约 15 MB
-- **快** — 从启动到侧栏列出会话约 0.55 秒；空闲内存约 75 MB，1200 个会话也一样（数据和测法见下面「性能」）
-- **中文 / English** — 界面默认英文，可以在设置里切换成中文或「跟随系统」，立即生效
-- **美** — 21 套精选主题（深色 11 套、浅色 10 套），自动跟随系统深浅色，也能直接导入 iTerm2 的 `.itermcolors`
-- **跨平台** — 目标是 macOS / Linux / Windows 三端。**0.1 先发 macOS**，Linux 计划 0.2、Windows 计划 0.3，还在做，没有成品
+- **Light** — not a wrapped web page: pure Rust + GPUI native rendering. The installer is 7.7 MB (single-architecture `.dmg`); the universal Intel + Apple Silicon package is about 15 MB
+- **Fast** — about 0.55 s from launch to sessions listed in the sidebar; idle memory about 75 MB, the same with 1200 sessions (data and method in "Performance" below)
+- **Chinese / English** — the interface is in English by default; switch to Chinese or "Follow system" in Settings, taking effect immediately
+- **Beautiful** — 21 curated themes (11 dark, 10 light), automatically follows the system light/dark setting, and can import iTerm2 `.itermcolors` files directly
+- **Cross-platform** — the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Linux is planned for 0.2 and Windows for 0.3. Still in progress, nothing finished yet
 
-### 界面
+### Screenshots
 
 <table>
   <tr>
-    <td><img src="screenshots/light.jpg" alt="浅色主题 GitHub Light"></td>
-    <td><img src="screenshots/catppuccin.jpg" alt="深色主题 Catppuccin Mocha"></td>
-    <td><img src="screenshots/dayfox.jpg" alt="浅色主题 Dayfox"></td>
+    <td><img src="screenshots/light.jpg" alt="Light theme: GitHub Light"></td>
+    <td><img src="screenshots/catppuccin.jpg" alt="Dark theme: Catppuccin Mocha"></td>
+    <td><img src="screenshots/dayfox.jpg" alt="Light theme: Dayfox"></td>
   </tr>
   <tr>
     <td align="center">GitHub Light</td>
@@ -75,273 +75,273 @@ makit 把这件事变成一屏：
   </tr>
 </table>
 
-### 性能
+### Performance
 
-在 **1200 个会话**（60 个项目 × 20 个会话）的侧栏：
+With a sidebar of **1200 sessions** (60 projects × 20 sessions):
 
 <p align="center">
-  <img src="screenshots/stress-1200-sessions.jpg" alt="1200 个会话的侧栏" width="640">
+  <img src="screenshots/stress-1200-sessions.jpg" alt="Sidebar with 1200 sessions" width="640">
 </p>
 
-| 指标 | 实测 |
+| Metric | Measured |
 |---|---|
-| 安装包（`.dmg`，单架构） | 7.7 MB |
-| 可执行文件（单架构） | 18.9 MB |
-| 启动到侧栏出现会话 | 约 0.55 秒（24 / 600 / 1200 个会话分别是 567 / 553 / 577 ms） |
-| 空闲内存（RSS） | 73 MB（24 个会话）→ 77 MB（1200 个会话） |
+| Installer (`.dmg`, single architecture) | 7.7 MB |
+| Executable (single architecture) | 18.9 MB |
+| Launch to sessions in the sidebar | about 0.55 s (24 / 600 / 1200 sessions: 567 / 553 / 577 ms) |
+| Idle memory (RSS) | 73 MB (24 sessions) → 77 MB (1200 sessions) |
 
-**测试条件**：Intel Core i7-1068NG7（2.3 GHz，4 核），macOS 26.6.2，release 构建。
+**Test conditions**: Intel Core i7-1068NG7 (2.3 GHz, 4 cores), macOS 26.6.2, release build.
 
-**说明**：
-- 这是 Intel 机器上的数据，Apple Silicon 上没测，可能更好。
-- 测试用的会话文件很小（每个 2 行）。真实会话动辄几 MB，首次扫描更慢（之后有缓存，只读新增部分），所以真实数据下的启动时间会比上面长。
-- 第一次启动一个新下载的程序，macOS 会多花一点时间校验，上表是之后的稳定值。
-- 复现：`python3 native/scripts/fake-sessions.py /tmp/mk 60 20`，再用 `HOME=/tmp/mk` 启动打包好的 `makit`。
-
----
-
-## 名字和故事
-
-**makit** 有两层意思：*make it*（让它发生）和 *make + kit*（做事的工具包）。口号是 **Make It Happen —— 让任务成真**。
-
-起因很具体：周三下午在做登录功能，屏幕上开着编辑器、终端，还有两三个 AI 编码会话，一个在等你批准、一个刚跑完、一个停在昨天。第二天你想不起昨天讨论到哪了，只能在几十个对话里翻那个关于"登录"的会话；或者终端窗口散在四处，哪个还活着、哪个在等你，只能一个个点开看。
-
-AI 工具是围绕**会话**组织的，而开发者想的是**任务**——"登录功能做完了吗"，而不是"第 5 个会话在哪"。makit 先做最基础的一步：把散落的会话收进一个界面，看得见状态，点一下就回得去。
+**Notes**:
+- These numbers are from an Intel machine. Apple Silicon was not tested and may do better.
+- The session files used in the test are tiny (2 lines each). Real sessions are often several MB, so the first scan is slower (after that there is a cache and only the newly appended part is read), which means launch time with real data will be longer than the table above.
+- The first time a freshly downloaded program is launched, macOS spends a bit more time verifying it; the table shows the steady-state values after that.
+- To reproduce: `python3 native/scripts/fake-sessions.py /tmp/mk 60 20`, then launch the packaged `makit` with `HOME=/tmp/mk`.
 
 ---
 
-## 安装
+## Name and story
 
-### 下载
+**makit** has two meanings: *make it* (make it happen) and *make + kit* (a toolkit for getting things done). The tagline is **Make It Happen**.
 
-0.1 只有 macOS 通用包，Intel 和 Apple Silicon 共用同一个文件。
+The origin is very concrete: it's Wednesday afternoon and you're working on the login feature. On screen you have an editor, a terminal, and two or three AI coding sessions: one waiting for your approval, one that just finished, one that has been sitting since yesterday. The next day you can't remember where yesterday's discussion left off, and you have to dig through dozens of conversations for the one about "login"; or the terminal windows are scattered everywhere, and the only way to tell which is still alive and which is waiting for you is to open them one by one.
 
-**[→ 前往 Releases 下载最新版](https://github.com/nicholas-hoult/makit/releases)**（0.1 还没发布，之前可以按文末「从源码构建」自己打包）
+AI tools are organized around **sessions**, while developers think in **tasks**: "is the login feature done?", not "where is session number 5?". makit starts with the most basic step: gather the scattered sessions into one interface, make their state visible, and let you get back to any of them with one click.
 
-下载 `.dmg`，打开后把 makit 拖进「应用程序」。
+---
 
-### 第一次打开（未签名，必须这一步）
+## Install
 
-因为包没有签名，直接双击会被 macOS 拦下来。任选一种：
+### Download
 
-**方式一：系统设置放行**
+0.1 only has a universal macOS package; Intel and Apple Silicon share the same file.
 
-1. 双击 `makit.app`，会看到「无法打开」的提示，点「完成」
-2. 打开 **系统设置 → 隐私与安全性**，往下拉，会看到「已阻止 makit」
-3. 点 **仍要打开**，再确认一次
+**[→ Go to Releases for the latest version](https://github.com/nicholas-hoult/makit/releases)** (0.1 is not released yet; until then you can build it yourself, see "Build from source" at the end)
 
-**方式二：命令行去掉隔离标记**
+Download the `.dmg`, open it, and drag makit into Applications.
 
-如果提示的是「**已损坏，无法打开**」（从浏览器下载的包常见），执行：
+### First launch (unsigned, this step is required)
+
+Because the package is not signed, double-clicking it directly will be blocked by macOS. Pick either option:
+
+**Option 1: allow it in System Settings**
+
+1. Double-click `makit.app`. You will see a "cannot be opened" prompt; click "Done"
+2. Open **System Settings → Privacy & Security** and scroll down; you will see "makit was blocked"
+3. Click **Open Anyway**, then confirm once more
+
+**Option 2: remove the quarantine flag from the command line**
+
+If the message says "**is damaged and can't be opened**" (common for packages downloaded through a browser), run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/makit.app
 ```
 
-然后正常双击打开。
+Then double-click to open it as usual.
 
-> 这两步是所有未签名 app 都要做的，不是 makit 特有。不放心的话，源码全在这儿，可以自己构建（见文末）。
+> Every unsigned app needs these steps; it is not specific to makit. If you're not comfortable with that, all the source is right here and you can build it yourself (see the end of this page).
 
-### 前置依赖
+### Prerequisites
 
-makit 管理的是**你已经装好的** AI CLI，所以至少要有其中一个：
+makit manages AI CLIs **you have already installed**, so you need at least one of them:
 
 - [Claude Code](https://claude.ai/code)
 - [Codex](https://github.com/openai/codex)
 
-一个都没装的话，makit 打开后会是空的。
+If neither is installed, makit will be empty when it opens.
 
 ---
 
-## 快速开始
+## Quick start
 
-1. 打开 makit，左侧会列出扫描到的会话
-2. `⌘K` 搜项目或任务，回车恢复
-3. `⌘T` 开一个新终端标签，在里面直接敲 `claude` 或 `codex` 也行
-4. `⌘D` 左右分屏，一屏看两个会话
+1. Open makit; the sessions it found are listed on the left
+2. `⌘K` to search for a project or task, Enter to resume
+3. `⌘T` opens a new terminal tab; you can also just type `claude` or `codex` in it
+4. `⌘D` splits left/right so you can see two sessions on one screen
 
 ---
 
-## 快捷键
+## Keyboard shortcuts
 
-最常用的几个：
+The most common ones:
 
-| 按键 | 作用 |
+| Key | Action |
 |---|---|
-| `⌘K` | 命令面板：搜项目 / 任务，回车恢复会话 |
-| `⌘T` | 新建终端标签 |
-| `⌘D` / `⌘⇧D` | 左右 / 上下分屏 |
-| `⌘L` | 在侧栏里定位当前标签对应的会话 |
-| `⌘,` | 设置 |
+| `⌘K` | Command palette: search projects / tasks, Enter to resume a session |
+| `⌘T` | New terminal tab |
+| `⌘D` / `⌘⇧D` | Split left/right / top/bottom |
+| `⌘L` | Locate the current tab's session in the sidebar |
+| `⌘,` | Settings |
 
 <details>
-<summary>全部快捷键</summary>
+<summary>All shortcuts</summary>
 
-**会话**
+**Sessions**
 
-| 按键 | 作用 |
+| Key | Action |
 |---|---|
-| `⌘K` | 命令面板：搜项目 / 任务，回车恢复会话 |
-| `⌘⇧F` | 聚焦侧栏搜索框 |
-| `⌘L` | 在侧栏里定位当前标签对应的会话 |
-| `⌘B` | 折叠 / 展开侧栏 |
-| `⌘I` | 通知中心 |
-| `⌘R` | 重新扫描会话列表 |
-| `⌘,` | 设置 |
+| `⌘K` | Command palette: search projects / tasks, Enter to resume a session |
+| `⌘⇧F` | Focus the sidebar search box |
+| `⌘L` | Locate the current tab's session in the sidebar |
+| `⌘B` | Collapse / expand the sidebar |
+| `⌘I` | Notification center |
+| `⌘R` | Rescan the session list |
+| `⌘,` | Settings |
 
-**标签**
+**Tabs**
 
-| 按键 | 作用 |
+| Key | Action |
 |---|---|
-| `⌘T` | 新建终端标签 |
-| `⌘W` | 关闭当前标签（连同里面跑着的进程） |
-| `⌘1` ~ `⌘9` | 切到当前分屏的第 N 个标签 |
-| `⌘[` `⌘]`、`⌘←` `⌘→` | 上一个 / 下一个标签（循环） |
-| `⌃Tab`、`⌃⇧Tab` | 同上 |
+| `⌘T` | New terminal tab |
+| `⌘W` | Close the current tab (along with the processes running in it) |
+| `⌘1` ~ `⌘9` | Switch to the Nth tab in the current split |
+| `⌘[` `⌘]`, `⌘←` `⌘→` | Previous / next tab (wraps around) |
+| `⌃Tab`, `⌃⇧Tab` | Same as above |
 
-**分屏**
+**Splits**
 
-| 按键 | 作用 |
+| Key | Action |
 |---|---|
-| `⌘D` | 左右分屏 |
-| `⌘⇧D` | 上下分屏 |
-| `⌥⌘1` ~ `⌥⌘9` | 切到第 N 个分屏 |
-| `⌥⌘` + 方向键 | 切到相邻分屏 |
-| `⌥⌘↩` | 最大化 / 还原当前分屏 |
+| `⌘D` | Split left/right |
+| `⌘⇧D` | Split top/bottom |
+| `⌥⌘1` ~ `⌥⌘9` | Switch to the Nth split |
+| `⌥⌘` + arrow keys | Switch to the adjacent split |
+| `⌥⌘↩` | Maximize / restore the current split |
 
-**终端内**
+**In the terminal**
 
-| 按键 | 作用 |
+| Key | Action |
 |---|---|
-| `⌘F` | 在当前终端里搜索 |
-| `⌘=` `⌘-` `⌘0` | 字号放大 / 缩小 / 恢复 |
-| `⌘` + 点击路径 | 打开那个文件或目录（相对路径按当前目录解析） |
+| `⌘F` | Search in the current terminal |
+| `⌘=` `⌘-` `⌘0` | Increase / decrease / reset font size |
+| `⌘` + click on a path | Open that file or directory (relative paths are resolved against the current directory) |
 
-> **`⌃` 开头的组合一律不拦**：`⌃C`、`⌃R`、`⌃L`、`⌃D` 等原样交给终端里的程序，makit 不截。唯一的例外是 `⌃Tab` 切标签。
+> **Combinations starting with `⌃` are never intercepted**: `⌃C`, `⌃R`, `⌃L`, `⌃D`, etc. go to the program in the terminal unchanged; makit does not capture them. The only exception is `⌃Tab` for switching tabs.
 
-完整列表在 app 内的设置面板里。
+The full list is in the app's Settings panel.
 
 </details>
 
 ---
 
-## 支持哪些 AI CLI
+## Which AI CLIs are supported
 
-两种，但**能力不一样**，装之前请看清楚：
+Two, but **their capabilities differ**, so please read this before installing:
 
 | | Claude Code | Codex |
 |---|---|---|
-| 扫描本机已有会话 | ✅ | ✅ |
-| 恢复历史会话 | ✅ | ✅ |
-| 新建会话 | ✅ | ✅ |
-| 运行 / 等待状态 | ✅ | ❌ 一律显示「已停止」 |
-| 桌面通知 | ✅ | ❌ |
-| 悬停详情卡（目录、分支、首条 / 末条话题） | ✅ | ✅ |
-| 启动目录被删后的恢复 | ✅ | 不适用（Codex 不按目录索引会话） |
+| Scan existing sessions on this machine | ✅ | ✅ |
+| Resume past sessions | ✅ | ✅ |
+| Start new sessions | ✅ | ✅ |
+| Running / waiting state | ✅ | ❌ always shown as "Stopped" |
+| Desktop notifications | ✅ | ❌ |
+| Hover detail card (directory, branch, first / last topic) | ✅ | ✅ |
+| Resume after the launch directory was deleted | ✅ | N/A (Codex does not index sessions by directory) |
 
-**为什么不对称**：makit 的运行状态不是自己探测出来的，是读 Claude Code 写在 `~/.claude/sessions/<pid>.json` 里的状态。Codex 没有等价的东西，所以它的会话能管、能恢复，但看不出「在跑还是在等你」。
+**Why the asymmetry**: makit does not detect the running state itself; it reads the state Claude Code writes to `~/.claude/sessions/<pid>.json`. Codex has no equivalent, so its sessions can be managed and resumed, but you can't tell "running or waiting for you".
 
-Codex 这条路还没在真机上全面验证，0.1 当它是**已知限制**而不是成品。
+The Codex path has not been fully verified on real machines yet. In 0.1, treat it as a **known limitation** rather than a finished feature.
 
-其他 CLI（Gemini 等）暂不支持。
-
----
-
-## 它会碰你哪些东西
-
-一个未签名的、要读 `~/.claude` 的 app，你有权知道它具体干什么。全部如下：
-
-**读取**
-
-- `~/.claude/projects/`、`~/.claude/sessions/`、`~/.codex/sessions/` — 扫描已有会话，用来生成列表和状态
-
-**写入**
-
-- `~/.claude/makit/` — makit 自己的数据：设置、归档记录、图标缓存、日志（`logs/`，只留最近 7 天，不含对话内容）、hook 通信用的 socket。删掉它不会影响你的会话
-- `~/.claude/projects/` — **只有你对「启动目录已被删除 / 改名」的 Claude Code 会话点了恢复**，makit 才会在这里建一个符号链接，让 Claude Code 在原来的位置找到那段对话；其余时候不写
-- `~/.claude/settings.json` — **只有你点了「安装 hook」按钮才会写**。不装 hook，makit 一个字都不会改它
-
-**网络**
-
-- 只有一个请求：第一次显示工具图标时下载 `anthropic.com` / `openai.com` 的 favicon，存在本地，以后不再请求
-- 不上传任何东西，没有遥测，没有账号
-
-**进程**
-
-- 你在 makit 里开的终端，**关掉标签页就会关掉里面的一切** —— 包括你在那个标签里手动起的后台进程（dev server 之类）。这是刻意的：一个标签就是一个会话，不该在你关掉之后还在后台烧内存和 token。要留着的进程请在 makit 之外跑。
+Other CLIs (Gemini, etc.) are not supported for now.
 
 ---
 
-## 已知问题
+## What it touches on your machine
 
-目前没有已确认的阻塞性问题。碰到问题欢迎提 issue，请附上 makit 版本（设置 → 关于）、macOS 版本和「复制诊断信息」的内容。
+An unsigned app that reads `~/.claude` — you have the right to know exactly what it does. Here is everything:
+
+**Reads**
+
+- `~/.claude/projects/`, `~/.claude/sessions/`, `~/.codex/sessions/` — scans existing sessions to build the list and states
+
+**Writes**
+
+- `~/.claude/makit/` — makit's own data: settings, archive records, icon cache, logs (`logs/`, only the last 7 days are kept, no conversation content), and the socket used for hook communication. Deleting it does not affect your sessions
+- `~/.claude/projects/` — **only when you click resume on a Claude Code session whose launch directory was deleted / renamed** does makit create a symbolic link here, so that Claude Code can find the conversation at its original location; it does not write here otherwise
+- `~/.claude/settings.json` — **only written when you click the "Install hook" button**. If you don't install the hook, makit changes not a single character of it
+
+**Network**
+
+- Just one request: the first time a tool icon is shown, it downloads the favicon from `anthropic.com` / `openai.com`, stores it locally, and never requests it again
+- Nothing is uploaded, there is no telemetry, and there is no account
+
+**Processes**
+
+- For terminals you open in makit, **closing the tab closes everything inside it** — including background processes you started by hand in that tab (a dev server, say). This is deliberate: a tab is a session, and it shouldn't keep burning memory and tokens in the background after you close it. Run processes you want to keep outside makit.
 
 ---
 
-## 路线图
+## Known issues
 
-- [x] 会话扫描、恢复、状态显示
-- [x] 分屏终端、标签拖拽
-- [x] 命令面板和搜索
-- [x] 关掉标签页彻底清理会话进程
-- [ ] 首次启动引导
-- [ ] 版本更新提示
-- [ ] Linux（0.2）
-- [ ] Windows beta（0.3）
+There are currently no confirmed blocking issues. If you run into a problem, please open an issue and include the makit version (Settings → About), your macOS version, and the content of "Copy diagnostics".
 
 ---
 
-## 从源码构建
+## Roadmap
+
+- [x] Session scanning, resume, state display
+- [x] Split terminals, tab dragging
+- [x] Command palette and search
+- [x] Closing a tab fully cleans up the session process
+- [ ] First-launch onboarding
+- [ ] Update notifications
+- [ ] Linux (0.2)
+- [ ] Windows beta (0.3)
+
+---
+
+## Build from source
 
 ```bash
 git clone https://github.com/nicholas-hoult/makit.git
 cd makit
 
-# 开发模式（日常用 --fast：依赖开优化、自己的代码仍是 debug；第一次编译要几分钟到二十几分钟）
+# Development mode (use --fast for everyday work: dependencies are optimized, your own code stays debug; the first build takes a few minutes to twenty-some minutes)
 bash native/scripts/dev.sh --fast
 
-# 打包 .app（release 构建，本机签名）
+# Package the .app (release build, signed locally)
 bash native/scripts/bundle.sh
-# 产物在 .worktrees/.target-gpui/release/bundle/makit.app（在主目录跑）；没有 .worktrees 时在 native/target/release/bundle/
+# Output is at .worktrees/.target-gpui/release/bundle/makit.app (when run in the main directory); without .worktrees it is at native/target/release/bundle/
 ```
 
-环境要求：macOS、Rust stable。
+Requirements: macOS, Rust stable.
 
-> 仓库里的 `src-tauri/` 和 `src/` 是 0.1 之前的旧版（Tauri + React），已经冻结、不再维护，现在的应用在 `native/` 和 `core/` 里。
+> `src-tauri/` and `src/` in the repo are the pre-0.1 version (Tauri + React). They are frozen and no longer maintained; the current app lives in `native/` and `core/`.
 
-跑测试：
+Run the tests:
 
 ```bash
-cargo test --manifest-path native/Cargo.toml   # 主程序
-cargo test --manifest-path core/Cargo.toml     # 会话扫描、恢复等核心
+cargo test --manifest-path native/Cargo.toml   # main app
+cargo test --manifest-path core/Cargo.toml     # session scanning, resume, and other core logic
 ```
 
 ---
 
-## 技术栈
+## Tech stack
 
-纯 Rust：界面是 [GPUI](https://www.gpui.rs/)（Zed 的 UI 框架），终端内核是 [alacritty_terminal](https://github.com/alacritty/alacritty)。构建产物是自包含的 `.app`，装完不需要 Node 或 Rust。
-
----
-
-## 参与
-
-- ⭐ 觉得有用，点个 **Star**；想改点什么，**Fork** 之后随便折腾
-- 碰到问题或想要新功能，开 [Issue](https://github.com/nicholas-hoult/makit/issues)（模板里会提示附上版本号和诊断信息）
-- 改动想合进来，直接提 PR；比较大的改动建议先开 Issue 聊一下
+Pure Rust: the UI is [GPUI](https://www.gpui.rs/) (Zed's UI framework), and the terminal core is [alacritty_terminal](https://github.com/alacritty/alacritty). The build output is a self-contained `.app`; Node and Rust are not needed after installing.
 
 ---
 
-## 许可
+## Contributing
 
-双许可，任选其一：
+- ⭐ If you find it useful, give it a **Star**; if you want to change something, **Fork** it and tinker freely
+- If you hit a problem or want a new feature, open an [Issue](https://github.com/nicholas-hoult/makit/issues) (the template reminds you to attach the version and diagnostics)
+- If you want your changes merged, just open a PR; for larger changes, please open an Issue to discuss first
+
+---
+
+## License
+
+Dual-licensed, at your option:
 
 - [MIT](LICENSE-MIT)
 - [Apache License 2.0](LICENSE-APACHE)
 
-除非你另外明确说明，你提交到本项目的任何贡献，都按上述双许可发布，不附加其他条款。
+Unless you explicitly state otherwise, any contribution you submit to this project is released under the dual license above, with no additional terms.
 
-## 致谢
+## Acknowledgements
 
-- [GPUI](https://www.gpui.rs/)、[alacritty_terminal](https://github.com/alacritty/alacritty) —— 这个 app 的地基
-- [Claude Code](https://claude.ai/code) —— 先有了它带来的工作方式，才有管理这种工作方式的需求
+- [GPUI](https://www.gpui.rs/), [alacritty_terminal](https://github.com/alacritty/alacritty) — the foundation of this app
+- [Claude Code](https://claude.ai/code) — the way of working it brought came first, and only then the need to manage that way of working
