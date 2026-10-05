@@ -20,8 +20,8 @@ UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh  # 通用包 + .dmg（要先 rus
 3. 提交、打 tag 并推送：
 
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.1.1
+   git push origin v0.1.1
    ```
 
 4. `.github/workflows/release.yml` 会在 macOS 上跑测试、打通用包和 .dmg，上传成**草稿** Release

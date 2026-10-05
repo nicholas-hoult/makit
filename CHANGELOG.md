@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-05
+## [0.1.1] - 2026-10-05
 
-首个公开版本（macOS，Intel + Apple Silicon 通用包，未签名）。纯 Rust 原生应用（GPUI），取代更早的 Tauri 版。
+首个公开版本（macOS，Intel + Apple Silicon 通用包，未签名）。（版本号从 0.1.1 开始：`v0.1.0` 标签在默认语言改成英文之前打过，没有发布。）纯 Rust 原生应用（GPUI），取代更早的 Tauri 版。
 
 ### Added
 - 会话管理：扫描本机 Claude Code 和 Codex 会话，按项目 / 状态分组，显示运行中 / 等待审批 / 空闲 / 已停止 / 已归档；一键恢复，启动目录被删或改名也能救回（Claude Code）
@@ -28,5 +28,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.0
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1
