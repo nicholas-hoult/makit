@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-10
+
 ### Performance
 - Appending to a long conversation no longer re-walks the whole conversation: the cost of each new record in the conversation view is now constant (about 0.04 ms at 5 MB, 50 MB and 200 MB, previously about 1.4 ms, 13 ms and 110 ms) (#269)
 
@@ -42,6 +44,7 @@ First public release (macOS, universal Intel + Apple Silicon package, unsigned).
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1

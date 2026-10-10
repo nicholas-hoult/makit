@@ -8,6 +8,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-10
+
 ### 性能
 - 往长对话里追加记录时不再把整段对话重走一遍：对话视图里每新增一条记录的耗时变成常数（5 MB、50 MB、200 MB 都约 0.04 ms，之前分别约 1.4 ms、13 ms、110 ms）（#269）
 
@@ -41,6 +43,7 @@
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1

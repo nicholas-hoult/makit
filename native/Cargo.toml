@@ -1,6 +1,6 @@
 [package]
 name = "makit-native"
-version = "0.1.2"
+version = "0.1.3"
 description = "makit 的 GPUI 原生界面（#226）"
 license = "MIT OR Apache-2.0"
 edition = "2021"
