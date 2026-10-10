@@ -27,6 +27,7 @@ mod popups;
 mod render;
 pub mod search_input;
 pub mod selftest;
+pub mod status_dot;
 pub mod tree;
 
 use crate::{tr, ts};

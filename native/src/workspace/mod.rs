@@ -52,7 +52,7 @@ use crate::terminal::{SearchResults, SpawnSpec, TerminalEvent, TerminalSpawnEven
 use crate::theme::{ActiveTheme, Theme};
 use dnd::{SessionDrag, TabDrag};
 use drop::{accepts_pane_drop, insert_marker, is_tab_drag, overlay_fraction, tab_insert_index, DragKind};
-use labels::{kind_icon, tab_status, tab_title, TabStatus};
+use labels::{kind_icon, tab_status, tab_title};
 use model::{
     collect_containers, find_container, find_nearest_container, layout_tree, resume_cmd, split_id, tabs_to_close, CloseScope,
     ContainerNode, Dir, Direction, LayoutNode, Rect, Side, SplitNode, TabKind,
@@ -824,7 +824,7 @@ impl WorkspaceView {
                             }))
                     })
                     .child(div().min_w(px(20.0)).max_w(px(180.0)).truncate().child(title))
-                    .when_some(status, |d, st| d.child(render_status_dot(st, &t.id, theme)))
+                    .when_some(status, |d, st| d.child(render_status_dot(st, theme)))
                     .child({
                         let (cid, tid) = (cid.clone(), tid.clone());
                         div()
@@ -1139,18 +1139,17 @@ impl WorkspaceView {
     }
 }
 
-/// 标签状态点：waiting ● 红色 1.2s 脉动 / busy ⚡ 黄 / idle ○ 灰（App.css `.tab-dot`）
-fn render_status_dot(st: TabStatus, _tab_id: &str, theme: &Theme) -> AnyElement {
-    let base = div().text_size(px(10.0)).line_height(px(10.0)).ml(px(2.0));
-    match st {
-        TabStatus::Waiting => {
-            // 1.2s 脉动，最淡 0.3。用 `pulse` 的低频时钟，不用 with_animation(.repeat())（那会 60Hz 一直重绘）
-            crate::pulse::want_ticks();
-            base.text_color(theme.danger).child("●").opacity(crate::pulse::opacity(crate::pulse::now_ms(), 1200, 0.3)).into_any_element()
-        }
-        TabStatus::Busy => base.text_color(theme.warning).child("⚡").into_any_element(),
-        TabStatus::Idle => base.text_color(theme.fg_muted).child("○").into_any_element(),
-    }
+/// Tab status dot: same look as the sidebar rows (#245) — shape = alive, colour + breathing = what it is doing
+fn render_status_dot(st: crate::sidebar::groups::RunState, theme: &Theme) -> AnyElement {
+    use crate::sidebar::status_dot;
+    div()
+        .text_size(px(10.0))
+        .line_height(px(10.0))
+        .ml(px(2.0))
+        .text_color(status_dot::color(st, theme))
+        .opacity(status_dot::opacity(st))
+        .child(st.icon())
+        .into_any_element()
 }
 
 /// 闪牌（#201 加强版）：目标 pane 整圈边框闪一下强调色，正中一张牌——大图标「弹出」（先冲过头再回弹）、

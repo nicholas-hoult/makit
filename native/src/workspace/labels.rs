@@ -7,7 +7,7 @@
 use makit_core::SessionMeta;
 
 use super::model::{PaneTab, TabKind};
-use crate::sidebar::groups::session_title;
+use crate::sidebar::groups::{run_state, session_title, RunState};
 
 /// 路径最后一段（`/a/b/` → `b`），空了就原样返回（同 App.tsx `basename`）
 pub fn basename(path: &str) -> String {
@@ -50,29 +50,14 @@ pub fn tab_title(tab: &PaneTab, meta: Option<&SessionMeta>) -> String {
     }
 }
 
-/// 标签上的状态点
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TabStatus {
-    /// ● 红色脉动（需要回应）
-    Waiting,
-    /// ⚡ 黄色
-    Busy,
-    /// ○ 灰色
-    Idle,
-}
-
 /// 会话在跑时才有状态点；没绑会话 / 没在跑 → None
-pub fn tab_status(tab: &PaneTab, meta: Option<&SessionMeta>) -> Option<TabStatus> {
+pub fn tab_status(tab: &PaneTab, meta: Option<&SessionMeta>) -> Option<RunState> {
     tab.session_id.as_ref()?;
     let m = meta?;
     if !m.running {
         return None;
     }
-    Some(match m.status.as_str() {
-        "waiting" => TabStatus::Waiting,
-        "busy" => TabStatus::Busy,
-        _ => TabStatus::Idle,
-    })
+    Some(run_state(true, &m.status))
 }
 
 /// 类型图标（ContainerView `kindIcon`）：resume ↻ / new ✦ / shell $
@@ -173,13 +158,13 @@ mod tests {
         assert_eq!(tab_status(&t, Some(&m)), None, "没在跑 → 没有点");
         m.running = true;
         m.status = "waiting".into();
-        assert_eq!(tab_status(&t, Some(&m)), Some(TabStatus::Waiting));
+        assert_eq!(tab_status(&t, Some(&m)), Some(RunState::Waiting));
         m.status = "busy".into();
-        assert_eq!(tab_status(&t, Some(&m)), Some(TabStatus::Busy));
+        assert_eq!(tab_status(&t, Some(&m)), Some(RunState::Busy));
         m.status = "idle".into();
-        assert_eq!(tab_status(&t, Some(&m)), Some(TabStatus::Idle));
+        assert_eq!(tab_status(&t, Some(&m)), Some(RunState::Idle));
         m.status = String::new();
-        assert_eq!(tab_status(&t, Some(&m)), Some(TabStatus::Idle), "未知状态算 idle");
+        assert_eq!(tab_status(&t, Some(&m)), Some(RunState::Idle), "未知状态算 idle");
         assert_eq!(tab_status(&tab(TabKind::Shell, None, "", "/x"), Some(&m)), None, "没绑会话 → 没有点");
     }
 

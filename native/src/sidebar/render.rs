@@ -7,7 +7,8 @@ use gpui::{
     CursorStyle, DragMoveEvent, FontWeight, Hsla, MouseButton, MouseDownEvent, SharedString, Transformation, Window,
 };
 
-use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label, RunState};
+use super::status_dot;
+use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label};
 use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H, SESSION_H_COMPACT};
 use crate::tooltip::tip;
 use super::{collapse, now_secs, DraggedSession, Popup, ResizeDrag, SidebarView, ThumbDrag};
@@ -232,12 +233,6 @@ impl SidebarView {
         let logo = crate::assets::tool_logo(&m.tool);
 
         let status = show_status.then(|| {
-            let (color, opacity) = match rs {
-                RunState::Waiting => (t.warning, 1.0),
-                RunState::Busy => (t.info, 1.0),
-                RunState::Idle => (mix(t.success, 0.7), 1.0),
-                RunState::Stopped => (t.fg_muted, 0.4),
-            };
             let dot = div()
                 .id(SharedString::from(format!("st-{uid}")))
                 .w(px(12.))
@@ -247,18 +242,11 @@ impl SidebarView {
                 .items_center()
                 .justify_center()
                 .text_size(px(10.))
-                .text_color(color)
-                .opacity(opacity)
+                .text_color(status_dot::color(rs, t))
+                .opacity(status_dot::opacity(rs))
                 .tooltip(tip(rs.title()))
                 .child(rs.icon());
-            if rs == RunState::Busy {
-                // 正在跑的脉动（原 attention-pulse：2s，最淡 0.4）。不用 with_animation(.repeat())：那会让窗口 60Hz 一直重绘，
-                // 一个 busy 会话就占 26% CPU；改用 `pulse` 的低频时钟（每秒 5 次），没有 busy 会话可见时 CPU 归零
-                crate::pulse::want_ticks();
-                dot.opacity(crate::pulse::opacity(crate::pulse::now_ms(), 2000, 0.4)).into_any_element()
-            } else {
-                dot.into_any_element()
-            }
+            dot.into_any_element()
         });
 
         let row1 = div()
