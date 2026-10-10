@@ -42,3 +42,24 @@ jobs:
             | jq -r 'select(.reason=="compiler-message" and .message.level=="error")
                      | "::error file=\(.message.spans[0].file_name // "-"),line=\(.message.spans[0].line_start // 1)::\(.message.rendered | gsub("\n";"%0A"))"' \
             | head -60
+
+      # Real test runs: failures are reported as annotations (compile errors as above, failed tests by name)
+      - name: cargo test core
+        shell: bash
+        run: |
+          cargo test --manifest-path core/Cargo.toml --no-fail-fast > core-test.log 2>&1 || true
+          grep -E "^test .* FAILED|panicked at|error(\[|:)" core-test.log | head -40 | sed -e 's/^/::error::/'
+          tail -5 core-test.log | sed -e 's/^/::notice::/'
+
+      - name: cargo test native
+        shell: bash
+        run: |
+          cargo test --manifest-path native/Cargo.toml --no-fail-fast > native-test.log 2>&1 || true
+          grep -E "^test .* FAILED|panicked at|error(\[|:)" native-test.log | head -40 | sed -e 's/^/::error::/'
+          tail -5 native-test.log | sed -e 's/^/::notice::/'
+
+      - name: cargo build native (release)
+        shell: bash
+        run: |
+          cargo build --manifest-path native/Cargo.toml --release > build.log 2>&1 && echo "::notice::release build ok" || { tail -40 build.log | sed -e 's/^/::error::/'; exit 1; }
+          ls -la native/target/release/*.exe | sed -e 's/^/::notice::/'
