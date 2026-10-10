@@ -39,11 +39,27 @@ jobs:
           name: makit-macos-universal
           path: native/target/release/bundle/makit-*.dmg
 
+      - name: Release notes from CHANGELOG
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          {
+            awk -v v="$v" '
+              $0 ~ "^## \\[" v "\\]" { on = 1; next }
+              on && /^## \[/ { exit }
+              on && /^---$/ { exit }
+              on { print }
+            ' CHANGELOG.md
+            echo
+            echo "**Unsigned build**: on first launch macOS asks you to allow the app manually, see the [README](https://github.com/${GITHUB_REPOSITORY}#first-launch-unsigned-this-step-is-required)."
+          } > release-notes.md
+          cat release-notes.md
+
       - name: Draft release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           draft: true
           name: makit ${{ github.ref_name }}
-          body: 详见 CHANGELOG.md。未签名，第一次打开需要手动放行（见 README）。
+          body_path: release-notes.md
           files: native/target/release/bundle/makit-*.dmg
