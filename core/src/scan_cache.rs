@@ -169,15 +169,31 @@ pub fn save_scan_cache_throttled(force: bool) {
     }
 }
 
+/// Identity of the file behind a path, so a replaced file is not read from the old offset: the inode on unix; elsewhere the creation time
+/// (a different file at the same path gets a new one)
+#[cfg(unix)]
+fn file_id(md: &fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    md.ino()
+}
+
+#[cfg(not(unix))]
+fn file_id(md: &fs::Metadata) -> u64 {
+    md.created()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
 /// Incrementally scan a claude session jsonl (#216). Only complete lines ending in a newline are consumed --
 /// claude may be midway through writing; a half line is left for next time, otherwise it would be taken for a bad line, dropped, and never read again.
 pub fn scan_session_file(path: &Path) -> Option<ScanState> {
     use std::io::{Seek, SeekFrom};
-    use std::os::unix::fs::MetadataExt;
 
     let file = fs::File::open(path).ok()?;
     let md = file.metadata().ok()?;
-    let (ino, len) = (md.ino(), md.len());
+    let (ino, len) = (file_id(&md), md.len());
 
     // The lock is held only while taking out / putting back, not while reading the file
     let cached = SCAN_CACHE.lock().ok()?.remove(path);

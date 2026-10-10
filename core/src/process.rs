@@ -456,6 +456,26 @@ pub fn kill_by_env_marker(pty_ids: &[&str]) {
     }
 }
 
+// ---- Windows (platform matrix P2): a first, coarse version. `taskkill /T` walks the process tree; escaped
+// processes cannot be found by an environment marker yet (needs a Job Object or reading the process environment block).
+#[cfg(not(unix))]
+pub fn kill_pty_by_pid(pid: u32, _pty_id: &str) {
+    kill_tree(pid);
+}
+
+#[cfg(not(unix))]
+pub fn kill_tree(pid: u32) {
+    let _ = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).output();
+}
+
+#[cfg(not(unix))]
+pub fn find_descendants(_root_pid: u32) -> Vec<u32> {
+    Vec::new()
+}
+
+#[cfg(not(unix))]
+pub fn kill_by_env_marker(_pty_ids: &[&str]) {}
+
 /// #142 verification of killing child processes in every scenario.
 ///
 /// The purpose is not to "test a function's return value" but to **measure which child-process shapes `kill_tree` actually covers**:

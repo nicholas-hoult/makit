@@ -9,6 +9,7 @@
 use crate::ts;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,6 +28,7 @@ pub fn start(on_line: impl Fn(String) + Send + Sync + 'static) {
 }
 
 /// Testable version of `start`: the socket path can be injected. A bind failure returns an error synchronously; on success the accept loop runs on a background thread.
+#[cfg(unix)]
 pub fn start_at(path: &Path, on_line: impl Fn(String) + Send + Sync + 'static) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
@@ -49,6 +51,7 @@ pub fn start_at(path: &Path, on_line: impl Fn(String) + Send + Sync + 'static) -
     Ok(())
 }
 
+#[cfg(unix)]
 fn handle_conn(stream: UnixStream, on_line: &(dyn Fn(String) + Send + Sync)) {
     let mut line = String::new();
     // Read only one newline-terminated line of JSON
@@ -61,6 +64,12 @@ fn handle_conn(stream: UnixStream, on_line: &(dyn Fn(String) + Send + Sync)) {
     // Reply with {} so Claude Code considers the hook to have exited successfully
     let mut w = &stream;
     let _ = w.write_all(b"{}\n");
+}
+
+/// Windows has no Unix domain sockets in the standard library; the named-pipe channel is still to be written (platform matrix P1)
+#[cfg(not(unix))]
+pub fn start_at(_path: &Path, _on_line: impl Fn(String) + Send + Sync + 'static) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the hook channel is not implemented on this platform yet"))
 }
 
 /// Claude Code hook events makit uses: `Notification` (awaiting approval / an answer), `Stop` (task finished, carrying Claude's own words as the banner body),
@@ -86,6 +95,7 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
         sock_path.display()
     );
     fs::write(&hook_script, &script).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mut perms = fs::metadata(&hook_script).map_err(|e| e.to_string())?.permissions();
@@ -145,7 +155,7 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
 /// After the callback-style refactor (#226): the hook server no longer depends on tauri's async runtime and starts its own thread.
 /// What goes wrong on screen if this breaks: no notification when claude awaits approval / an answer (the line was not handed over), or claude's hook
 /// hangs / reports a hook failure (`{}` was not sent back).
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::io::Read;
