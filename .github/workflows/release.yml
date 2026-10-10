@@ -78,3 +78,31 @@ jobs:
           name: makit ${{ github.ref_name }}
           body_path: release-notes.md
           files: native/target/release/bundle/makit-*.dmg
+
+      # Keeps the Homebrew tap (<owner>/homebrew-tap) in step with the release. Needs a fine-grained token with
+      # contents:write on the tap repository stored as the HOMEBREW_TAP_TOKEN secret; without it the step is skipped (#268).
+      - name: Update Homebrew tap
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "HOMEBREW_TAP_TOKEN is not set, skipping the tap update"
+            exit 0
+          fi
+          v="${GITHUB_REF_NAME#v}"
+          dmg=$(ls native/target/release/bundle/makit-*.dmg | head -1)
+          sha=$(shasum -a 256 "$dmg" | awk '{print $1}')
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
+          mkdir -p tap/Casks
+          sed -e "s/@VERSION@/${v}/" -e "s/@SHA256@/${sha}/" packaging/homebrew/makit.rb.in > tap/Casks/makit.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/makit.rb
+          if git diff --cached --quiet; then
+            echo "tap already up to date"
+          else
+            git commit -m "makit ${v}"
+            git push origin HEAD
+          fi

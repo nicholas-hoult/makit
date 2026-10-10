@@ -29,6 +29,12 @@ UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh  # 通用包 + .dmg（要先 rus
 
 第一次建议先在 Actions 页用 `workflow_dispatch` 手动试跑，确认构建能过，再打 tag。
 
+## Homebrew tap
+
+`brew install --cask nicholas-hoult/tap/makit`（#268）。发版 workflow 的最后一步会把 `packaging/homebrew/makit.rb.in` 渲染成 `Casks/makit.rb`（填入版本号和 dmg 的 sha256）并推到 `nicholas-hoult/homebrew-tap`。
+
+一次性设置：在 GitHub 创建一个只授权 `homebrew-tap` 仓库、权限 Contents 读写的 fine-grained token，存进 makit 仓库的 Actions secret `HOMEBREW_TAP_TOKEN`。没设这个 secret 时那一步会跳过，不影响发版。
+
 ## 以后要补的
 
 - Apple 开发者签名 + 公证（需要开发者账号，#262）
