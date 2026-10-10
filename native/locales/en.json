@@ -392,5 +392,22 @@
   "terminal.cwd_missing": "Original folder is missing: %{from} → switched to: %{to}",
   "diagnostics.header": "makit %{version}\nSystem: %{os} (%{arch})\nLog folder: %{log_dir}\n--- Recent log ---\n",
   "terminal.cwd_missing_title": "The original start folder no longer exists: %{cwd}",
-  "terminal.cwd_missing_hint": "Your conversation is not lost, only the key to \"which folder to start in\". If you closed the recovery window: close this panel and open the session again from the sidebar to retry."
+  "terminal.cwd_missing_hint": "Your conversation is not lost, only the key to \"which folder to start in\". If you closed the recovery window: close this panel and open the session again from the sidebar to retry.",
+  "update.pill": "Update %{version}",
+  "update.pill_tip": "makit %{version} is available",
+  "update.pill_installing": "Updating…",
+  "update.menu.title": "makit %{version} is available",
+  "update.menu.install": "Update and restart",
+  "update.menu.notes": "Release notes",
+  "update.menu.skip": "Skip this version",
+  "update.toast.up_to_date": "makit is up to date (%{version})",
+  "update.toast.check_failed": "Could not check for updates",
+  "update.toast.downloading": "Downloading makit %{version}…",
+  "update.toast.installing": "Installing, makit will restart…",
+  "update.toast.install_failed": "Update failed: %{reason}",
+  "update.toast.brew_copied": "Installed with Homebrew. Copied: %{cmd}",
+  "update.toast.opened_page": "Opened the download page",
+  "settings.update.title": "Updates",
+  "settings.update.check": "Check for updates",
+  "settings.update.hint": "makit checks for a new version about once a day. Only the version information is requested; nothing about your sessions is sent."
 }

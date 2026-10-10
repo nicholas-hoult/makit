@@ -322,6 +322,7 @@ pub fn run() {
         log::info!(target: "theme", "startup theme: {startup_theme} ({}, system appearance {})", if prefs.theme.chosen { "chosen by the user" } else { "follows the system" }, if startup_dark { "dark" } else { "light" });
         cx.set_global(Theme::by_id(startup_theme, &prefs.theme.imported));
         crate::pulse::start(cx);
+        crate::update::start(cx);
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
         crate::notify::Notifier::init(state.clone(), cx);

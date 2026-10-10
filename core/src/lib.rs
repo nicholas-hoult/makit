@@ -35,6 +35,7 @@ pub mod running;
 pub mod scan_cache;
 pub mod sessions;
 pub mod transcript;
+pub mod update;
 pub mod watcher;
 pub mod worktree;
 

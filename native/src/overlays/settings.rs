@@ -561,6 +561,15 @@ impl Render for SettingsView {
                                     )
                                     .child(hint(&tr!("settings.diagnostics.hint"))),
                             )
+                            // Updates (#200)
+                            .child(
+                                section()
+                                    .child(label(&tr!("settings.update.title")))
+                                    .child(div().flex().child(
+                                        action_btn(&theme, "check-update", tr!("settings.update.check")).on_click(|_, _, cx| crate::update::check_now(true, cx)),
+                                    ))
+                                    .child(hint(&tr!("settings.update.hint"))),
+                            )
                             // 关于（#199）：提 issue 时要报版本号
                             .child(
                                 section()

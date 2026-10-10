@@ -17,7 +17,7 @@
 //!   它的左边界 = `BELL_LEFT`（通知抽屉按这个定位，同 TS 的 `bellBtnRef.getBoundingClientRect().left`）
 //! - 侧栏分隔线高亮（B 侧栏包）：拖 / 悬停侧栏 resizer 时 `cx.set_global(TitlebarResizerHot(true))`
 
-use crate::ts;
+use crate::{tr, ts};
 use gpui::{div, prelude::*, px, svg, AnyElement, App, ClickEvent, Entity, Global, Window};
 
 use super::labels::titlebar_text;
@@ -119,6 +119,55 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                     .child(div().min_w_0().truncate().text_size(px(12.0)).text_color(t.fg_muted).opacity(0.7).child(title)),
             ),
         )
+        // Update pill (#200): right end of the titlebar, only while a newer release is waiting
+        .when_some(crate::update::available(cx), |d, release| {
+            let busy = matches!(crate::update::status(cx), crate::update::Status::Installing(_));
+            let label: gpui::SharedString = if busy { tr!("update.pill_installing").into() } else { ts!("update.pill", version = release.version.clone()).into() };
+            let tip = ts!("update.pill_tip", version = release.version.clone());
+            let theme = t.clone();
+            d.child(
+                div()
+                    .absolute()
+                    .right(px(10.0))
+                    .top_0()
+                    .h(px(TITLEBAR_H))
+                    .flex()
+                    .items_center()
+                    .child(
+                        div()
+                            .id("update-pill")
+                            .px(px(9.0))
+                            .h(px(20.0))
+                            .flex()
+                            .items_center()
+                            .rounded_full()
+                            .bg(theme.accent)
+                            .text_color(theme.accent_fg)
+                            .text_size(px(11.0))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .when(!busy, |d| d.cursor_pointer().hover(|s| s.opacity(0.85)))
+                            .tooltip(crate::tooltip::tip(tip))
+                            .child(label)
+                            .on_click(move |ev: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                if busy {
+                                    return;
+                                }
+                                let release = release.clone();
+                                crate::overlays::show_context_menu(ev.position(), window, cx, move |_| {
+                                    let (r_install, r_notes, r_skip) = (release.clone(), release.clone(), release.clone());
+                                    vec![
+                                        crate::overlays::MenuItem::header(ts!("update.menu.title", version = release.version.clone())),
+                                        crate::overlays::MenuItem::action(tr!("update.menu.install"), move |_, cx| crate::update::install(r_install.clone(), cx)),
+                                        crate::overlays::MenuItem::action(tr!("update.menu.notes"), move |_, cx| cx.open_url(&r_notes.page_url)),
+                                        crate::overlays::MenuItem::separator(),
+                                        crate::overlays::MenuItem::action(tr!("update.menu.skip"), move |_, cx| crate::update::skip(&r_skip.version, cx)),
+                                    ]
+                                });
+                            }),
+                    ),
+            )
+        })
         // 按钮组：x=68 绝对定位，侧栏展开 / 折叠都看得见
         .child(
             div()

@@ -35,6 +35,8 @@ pub struct NativeState {
     pub language: String,
     pub palette: PalettePrefs,
     pub notify: NotifyPrefs,
+    /// Update check bookkeeping (#200)
+    pub update: UpdatePrefs,
     /// `makit-notifications`：通知记录（最多 100 条，每会话一条）。形状是 `notify::book::Record`
     /// （`{session_id, kind, message, at, read}`，不存名字，#8）；导入的 Tauri 旧形状由 `Book::from_saved` 转换。
     /// 这里保持原样存 JSON，好让坏一条不影响整份状态文件
@@ -71,6 +73,7 @@ impl Default for NativeState {
             language: crate::i18n::PREF_EN.into(),
             palette: PalettePrefs::default(),
             notify: NotifyPrefs::default(),
+            update: UpdatePrefs::default(),
             notifications: Vec::new(),
             imported_from: None,
             window: None,
@@ -159,6 +162,16 @@ impl Default for ThemePrefs {
     fn default() -> Self {
         Self { id: crate::theme::builtin::DEFAULT_THEME_ID.into(), imported: Vec::new(), chosen: false }
     }
+}
+
+/// Update check bookkeeping (#200)
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct UpdatePrefs {
+    /// Version the user chose "Skip this version" for (without `v`); empty = none
+    pub skipped: String,
+    /// Unix seconds of the last completed check; 0 = never
+    pub last_check: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]

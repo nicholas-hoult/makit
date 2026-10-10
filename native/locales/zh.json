@@ -392,5 +392,22 @@
   "terminal.cwd_missing": "原目录不存在: %{from} → 已切换到: %{to}",
   "diagnostics.header": "makit %{version}\n系统：%{os}（%{arch}）\n日志目录：%{log_dir}\n--- 最近日志 ---\n",
   "terminal.cwd_missing_title": "原启动目录已不存在: %{cwd}",
-  "terminal.cwd_missing_hint": "会话记录没丢，丢的只是「在哪个目录启动」这把钥匙。若关掉了恢复窗口：关掉本面板，再从侧栏重新打开这条会话即可重试。"
+  "terminal.cwd_missing_hint": "会话记录没丢，丢的只是「在哪个目录启动」这把钥匙。若关掉了恢复窗口：关掉本面板，再从侧栏重新打开这条会话即可重试。",
+  "update.pill": "更新 %{version}",
+  "update.pill_tip": "makit %{version} 可以更新",
+  "update.pill_installing": "正在更新…",
+  "update.menu.title": "makit %{version} 可以更新",
+  "update.menu.install": "更新并重启",
+  "update.menu.notes": "查看更新说明",
+  "update.menu.skip": "跳过这个版本",
+  "update.toast.up_to_date": "makit 已是最新版本（%{version}）",
+  "update.toast.check_failed": "检查更新失败",
+  "update.toast.downloading": "正在下载 makit %{version}…",
+  "update.toast.installing": "正在安装，makit 即将重启…",
+  "update.toast.install_failed": "更新失败：%{reason}",
+  "update.toast.brew_copied": "这份是用 Homebrew 装的，已复制命令：%{cmd}",
+  "update.toast.opened_page": "已打开下载页",
+  "settings.update.title": "更新",
+  "settings.update.check": "检查更新",
+  "settings.update.hint": "makit 大约每天检查一次新版本，只请求版本信息，不会发送任何会话内容。"
 }
