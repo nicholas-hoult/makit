@@ -159,6 +159,7 @@ pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx
     if mode == "overlays" {
         return crate::overlays::selftest::run(handle, state, cx);
     }
+    #[cfg(unix)]
     if mode == "notify" {
         return crate::notify::selftest::run(handle.into(), state, cx);
     }

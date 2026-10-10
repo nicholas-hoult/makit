@@ -31,6 +31,7 @@ pub mod center;
 pub mod classify;
 pub mod deliver;
 pub mod model;
+#[cfg(unix)]
 pub mod selftest;
 pub mod system;
 pub mod ui;

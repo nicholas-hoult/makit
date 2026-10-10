@@ -14,8 +14,11 @@
 
 use crate::ts;
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self};
+#[cfg(unix)]
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -76,8 +79,20 @@ pub fn build_env(pty_id: Option<&str>, init_command: Option<&str>, shell: &str, 
     env
 }
 
+#[cfg(unix)]
 pub fn user_shell() -> String {
     std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into())
+}
+
+/// Windows: PowerShell (always present); a configurable shell is a later step (platform matrix P13)
+#[cfg(not(unix))]
+pub fn user_shell() -> String {
+    "powershell.exe".into()
+}
+
+/// Arguments the shell is started with: a login shell on unix so `.zprofile` gives the full PATH
+pub fn shell_args() -> Vec<String> {
+    if cfg!(unix) { vec!["-l".to_string()] } else { Vec::new() }
 }
 
 /// 降级时写进终端的那行黄字（不经过 PTY，不会被 shell 当命令执行）
@@ -92,45 +107,107 @@ pub fn cwd_missing_notice(cwd: &str) -> String {
     format!("\r\n\x1b[33m{}\x1b[0m\r\n\x1b[2m{}\x1b[0m", ts!("terminal.cwd_missing_title", cwd = cwd), ts!("terminal.cwd_missing_hint"))
 }
 
-/// 包在 alacritty 的 tty 外面：读出来的字节先过一遍 OSC 7 扫描器（alacritty 的解析器不处理 OSC 7），
-/// 原样交给 alacritty。读写 / 注册都转给里面的 Pty
+#[cfg(unix)]
+mod scanning {
+    use super::*;
+
+    /// 包在 alacritty 的 tty 外面：读出来的字节先过一遍 OSC 7 扫描器（alacritty 的解析器不处理 OSC 7），
+    /// 原样交给 alacritty。读写 / 注册都转给里面的 Pty
+    pub struct ScanningPty {
+        inner: tty::Pty,
+        reader: ScanReader,
+    }
+
+    pub struct ScanReader {
+        file: File,
+        scanner: Osc7Scanner,
+        cwd: Arc<Mutex<String>>,
+    }
+
+    impl Read for ScanReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.file.read(buf)?;
+            if let Some(last) = self.scanner.feed(&buf[..n]).pop() {
+                if let Ok(mut c) = self.cwd.lock() {
+                    *c = last;
+                }
+            }
+            Ok(n)
+        }
+    }
+
+    impl ScanningPty {
+        /// `cwd`：OSC 7 报上来的目录写到这里（UI 线程读，给链接解析用）
+        pub fn new(inner: tty::Pty, cwd: Arc<Mutex<String>>) -> io::Result<Self> {
+            let file = inner.file().try_clone()?;
+            Ok(Self { inner, reader: ScanReader { file, scanner: Osc7Scanner::default(), cwd } })
+        }
+        pub fn child_pid(&self) -> u32 {
+            self.inner.child().id()
+        }
+    }
+
+    impl EventedReadWrite for ScanningPty {
+        type Reader = ScanReader;
+        type Writer = File;
+
+        unsafe fn register(&mut self, poll: &Arc<Poller>, interest: Event, mode: PollMode) -> io::Result<()> {
+            unsafe { self.inner.register(poll, interest, mode) }
+        }
+        fn reregister(&mut self, poll: &Arc<Poller>, interest: Event, mode: PollMode) -> io::Result<()> {
+            self.inner.reregister(poll, interest, mode)
+        }
+        fn deregister(&mut self, poll: &Arc<Poller>) -> io::Result<()> {
+            self.inner.deregister(poll)
+        }
+        fn reader(&mut self) -> &mut ScanReader {
+            &mut self.reader
+        }
+        fn writer(&mut self) -> &mut File {
+            self.inner.writer()
+        }
+    }
+
+    impl EventedPty for ScanningPty {
+        fn next_child_event(&mut self) -> Option<ChildEvent> {
+            self.inner.next_child_event()
+        }
+    }
+
+    impl OnResize for ScanningPty {
+        fn on_resize(&mut self, ws: WindowSize) {
+            self.inner.on_resize(ws)
+        }
+    }
+
+
+}
+#[cfg(unix)]
+pub use scanning::{ScanReader, ScanningPty};
+
+/// Windows (ConPTY): alacritty's pty already owns the pipes and does not expose a raw handle to clone, so there is no
+/// OSC 7 scanning layer here; the working-directory tracking that depends on it (link resolution) degrades until a
+/// PowerShell integration reports the directory another way (platform matrix P13). Everything is passed through.
+#[cfg(windows)]
 pub struct ScanningPty {
     inner: tty::Pty,
-    reader: ScanReader,
 }
 
-pub struct ScanReader {
-    file: File,
-    scanner: Osc7Scanner,
-    cwd: Arc<Mutex<String>>,
-}
-
-impl Read for ScanReader {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let n = self.file.read(buf)?;
-        if let Some(last) = self.scanner.feed(&buf[..n]).pop() {
-            if let Ok(mut c) = self.cwd.lock() {
-                *c = last;
-            }
-        }
-        Ok(n)
-    }
-}
-
+#[cfg(windows)]
 impl ScanningPty {
-    /// `cwd`：OSC 7 报上来的目录写到这里（UI 线程读，给链接解析用）
-    pub fn new(inner: tty::Pty, cwd: Arc<Mutex<String>>) -> io::Result<Self> {
-        let file = inner.file().try_clone()?;
-        Ok(Self { inner, reader: ScanReader { file, scanner: Osc7Scanner::default(), cwd } })
+    pub fn new(inner: tty::Pty, _cwd: Arc<Mutex<String>>) -> io::Result<Self> {
+        Ok(Self { inner })
     }
+
     pub fn child_pid(&self) -> u32 {
-        self.inner.child().id()
+        self.inner.child_watcher().pid().map(|p| p.get()).unwrap_or(0)
     }
 }
 
+#[cfg(windows)]
 impl EventedReadWrite for ScanningPty {
-    type Reader = ScanReader;
-    type Writer = File;
+    type Reader = <tty::Pty as EventedReadWrite>::Reader;
+    type Writer = <tty::Pty as EventedReadWrite>::Writer;
 
     unsafe fn register(&mut self, poll: &Arc<Poller>, interest: Event, mode: PollMode) -> io::Result<()> {
         unsafe { self.inner.register(poll, interest, mode) }
@@ -141,20 +218,22 @@ impl EventedReadWrite for ScanningPty {
     fn deregister(&mut self, poll: &Arc<Poller>) -> io::Result<()> {
         self.inner.deregister(poll)
     }
-    fn reader(&mut self) -> &mut ScanReader {
-        &mut self.reader
+    fn reader(&mut self) -> &mut Self::Reader {
+        self.inner.reader()
     }
-    fn writer(&mut self) -> &mut File {
+    fn writer(&mut self) -> &mut Self::Writer {
         self.inner.writer()
     }
 }
 
+#[cfg(windows)]
 impl EventedPty for ScanningPty {
     fn next_child_event(&mut self) -> Option<ChildEvent> {
         self.inner.next_child_event()
     }
 }
 
+#[cfg(windows)]
 impl OnResize for ScanningPty {
     fn on_resize(&mut self, ws: WindowSize) {
         self.inner.on_resize(ws)
@@ -162,7 +241,8 @@ impl OnResize for ScanningPty {
 }
 
 pub fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    // `HOME` first so the fake-HOME dev / selftest setups keep working; the platform home otherwise (`%USERPROFILE%` on Windows)
+    std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir)
 }
 
 #[cfg(test)]

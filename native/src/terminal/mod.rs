@@ -444,10 +444,12 @@ impl TerminalView {
         let env = pty::build_env(self.spec.pty_id.as_deref(), init.as_deref(), &shell, pty::home_dir().as_deref());
         let options = tty::Options {
             // login shell：读 .zprofile 拿到完整 PATH（brew / cargo / nvm）
-            shell: Some(tty::Shell::new(shell, vec!["-l".to_string()])),
+            shell: Some(tty::Shell::new(shell, pty::shell_args())),
             working_directory: Some(PathBuf::from(&plan.cwd)),
             drain_on_exit: true,
             env,
+            #[cfg(windows)]
+            escape_args: false,
         };
         let ws = self.window_size_for(size);
         let result = tty::new(&options, ws, 0).and_then(|p| pty::ScanningPty::new(p, self.cwd.clone())).and_then(|p| {
