@@ -50,6 +50,7 @@ pub fn cjk_fallbacks(preferred_languages: &[String]) -> Vec<&'static str> {
 }
 
 /// 系统首选语言（系统设置「语言与地区」的顺序），同 对标产品 用的 `Locale.preferredLanguages`
+#[cfg(target_os = "macos")]
 pub fn system_preferred_languages() -> Vec<String> {
     use core_foundation_sys::array::{CFArrayGetCount, CFArrayGetValueAtIndex};
     use core_foundation_sys::base::CFRelease;
@@ -72,6 +73,19 @@ pub fn system_preferred_languages() -> Vec<String> {
         CFRelease(arr as _);
     }
     out
+}
+
+/// System preferred languages outside macOS: the locale environment variables (`LC_ALL`, `LC_MESSAGES`, `LANG`),
+/// `zh_CN.UTF-8` becomes `zh-CN`. Windows has no such variables by default, so it falls back to English until a
+/// `GetUserPreferredUILanguages` backend is written (platform matrix P20).
+#[cfg(not(target_os = "macos"))]
+pub fn system_preferred_languages() -> Vec<String> {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok())
+        .map(|v| v.split(['.', '@']).next().unwrap_or("").replace('_', "-"))
+        .filter(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        .collect()
 }
 
 /// 格子宽高（逻辑像素）：对标终端 在设备像素上四舍五入。`advance` / `ascent` / `descent`（正数）/ `line_gap`

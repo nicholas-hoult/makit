@@ -76,6 +76,7 @@ fn yes_flood_has_backpressure_and_ctrl_c_is_fast() {
     }
     let latency = exited_at.lock().unwrap().map(|t| t.duration_since(sent));
     let _ = notifier.0.send(Msg::Shutdown);
+    #[cfg(unix)]
     unsafe {
         libc::kill(pid as i32, libc::SIGKILL);
     }

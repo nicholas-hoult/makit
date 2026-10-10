@@ -350,7 +350,10 @@ pub fn run(handle: WindowHandle<Root>, state: Entity<AppState>, cx: &mut App) {
                 let running = |cx: &mut AsyncApp| cx.read_entity(&state, |s, _| s.session(&sid).map(|m| m.running)).ok().flatten();
                 pause(4000).await; // 等一轮巡检把初始状态合进来
                 let before = running(cx);
-                unsafe { libc::kill(pid, libc::SIGKILL) };
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL)
+                };
                 let t = Instant::now();
                 let mut after = running(cx);
                 while after == Some(true) && t.elapsed() < Duration::from_secs(8) {

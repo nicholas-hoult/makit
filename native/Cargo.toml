@@ -20,15 +20,25 @@ makit-core = { path = "../core" }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }
 dirs = "5"
-libc = "0.2"
 serde_json = "1"
 # 终端（A 包，#226）：链接识别正则、OSC 8 / OSC 7 的 URL 解析、中文分词（系统 CFStringTokenizer）
 regex = "1"
 url = "2"
 percent-encoding = "2"
-core-foundation-sys = "0.8"
 # alacritty 的 EventedReadWrite 要 polling 的类型（OSC 7 扫描包在 tty 外面，见 terminal/pty.rs）
 polling = "3"
+log = "0.4"
+tracing = "0.1"
+chrono = "0.4"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "env-filter", "std", "ansi", "tracing-log", "chrono"] }
+rust-i18n = "4.2.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# macOS only (#184): system notifications through UNUserNotificationCenter and CFString-based text segmentation / locale
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation-sys = "0.8"
 # 通知（E 包，#215）：macOS 原生 UNUserNotificationCenter —— 点横幅回调、撤回、按会话替换都靠它
 # （notify_rust 发出去就不管，做不到）。只开用到的 feature，少编一点
 objc2 = "0.6"
@@ -38,11 +48,6 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
     "std", "block2", "bitflags", "UNUserNotificationCenter", "UNNotificationContent", "UNNotificationRequest",
     "UNNotificationResponse", "UNNotification", "UNNotificationSettings", "UNNotificationSound", "UNNotificationTrigger",
 ] }
-log = "0.4"
-tracing = "0.1"
-chrono = "0.4"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "env-filter", "std", "ansi", "tracing-log", "chrono"] }
-rust-i18n = "4.2.4"
 
 # 开发用的「快 debug」（#258）：自己的 crate 仍是 debug（改一个文件增量编译快），依赖（GPUI、alacritty、字体、正则……）开优化，
 # 运行时的帧耗时接近 release；调试信息只留行号，二进制和链接都小很多。默认的 `dev` 和 `release` 不受影响。

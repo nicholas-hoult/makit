@@ -297,10 +297,8 @@ pub fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 
 /// 秒级时间戳 → 本地日历日（年, 月, 日）
 pub fn local_ymd(ts: i64) -> (i32, u32, u32) {
-    let t = ts as libc::time_t;
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe { libc::localtime_r(&t, &mut tm) };
-    (tm.tm_year + 1900, (tm.tm_mon + 1) as u32, tm.tm_mday as u32)
+    use chrono::{Datelike, TimeZone};
+    chrono::Local.timestamp_opt(ts, 0).single().map(|d| (d.year(), d.month(), d.day())).unwrap_or((1970, 1, 1))
 }
 
 /// 把历史按**本地日历日**分段（`dayBuckets`）：今天 / 昨天 / 近几天各一天（「9月22日」）/ 更早。
