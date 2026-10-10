@@ -24,8 +24,8 @@ UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh  # 通用包 + .dmg（要先 rus
    git push origin v0.1.1
    ```
 
-4. `.github/workflows/release.yml` 会在 macOS 上跑测试、打通用包和 .dmg，上传成**草稿** Release
-5. 在 GitHub 的 Releases 页检查草稿（下载 .dmg 装一遍），没问题再点发布
+4. `.github/workflows/release.yml` 会在 macOS 上跑测试、打通用包和 .dmg，测试通过后**直接发布** Release（说明取自 CHANGELOG；测试或打包失败不会发布）
+5. 发布后在 Releases 页下载 .dmg 装一遍确认；有问题可以在页面上编辑说明或设为预发布
 
 第一次建议先在 Actions 页用 `workflow_dispatch` 手动试跑，确认构建能过，再打 tag。
 
