@@ -1,0 +1,44 @@
+name: CI
+
+# Compile checks on the platforms we do not develop on (#251). Compiler errors are turned into annotations so they
+# are readable through the public check-runs API without logging in.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows-check:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core
+            native
+
+      - name: cargo check core
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --manifest-path core/Cargo.toml --message-format=json 2>/dev/null \
+            | jq -r 'select(.reason=="compiler-message" and .message.level=="error")
+                     | "::error file=\(.message.spans[0].file_name // "-"),line=\(.message.spans[0].line_start // 1)::\(.message.rendered | gsub("\n";"%0A"))"' \
+            | head -40
+
+      - name: cargo check native
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --manifest-path native/Cargo.toml --message-format=json 2>/dev/null \
+            | jq -r 'select(.reason=="compiler-message" and .message.level=="error")
+                     | "::error file=\(.message.spans[0].file_name // "-"),line=\(.message.spans[0].line_start // 1)::\(.message.rendered | gsub("\n";"%0A"))"' \
+            | head -60
