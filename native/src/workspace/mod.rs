@@ -634,7 +634,7 @@ impl WorkspaceView {
         let dir = s.dir;
         // 可见的线画在边界「前一个」pane 那一侧 1px（App.css `.pane-resizer-v::before` 的 translateX(-100%)）；
         // 上下分常态不画线（分界靠标签条的色阶），hover / 拖动时两个方向都亮 accent
-        let line_color = if hot { Some(theme.accent) } else if dir == Dir::V { Some(theme.border) } else { None };
+        let line_color = if hot { Some(theme.accent) } else if dir == Dir::V { Some(theme.divider) } else { None };
         let line = match dir {
             Dir::V => div().absolute().top_0().bottom_0().left(relative(ra)).ml(px(-1.0)).w(px(1.0)),
             Dir::H => div().absolute().left_0().right_0().top(relative(ra)).mt(px(-1.0)).h(px(1.0)),

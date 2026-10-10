@@ -30,6 +30,8 @@ pub struct Theme {
     pub bg_active: Hsla,
     pub border: Hsla,
     pub border_strong: Hsla,
+    /// Layout divider (pane splits, sidebar edge): a darker shade of the background (#260)
+    pub divider: Hsla,
     pub fg_muted: Hsla,
     pub fg_subtle: Hsla,
     pub accent: Hsla,
@@ -72,6 +74,8 @@ impl Theme {
             bg_active: c("--bg-active"),
             border: c("--border"),
             border_strong: c("--border-strong"),
+            // not part of the TS-parity variable set (`derive_vars`), so it is derived here
+            divider: to_hsla(&derive::divider(&source.bg)),
             fg_muted: c("--fg-muted"),
             fg_subtle: c("--fg-subtle"),
             accent: c("--accent"),

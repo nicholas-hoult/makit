@@ -72,6 +72,16 @@ pub fn lighten(hex: &str, amount: f64) -> String {
     rgb_hex(r as f64 + 255.0 * amount, g as f64 + 255.0 * amount, b as f64 + 255.0 * amount)
 }
 
+/// Layout divider colour: the terminal background with its HSB brightness scaled down — 8 % on a light
+/// background, 40 % on a dark one. Scaling brightness keeps hue and saturation, so every channel scales
+/// by the same factor. The line is therefore always a slightly darker shade of the background instead of a
+/// grey overlay, which is what makes pane and sidebar edges read as crisp rather than coarse (#260).
+pub fn divider(bg: &str) -> String {
+    let k = if rel_lum(bg) > 0.5 { 1.0 - 0.08 } else { 1.0 - 0.4 };
+    let (r, g, b) = hex_to_rgb(bg);
+    rgb_hex(r as f64 * k, g as f64 * k, b as f64 * k)
+}
+
 /// WCAG 相对亮度
 pub fn rel_lum(hex: &str) -> f64 {
     let (r, g, b) = hex_to_rgb(hex);
@@ -213,6 +223,19 @@ pub fn parse_color(s: &str) -> Option<[f32; 4]> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn divider_is_a_darker_shade_of_the_background() {
+        // light background: brightness x 0.92
+        assert_eq!(divider("#ffffff"), "#ebebeb");
+        // dark background: brightness x 0.6, hue kept (all channels scale together)
+        let d = hex_to_rgb(&divider("#1e2030"));
+        assert_eq!(d, (18, 19, 29));
+        // never lighter than the background
+        for bg in ["#000000", "#282a36", "#fdf6e3", "#ffffff"] {
+            assert!(rel_lum(&divider(bg)) <= rel_lum(bg) + 1e-9, "{bg}");
+        }
+    }
+
     use super::*;
     use crate::theme::legacy_fixture::legacy_themes;
 

@@ -545,7 +545,7 @@ impl Render for SidebarView {
             .on_action(cx.listener(|this, _: &act::ExpandGroup, _, cx| this.collapse_selected_group(false, cx)))
             .on_action(cx.listener(|this, _: &act::ClearSelection, _, cx| this.clear_selection(cx)));
 
-        // `.session-tree`：--bg-soft 底、右边 1px --border-strong（侧栏 ↔ 工作区的主结构线）
+        // `.session-tree`：--bg-soft 底、右边 1px --divider（侧栏 ↔ 工作区的主结构线）
         let aside = div()
             .id("session-tree")
             .key_context("Sidebar")
@@ -557,7 +557,7 @@ impl Render for SidebarView {
             .overflow_hidden()
             .bg(theme.bg_soft)
             .border_r_1()
-            .border_color(theme.border_strong)
+            .border_color(theme.divider)
             .child(self.render_header(&theme, cx))
             .child(body)
             .children(popups);

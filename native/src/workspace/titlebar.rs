@@ -89,7 +89,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                 .flex_none()
                 .h_full()
                 .w(px(if collapsed { TRAFFIC_LIGHTS_W } else { sidebar_w }))
-                .when(!collapsed, |d| d.bg(t.bg_soft).border_r_1().border_color(t.border_strong))
+                .when(!collapsed, |d| d.bg(t.bg_soft).border_r_1().border_color(t.divider))
                 .when(collapsed, |d| d.bg(t.bg)),
         )
         .when(!collapsed, |d| d.child(div().flex_none().w(px(2.0)).h_full().when(hot, |d| d.bg(t.accent))))
