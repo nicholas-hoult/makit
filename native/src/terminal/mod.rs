@@ -59,6 +59,7 @@ pub mod wheel;
 pub mod zoom;
 
 #[cfg(test)]
+#[cfg(unix)]
 mod flood_test;
 
 use element::TerminalElement;

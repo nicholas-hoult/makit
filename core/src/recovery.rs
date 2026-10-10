@@ -391,6 +391,7 @@ mod session_recovery_tests {
     /// If enumeration looks only at the extension, the same session_id is scanned as **two entries**, and a pair of twin sessions shows up in the sidebar.
     /// Directory-level symlinks were already skipped (`file_type()` does not follow symlinks, see the comment in the enumeration), while the file-level
     /// case was not handled before -- because nobody had created file-level symlinks at scale.
+    #[cfg(unix)]
     #[test]
     fn enumeration_skips_symlinked_jsonl() {
         let dir = std::env::temp_dir().join(format!("makit-enum-{}", std::process::id()));
