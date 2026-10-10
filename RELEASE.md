@@ -15,7 +15,7 @@ UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh  # 通用包 + .dmg（要先 rus
 
 ## 发布到 GitHub
 
-1. 改版本号：`native/Cargo.toml`、`core/Cargo.toml`（两处保持一致），更新 `CHANGELOG.md`
+1. 改版本号：`native/Cargo.toml`、`core/Cargo.toml`（两处保持一致），更新 `CHANGELOG.md`（英文，Release 说明从它生成）和 `CHANGELOG.zh-CN.md`（中文，CI 会附在英文后面）
 2. 跑测试：`cargo test --manifest-path native/Cargo.toml`
 3. 提交、打 tag 并推送：
 

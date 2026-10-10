@@ -50,6 +50,21 @@ jobs:
               on && /^---$/ { exit }
               on { print }
             ' CHANGELOG.md
+            if [ -f CHANGELOG.zh-CN.md ]; then
+              zh=$(awk -v v="$v" '
+                $0 ~ "^## \\[" v "\\]" { on = 1; next }
+                on && /^## \[/ { exit }
+                on && /^---$/ { exit }
+                on { print }
+              ' CHANGELOG.zh-CN.md)
+              if [ -n "$zh" ]; then
+                echo
+                echo "---"
+                echo
+                echo "**简体中文**"
+                echo "$zh"
+              fi
+            fi
             echo
             echo "**Unsigned build**: on first launch macOS asks you to allow the app manually, see the [README](https://github.com/${GITHUB_REPOSITORY}#first-launch-unsigned-this-step-is-required)."
           } > release-notes.md

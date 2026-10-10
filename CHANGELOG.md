@@ -1,11 +1,16 @@
 # Changelog
 
-All notable changes to Makit will be documented in this file.
+[简体中文](CHANGELOG.zh-CN.md)
+
+All notable changes to makit will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Performance
+- Appending to a long conversation no longer re-walks the whole conversation: the cost of each new record in the conversation view is now constant (about 0.04 ms at 5 MB, 50 MB and 200 MB, previously about 1.4 ms, 13 ms and 110 ms) (#269)
 
 ## [0.1.2] - 2026-10-10
 
@@ -18,24 +23,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] - 2026-10-05
 
-首个公开版本（macOS，Intel + Apple Silicon 通用包，未签名）。（版本号从 0.1.1 开始：`v0.1.0` 标签在默认语言改成英文之前打过，没有发布。）纯 Rust 原生应用（GPUI），取代更早的 Tauri 版。
+First public release (macOS, universal Intel + Apple Silicon package, unsigned). The version number starts at 0.1.1: the `v0.1.0` tag was made before the default language became English and was never announced. A pure Rust native app (GPUI) that replaces the earlier Tauri version.
 
 ### Added
-- 会话管理：扫描本机 Claude Code 和 Codex 会话，按项目 / 状态分组，显示运行中 / 等待审批 / 空闲 / 已停止 / 已归档；一键恢复，启动目录被删或改名也能救回（Claude Code）
-- 分屏终端：树形分屏、标签拖拽、关标签彻底清理会话进程；终端内链接、双击选词、字号缩放、滚动手感
-- ⌘K 命令面板：搜项目 / 任务，按项目 / 时间 / 状态筛选
-- 状态通知：会话等你审批或回答、任务完成时弹桌面通知，通知中心（仅 Claude Code）
-- 界面：21 套内置主题（深 / 浅色，自动跟随系统），可导入 iTerm2 `.itermcolors`；中文 / English，默认英文，设置里可切成中文或跟随系统
-- 首次启动自动开一个家目录 shell；记住窗口位置和大小
-- 设置里的「诊断」：打开日志目录、复制诊断信息；日志按本地日期保存，保留最近 7 天
-- 随应用打包第三方许可证清单（`THIRD_PARTY_LICENSES.md`）
+- Session management: scans local Claude Code and Codex sessions, groups them by project / status, shows running / waiting for approval / idle / stopped / archived; resume with one click, and recover a session even if its start directory was deleted or renamed (Claude Code)
+- Split terminals: tree-shaped splits, tab dragging, closing a tab cleans up the session process; links in the terminal, double-click word selection, font zoom, scrolling feel
+- ⌘K command palette: search projects / tasks, filter by project / time / status
+- Status notifications: desktop notifications when a session waits for approval or an answer and when a task finishes, plus a notification center (Claude Code only)
+- Interface: 21 built-in themes (dark / light, follows the system automatically), import iTerm2 `.itermcolors`; Chinese / English, English by default, switchable to Chinese or following the system in settings
+- A home-directory shell opens automatically on first launch; window position and size are remembered
+- "Diagnostics" in settings: open the log folder, copy diagnostic information; logs are kept by local date for the last 7 days
+- Third-party licence list shipped with the app (`THIRD_PARTY_LICENSES.md`)
 
 ### Known limitations
-- 没有签名和公证，第一次打开要手动放行（见 README）
-- Codex 的会话能扫描、恢复，但看不出运行 / 等待状态，也没有通知
-- Linux 计划 0.2，Windows 计划 0.3
+- Not signed or notarized: the first launch must be allowed manually (see README)
+- Codex sessions can be scanned and resumed, but running / waiting state and notifications are not available
+- Linux is planned for 0.2, Windows for 0.3
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1
