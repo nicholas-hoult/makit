@@ -109,14 +109,14 @@ With a sidebar of **1,200 sessions** (60 projects × 20 sessions):
 
 | Session file | Conversation items | First full read | Each new record afterwards |
 |---|---|---|---|
-| 5 MB | 2,774 | about 40 ms | about 1.4 ms |
-| 50 MB | 27,718 | 340–430 ms | 18–27 ms |
-| 200 MB | 110,814 | 1.6–1.9 s | 105–110 ms |
+| 5 MB | 2,774 | 24–30 ms | 0.05–0.06 ms |
+| 50 MB | 27,733 | 230–236 ms | 0.04–0.05 ms |
+| 200 MB | 110,931 | 0.93–0.97 s | 0.04 ms |
 
 **Test conditions**: Intel Core i7-1068NG7 (2.3 GHz, 4 cores), macOS 26.6.2, release build, single architecture. The machine was not completely idle (an IDE and other tools were running), hence the ranges.
 
 **Notes**:
-- The first read of a long conversation is linear in its size. The cost of each *later* update also grows with the size of the conversation (about 1.4 ms at 5 MB, about 110 ms at 200 MB), so a live conversation of hundreds of MB updates visibly slower. Typical sessions are a few MB; we are tracking this.
+- The first read of a long conversation is linear in its size. Each *later* update is constant-time in the common case (new records appended at the end of the conversation). A rewind, or a reply whose parallel tool-call blocks branch off, rebuilds the view once, which is about 23 ms at 50 MB. Before #269 every update re-walked the whole conversation (about 1.4 ms at 5 MB, about 110 ms at 200 MB). The first-read numbers were re-measured on the same machine at a different time, so they are not a like-for-like comparison with the previous run.
 - The session files are synthetic (alternating user / assistant records of about 1.7 KB, linked like a real session), not real conversations.
 - "Warm" uses the scan cache makit wrote on the previous run. If a run was stopped before the cache was flushed, the next launch behaves like a cold one, which is why the warm range can be wide.
 - These numbers are from an Intel machine. Apple Silicon was not tested and may do better.
