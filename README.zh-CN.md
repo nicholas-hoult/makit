@@ -141,7 +141,7 @@ AI 工具是围绕**会话**组织的，而开发者想的是**任务**——"�
 
 0.1 只有 macOS 通用包，Intel 和 Apple Silicon 共用同一个文件。
 
-**[→ 前往 Releases 下载最新版](https://github.com/nicholas-hoult/makit/releases)**（0.1 还没发布，之前可以按文末「从源码构建」自己打包）
+**[→ 前往 Releases 下载最新版](https://github.com/nicholas-hoult/makit/releases/latest)**（`makit-<版本号>.dmg`，约 15 MB）
 
 下载 `.dmg`，打开后把 makit 拖进「应用程序」。
 
