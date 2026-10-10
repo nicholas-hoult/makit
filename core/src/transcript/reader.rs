@@ -53,7 +53,7 @@ impl TranscriptReader {
         }
         self.inode = inode;
 
-        let old: Vec<usize> = (0..self.state.visible_len()).map(|i| self.state.visible_index(i)).collect();
+        let old_len = self.state.visible_len();
         let mut updated_all: Vec<usize> = Vec::new();
 
         let mut f = File::open(&self.path)?;
@@ -70,17 +70,16 @@ impl TranscriptReader {
             let line = String::from_utf8_lossy(&buf);
             updated_all.extend(self.state.feed_line(&line));
         }
-        self.state.recompute_visible();
+        let prefix_kept = self.state.recompute_visible();
 
         let new_len = self.state.visible_len();
-        let prefix = old.iter().enumerate().take_while(|(i, ix)| *i < new_len && self.state.visible_index(*i) == **ix).count();
-        if reset || prefix < old.len() {
+        if reset || !prefix_kept {
             return Ok(Changes { appended: 0..new_len, updated: vec![], reset: true });
         }
-        let mut updated: Vec<usize> = updated_all.into_iter().filter_map(|ix| self.state.visible_pos(ix)).filter(|p| *p < old.len()).collect();
+        let mut updated: Vec<usize> = updated_all.into_iter().filter_map(|ix| self.state.visible_pos(ix)).filter(|p| *p < old_len).collect();
         updated.sort_unstable();
         updated.dedup();
-        Ok(Changes { appended: old.len()..new_len, updated, reset: false })
+        Ok(Changes { appended: old_len..new_len, updated, reset: false })
     }
 
     pub fn len(&self) -> usize {

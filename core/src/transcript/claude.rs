@@ -49,7 +49,7 @@ pub(super) fn feed(st: &mut State, v: &Value) -> Vec<usize> {
         logical_parent = st.leaf.clone();
     }
     let msg = if ty == "assistant" { v.pointer("/message/id").and_then(Value::as_str).map(String::from) } else { None };
-    st.recs.insert(uuid.to_string(), Rec { parent: s("parentUuid"), logical_parent, conv: matches!(ty, "user" | "assistant"), msg });
+    st.insert_rec(uuid, Rec { parent: s("parentUuid"), logical_parent, conv: matches!(ty, "user" | "assistant"), msg, seq: 0 });
     // A user record that is purely tool results does not move the leaf: with parallel calls, the result that arrives first hangs off an earlier branch, and moving the leaf back would
     // temporarily kick the later calls out of the visible chain (during live reading the reader then reports reset and the view is rebuilt entirely, i.e. a visible flash). Results attach back to calls via tool_use_id and do not depend on the chain
     if matches!(ty, "user" | "assistant") && !only_tool_results(v) {

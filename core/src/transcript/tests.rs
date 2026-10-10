@@ -827,12 +827,19 @@ fn cold_and_steady_poll_timing() {
     let ch = r.poll().unwrap();
     eprintln!("冷读 {} MB：{:?}，{} 项", size / 1_000_000, t.elapsed(), ch.appended.len());
     let last = std::fs::read_to_string(&path).unwrap().lines().rev().find(|l| l.contains("\"type\":\"user\"") || l.contains("\"type\":\"assistant\"")).map(String::from).unwrap();
+    // Each new record hangs off the previous one, like a live session growing (a sibling of the last record would be a rewind)
+    let mut prev = serde_json::from_str::<serde_json::Value>(&last).unwrap()["uuid"].as_str().unwrap().to_string();
     let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
     let mut worst = std::time::Duration::ZERO;
     let mut total = std::time::Duration::ZERO;
     for i in 0..20 {
         let mut v: serde_json::Value = serde_json::from_str(&last).unwrap();
-        v["uuid"] = json!(format!("timing-{i}"));
+        let uuid = format!("timing-{i}");
+        if std::env::var("SIBLING").is_err() {
+            v["parentUuid"] = json!(prev);
+        }
+        v["uuid"] = json!(uuid);
+        prev = uuid;
         writeln!(f, "{v}").unwrap();
         let t = std::time::Instant::now();
         r.poll().unwrap();
@@ -842,4 +849,81 @@ fn cold_and_steady_poll_timing() {
     }
     eprintln!("稳态 poll（有新内容）：平均 {:?}，最慢 {:?}", total / 20, worst);
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// ───────────── incremental visibility (#269) ─────────────
+
+/// Every way the visible set can change in one file: plain appends, tool results that do not move the leaf, two blocks of one reply,
+/// a system record, a rewind, a compaction boundary, and a later block of a reply whose earlier sibling is off the chain.
+fn tricky_transcript() -> Vec<String> {
+    vec![
+        user_str("u1", None, "start"),
+        asst("a1", Some("u1"), "m1", text_block("one")),
+        asst("a2", Some("a1"), "m2", tool_use("t1", "Read", json!({}))),
+        asst("a3", Some("a2"), "m2", tool_use("t2", "Read", json!({}))),
+        tool_result("r1", Some("a3"), "t1", json!("out1"), false),
+        tool_result("r2", Some("a3"), "t2", json!("out2"), false),
+        sys("s1", Some("a3"), "turn_duration", json!({"durationMs": 1})),
+        asst("a4", Some("r2"), "m3", text_block("two")),
+        user_str("u2", Some("a4"), "old question"),
+        asst("a5", Some("u2"), "m4", text_block("old answer")),
+        sys("s2", Some("a5"), "turn_duration", json!({"durationMs": 2})),
+        user_str("u3", Some("a4"), "rewritten question"),
+        asst("a6", Some("u3"), "m5", text_block("new answer")),
+        sys("b1", None, "compact_boundary", json!({"logicalParentUuid": "a6"})),
+        user_str("u4", Some("b1"), "after compaction"),
+        asst("a7", Some("u4"), "m6", text_block("reply part 1")),
+        asst("a8", Some("a7"), "m7", text_block("sibling")),
+        asst("a9", Some("a7"), "m7", text_block("sibling again")),
+        user_str("u5", Some("a9"), "more"),
+        asst("a10", Some("u5"), "m8", text_block("done")),
+    ]
+}
+
+fn visible_ixs(s: &State) -> Vec<usize> {
+    (0..s.visible_len()).map(|i| s.visible_index(i)).collect()
+}
+
+#[test]
+fn incremental_visibility_matches_a_full_recompute_at_every_step() {
+    let lines = tricky_transcript();
+    for batch in [1usize, 2, 3, 5] {
+        let mut inc = State::new(Tool::Claude);
+        let mut fed = 0;
+        while fed < lines.len() {
+            let before = visible_ixs(&inc);
+            let to = (fed + batch).min(lines.len());
+            for l in &lines[fed..to] {
+                inc.feed_line(l);
+            }
+            fed = to;
+            let prefix_kept = inc.recompute_visible();
+
+            let mut full = State::new(Tool::Claude);
+            for l in &lines[..fed] {
+                full.feed_line(l);
+            }
+            full.recompute_visible();
+
+            let now = visible_ixs(&inc);
+            assert_eq!(now, visible_ixs(&full), "batch {batch}, after {fed} lines");
+            let is_prefix = before.len() <= now.len() && now[..before.len()] == before[..];
+            assert_eq!(prefix_kept, is_prefix, "batch {batch}, after {fed} lines: prefix flag");
+        }
+    }
+}
+
+#[test]
+fn append_only_growth_does_not_recompute_the_whole_visible_set() {
+    let mut s = State::new(Tool::Claude);
+    let mut parent: Option<String> = None;
+    for i in 0..200 {
+        let (u, a) = (format!("u{i}"), format!("a{i}"));
+        s.feed_line(&user_str(&u, parent.as_deref(), "q"));
+        s.feed_line(&asst(&a, Some(&u), &format!("m{i}"), text_block("answer")));
+        assert!(s.recompute_visible(), "appending must never invalidate the old prefix");
+        parent = Some(a);
+    }
+    assert_eq!(s.visible_len(), 400);
+    assert_eq!(s.full_recomputes(), 1, "only the first call (no chain known yet) may walk everything");
 }
