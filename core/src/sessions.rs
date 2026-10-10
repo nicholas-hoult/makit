@@ -780,7 +780,9 @@ mod git_head_tests {
     fn head_read_matches_git_cli() {
         let mut dirs: Vec<String> = vec![
             env!("CARGO_MANIFEST_DIR").to_string(),
-            "/tmp".to_string(),
+            format!("{}/src", env!("CARGO_MANIFEST_DIR")),
+            format!("{}/..", env!("CARGO_MANIFEST_DIR")),
+            std::env::temp_dir().to_string_lossy().into_owned(),
             "/definitely/not/a/path".to_string(),
         ];
         // An empty cwd is kept out of the comparison corpus: `git -C "" ...` degrades to "run in the current process directory",

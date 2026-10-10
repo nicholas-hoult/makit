@@ -25,6 +25,9 @@ rust-i18n = "4.2.4"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 # real_pty_close_tests：用和 Tauri 版 pty_spawn 同一个 portable-pty 开真 pty，验证关 tab 杀得干净
 portable-pty = "0.8"

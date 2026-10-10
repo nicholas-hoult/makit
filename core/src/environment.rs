@@ -180,6 +180,7 @@ mod tests {
         assert!(!detect_in(&h, "").any());
     }
 
+    #[cfg(unix)]
     #[test]
     fn command_in_path_is_found() {
         let h = temp_home("path");

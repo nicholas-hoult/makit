@@ -272,7 +272,25 @@ fn is_zombie(pid: u32) -> bool {
         == Some('Z')
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn pid_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: the handle is closed before returning; the exit code is a plain out-parameter
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            // Access denied means it exists but belongs to someone else: better to show too much than to kill by mistake
+            return std::io::Error::last_os_error().raw_os_error() == Some(5);
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(h, &mut code);
+        CloseHandle(h);
+        ok != 0 && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn pid_alive(_pid: u32) -> bool {
     true
 }
@@ -454,6 +472,7 @@ mod dead_pid_tests {
 
     /// A killed process is a zombie until the parent waits: `kill(pid, 0)` still succeeds for a zombie, misreporting "already dead" as "still alive".
     /// The end-to-end measurement tripped on exactly this: after the kill the sidebar still showed running 8 seconds later
+    #[cfg(unix)]
     #[test]
     fn a_zombie_is_not_alive() {
         let mut child = std::process::Command::new("true").spawn().unwrap();

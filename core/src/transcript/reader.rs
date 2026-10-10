@@ -44,7 +44,7 @@ impl TranscriptReader {
             }
             Err(e) => return Err(e),
         };
-        let inode = inode_of(&meta);
+        let inode = crate::fsid::of_path(&self.path);
         let mut reset = false;
         if (self.inode.is_some() && inode != self.inode) || meta.len() < self.offset {
             self.state = State::new(self.tool);
@@ -103,13 +103,3 @@ impl TranscriptReader {
     }
 }
 
-#[cfg(unix)]
-fn inode_of(m: &std::fs::Metadata) -> Option<u64> {
-    use std::os::unix::fs::MetadataExt;
-    Some(m.ino())
-}
-
-#[cfg(not(unix))]
-fn inode_of(_: &std::fs::Metadata) -> Option<u64> {
-    None
-}

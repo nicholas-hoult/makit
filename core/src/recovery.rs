@@ -53,17 +53,12 @@ pub fn ensure_session_symlink(session_id: String, cwd: String, storage_folder: S
     if !source_file.exists() {
         return Err(ts!("core.recovery.source_missing", folder = storage_folder, file = session_file));
     }
-    #[cfg(unix)]
-    {
-        // target directory missing -> symlink the whole directory; already exists -> symlink the single file
-        if !target_dir.exists() {
-            let source_dir = dir.join(&storage_folder);
-            std::os::unix::fs::symlink(&source_dir, &target_dir)
-                .map_err(|e| ts!("core.recovery.dir_symlink_failed", error = e))?;
-        } else {
-            std::os::unix::fs::symlink(&source_file, &target_file)
-                .map_err(|e| ts!("core.recovery.file_symlink_failed", error = e))?;
-        }
+    // target directory missing -> link the whole directory; already exists -> link the single file
+    if !target_dir.exists() {
+        let source_dir = dir.join(&storage_folder);
+        link_path(&source_dir, &target_dir, true).map_err(|e| ts!("core.recovery.dir_symlink_failed", error = e))?;
+    } else {
+        link_path(&source_file, &target_file, false).map_err(|e| ts!("core.recovery.file_symlink_failed", error = e))?;
     }
     Ok(format!("symlink: {}/{}", encoded, session_file))
 }
@@ -147,9 +142,7 @@ pub fn recover_session_cwd_in(
             fs::create_dir_all(&target_dir).map_err(|e| ts!("core.recovery.mkdir_failed", error = e))?;
             let target_file = target_dir.join(&session_file);
             if !target_file.exists() {
-                #[cfg(unix)]
-                std::os::unix::fs::symlink(&source, &target_file)
-                    .map_err(|e| ts!("core.recovery.symlink_failed", error = e))?;
+                link_path(&source, &target_file, false).map_err(|e| ts!("core.recovery.symlink_failed", error = e))?;
             }
             Ok(RecoveredSession {
                 cwd: target_cwd.to_string(),
@@ -192,6 +185,34 @@ pub fn recover_session_cwd(
 ///   - the same id, **a brand-new empty directory** + the transcript placed under that directory's encoded key -> found
 ///     (the error becomes "Provide a prompt to continue")
 /// That is, the **original directory need not exist at all**; any existing directory will do.
+/// Makes `dst` point at `src`. unix: a symlink. Windows (platform matrix P4): symlinks need a privilege, so a directory
+/// gets a junction (no privilege needed) and a file gets a symlink, falling back to a copy
+fn link_path(src: &std::path::Path, dst: &std::path::Path, is_dir: bool) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let _ = is_dir;
+        std::os::unix::fs::symlink(src, dst)
+    }
+    #[cfg(windows)]
+    {
+        if is_dir {
+            let st = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(dst).arg(src).output()?;
+            if st.status.success() {
+                Ok(())
+            } else {
+                Err(std::io::Error::other(String::from_utf8_lossy(&st.stdout).trim().to_string()))
+            }
+        } else {
+            std::os::windows::fs::symlink_file(src, dst).or_else(|_| std::fs::copy(src, dst).map(|_| ()))
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (src, dst, is_dir);
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "links are not supported on this platform"))
+    }
+}
+
 #[cfg(test)]
 mod session_recovery_tests {
     /// Regression: the storage key **must be canonicalized before encoding**.

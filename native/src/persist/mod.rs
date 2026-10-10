@@ -10,6 +10,7 @@
 //! 改完调 `AppState::save_prefs`（见 state/mod.rs）。
 
 pub mod state;
+#[cfg(target_os = "macos")]
 pub mod webkit;
 
 use std::path::{Path, PathBuf};
@@ -54,13 +55,45 @@ pub fn save_to(path: &Path, state: &NativeState) -> std::io::Result<()> {
     result
 }
 
+/// Import of the old Tauri version's WebKit localStorage: only exists on macOS (that version only shipped there)
+#[cfg(target_os = "macos")]
+fn tauri_localstorage_mtime(root: &Path) -> Option<std::time::SystemTime> {
+    webkit::find_localstorage_with_mtime(root).map(|(t, _)| t)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn tauri_localstorage_mtime(_root: &Path) -> Option<std::time::SystemTime> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn import_tauri(root: &Path) -> Option<(NativeState, String)> {
+    webkit::import_from(root)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn import_tauri(_root: &Path) -> Option<(NativeState, String)> {
+    None
+}
+
+/// Where the Tauri version kept its data (None where it never existed)
+#[cfg(target_os = "macos")]
+pub fn tauri_webkit_root() -> Option<std::path::PathBuf> {
+    webkit::default_root()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn tauri_webkit_root() -> Option<std::path::PathBuf> {
+    None
+}
+
 /// 启动时读状态：文件在、且比 Tauri 版的 localStorage 新就用它；否则从 localStorage 导入，然后立刻写盘。
 /// 迁移期两个版本并存，谁最后用过听谁的（同 hook「谁后启动给谁」）：GPUI 存过之后又在 Tauri 版里
 /// 开 / 关了标签，下次启动 GPUI 跟上 Tauri。`webkit_root` 是 `~/Library/WebKit/com.hoult.makit`（测试可注入）。
 pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
     let tauri_newer = || {
         let saved = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-        let ls = webkit_root.and_then(webkit::find_localstorage_with_mtime).map(|(t, _)| t);
+        let ls = webkit_root.and_then(tauri_localstorage_mtime);
         matches!((saved, ls), (Some(a), Some(b)) if b > a)
     };
     let existing = load_from(path);
@@ -69,7 +102,7 @@ pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
             return s.clone();
         }
     }
-    let state = match webkit_root.and_then(webkit::import_from) {
+    let state = match webkit_root.and_then(import_tauri) {
         Some((s, from)) => {
             log::info!(target: "persist", "importing the Tauri version settings from {from} (first launch, or the Tauri version was used since)");
             s
@@ -216,6 +249,7 @@ mod tests {
         assert!(p.with_extension("json.bad").exists());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn first_launch_imports_once_then_never_again() {
         let d = tmp("import");
@@ -236,6 +270,7 @@ mod tests {
 
     /// 迁移期两个版本并存：GPUI 存过之后又在 Tauri 版里开 / 关了标签，下次启动 GPUI 要跟上 Tauri
     /// （错了就是「GPUI 恢复的是几天前的标签，刚在 Tauri 里开的会话没恢复」）
+    #[cfg(target_os = "macos")]
     #[test]
     fn reimports_when_tauri_was_used_after_gpui_saved() {
         let d = tmp("reimport");
@@ -254,6 +289,7 @@ mod tests {
     }
 
     /// Tauri 更新了但读不出来（库坏了 / 被锁）：保留 GPUI 已有的状态，不能退回空白（那会清掉所有标签）
+    #[cfg(target_os = "macos")]
     #[test]
     fn failed_reimport_keeps_existing_state() {
         let d = tmp("reimport-fail");
@@ -270,6 +306,7 @@ mod tests {
         assert_eq!(load_from(&p).unwrap().theme.id, "nord", "盘上的也没被覆盖");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn import_failure_does_not_block_startup() {
         let d = tmp("noimport");

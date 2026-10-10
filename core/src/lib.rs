@@ -24,6 +24,7 @@ pub mod i18n;
 pub mod ai_provider;
 pub mod archive;
 pub mod environment;
+pub mod fsid;
 pub mod hook;
 pub mod paths;
 pub mod perf;

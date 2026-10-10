@@ -182,7 +182,7 @@ mod tests {
         while let Some(dir) = stack.pop() {
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
                 let path = entry.path();
-                let name = path.to_string_lossy().to_string();
+                let name = path.to_string_lossy().replace('\\', "/");
                 if path.is_dir() {
                     stack.push(path);
                     continue;

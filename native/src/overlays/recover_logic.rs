@@ -29,16 +29,17 @@ pub fn check_relink_target(input: &str, home: Option<&Path>) -> RelinkCheck {
     let home = home.map(|h| h.to_path_buf()).or_else(dirs::home_dir);
     let expanded = if t == "~" {
         home.map(|h| h.display().to_string())
-    } else if let Some(rest) = t.strip_prefix("~/") {
+    } else if let Some(rest) = t.strip_prefix("~/").or_else(|| t.strip_prefix("~\\")) {
         home.map(|h| h.join(rest).display().to_string())
     } else {
         Some(t.to_string())
     };
     let Some(mut p) = expanded else { return RelinkCheck::Invalid(ts!("recover.check.no_home").into()) };
-    if !p.starts_with('/') {
+    if !Path::new(&p).is_absolute() {
         return RelinkCheck::Invalid(ts!("recover.check.not_absolute").into());
     }
-    while p.len() > 1 && p.ends_with('/') {
+    // Trailing separators go (same spelling as the cwd in the session record), but never the root itself (`/`, `C:\`)
+    while (p.ends_with('/') || p.ends_with(std::path::MAIN_SEPARATOR)) && Path::new(&p).parent().is_some() {
         p.pop();
     }
     let path = Path::new(&p);
