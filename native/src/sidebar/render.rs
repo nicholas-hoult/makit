@@ -488,8 +488,13 @@ impl Render for SidebarView {
             self.resizing = false;
             self.thumb_dragging = false;
         }
-        // 拖 / 悬停宽度条时标题栏那道竖线跟着亮（同 workspace::titlebar 文件头写的挂点）
-        cx.set_global(crate::workspace::titlebar::TitlebarResizerHot(self.resizing || self.resizer_hovered));
+        // 拖 / 悬停宽度条时标题栏那道竖线跟着亮（同 workspace::titlebar 文件头写的挂点）。
+        // 标题栏在根视图里画，只写全局不会让它重绘：值变了要补一次整窗刷新，否则上下两段亮灭不同步（#246）
+        let hot = self.resizing || self.resizer_hovered;
+        if cx.try_global::<crate::workspace::titlebar::TitlebarResizerHot>().map(|h| h.0) != Some(hot) {
+            cx.set_global(crate::workspace::titlebar::TitlebarResizerHot(hot));
+            cx.defer(|cx| cx.refresh_windows());
+        }
         let theme = cx.theme().clone();
         let width = self.state.read(cx).prefs.sidebar.width;
         let total = *self.tops.last().unwrap_or(&0.0);
