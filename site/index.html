@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>makit — Manage your local Claude Code and Codex sessions</title>
-<meta name="description" content="Gather the AI coding sessions scattered across your terminal windows into one native app: see which are running, which wait for you, and jump back into any of them.">
-<meta property="og:title" content="makit — Manage your local Claude Code and Codex sessions">
-<meta property="og:description" content="Gather the AI coding sessions scattered across your terminal windows into one native app: see which are running, which wait for you, and jump back into any of them.">
+<title>makit — A session manager for Claude Code and Codex</title>
+<meta name="description" content="Stop losing your AI coding sessions. makit finds every Claude Code and Codex session on your machine, shows which ones are waiting for you, and picks any of them back up in one click.">
+<meta property="og:title" content="makit — A session manager for Claude Code and Codex">
+<meta property="og:description" content="Stop losing your AI coding sessions. makit finds every Claude Code and Codex session on your machine, shows which ones are waiting for you, and picks any of them back up in one click.">
 <meta property="og:image" content="https://nicholas-hoult.github.io/makit/assets/dark.jpg">
 <link rel="alternate" hreflang="en" href="https://nicholas-hoult.github.io/makit/">
 <link rel="alternate" hreflang="zh-CN" href="https://nicholas-hoult.github.io/makit/zh/">
@@ -27,8 +27,9 @@
 
   <main>
     <section class="hero">
-      <h1>All your AI coding sessions,<br>in one window</h1>
-      <p class="lead">makit is a native macOS app (Rust + GPUI, not an Electron wrapper) that manages your local <b>Claude Code</b> and <b>Codex</b> sessions: browse, resume, split terminals, live status.</p>
+      <p class="kicker">A session manager for Claude Code and Codex</p>
+      <h1>Stop losing your<br>AI coding sessions.</h1>
+      <p class="lead">makit finds every session on your machine, shows which ones are waiting for you, and picks any of them back up in one click, even after the terminal is gone.</p>
       <div class="cta">
         <a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a>
         <a class="btn" href="https://github.com/nicholas-hoult/makit">View on GitHub</a>
@@ -41,15 +42,15 @@
     </section>
 
     <section id="solves">
-      <h2>What it solves</h2>
-      <p class="sub">Three projects, each with an AI session attached. A is waiting for you to approve a refactor, B just finished its tests, C's bug is still being fixed. Telling them apart means opening every window. makit puts that on one screen.</p>
-      <div class="grid"><div class="card"><h3>Session list</h3><p>Scans the sessions already on your machine, groups them by project and shows running / waiting for approval / idle / stopped / archived.</p></div><div class="card"><h3>One-click resume</h3><p>Pick a past session and keep going in its original directory; Claude Code sessions can be rescued even if the directory was deleted.</p></div><div class="card"><h3>Split terminals</h3><p>Tree-style splits you resize by dragging: one screen to keep an eye on several sessions.</p></div><div class="card"><h3>Status notifications</h3><p>A desktop notification when a session is waiting for you, so you do not have to watch the window (Claude Code).</p></div></div>
+      <h2>Why makit</h2>
+      <p class="sub">An AI coding session is a conversation that lives in a terminal window. Close the window, rename the folder, restart the Mac, and the conversation is still on disk, but nothing points at it any more. makit changes the unit: <b>the session is the object, not the window.</b> It reads the session files Claude Code and Codex already write, so every session is listed whichever terminal it was started in.</p>
+      <table><thead><tr><th>Unix job control</th><th>makit</th></tr></thead><tbody><tr><td><code>jobs</code>: list the jobs and their state</td><td>The session list: running / waiting for you / idle / stopped / archived</td></tr><tr><td><code>Stopped (tty input)</code>: stuck waiting for you</td><td><b>Waiting for approval / an answer</b>, with a notification</td></tr><tr><td><code>fg %n</code>: bring one back</td><td>One-click resume, in its original directory</td></tr><tr><td>Close the terminal and the job is gone</td><td>The record is on disk: it survives the window, a restart, a renamed folder</td></tr></tbody></table>
     </section>
 
     <section id="features">
-      <h2>Why makit</h2>
+      <h2>What it does</h2>
       <p class="sub"></p>
-      <div class="grid"><div class="card"><h3>Light</h3><p>Pure Rust + GPUI native rendering. 7.7 MB installer (single architecture), about 15 MB universal.</p></div><div class="card"><h3>Fast</h3><p>Session list ready in about 0.6–0.9 s with 5,000 sessions; memory around 55–75 MB; appending to a long conversation is constant time.</p></div><div class="card"><h3>Beautiful</h3><p>21 curated themes that follow the system light / dark setting, and iTerm2 .itermcolors import.</p></div><div class="card"><h3>Chinese / English</h3><p>English by default; switch to Chinese or follow the system in Settings, effective immediately.</p></div></div>
+      <div class="grid"><div class="card"><h3>Never lose a session</h3><p>Scans <code>~/.claude</code> and <code>~/.codex</code>, groups by project or state, searches across all of them. Sessions started in any terminal show up. Nothing to migrate, nothing uploaded.</p></div><div class="card"><h3>Know who is waiting</h3><p>A state dot on every session and a desktop notification when one needs approval or an answer (Claude Code, hook installed from Settings).</p></div><div class="card"><h3>Pick up where you left off</h3><p>Resume in the original directory. If it was deleted or moved, makit rebuilds the link so a Claude Code session is not lost.</p></div><div class="card"><h3>Read it back, reflowed</h3><p>Experimental, off by default. History re-laid out from the session file as you resize; the live part stays a real terminal.</p></div><div class="card"><h3>Split terminals</h3><p>Tree-style splits you resize by dragging, to keep an eye on several sessions.</p></div></div>
     </section>
 
     <section id="themes">

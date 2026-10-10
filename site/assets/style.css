@@ -48,6 +48,7 @@ header.nav { display: flex; align-items: center; justify-content: space-between;
 .lang { border: 1px solid var(--line); padding: 3px 10px; border-radius: 999px; }
 
 .hero { text-align: center; padding: 56px 0 28px; }
+.kicker { margin: 0 0 10px; color: var(--accent); font-weight: 600; letter-spacing: .02em; font-size: .98rem; }
 .hero h1 { font-size: clamp(2.2rem, 5.5vw, 3.6rem); line-height: 1.12; margin: 0 0 14px; letter-spacing: -.02em; }
 .hero p.lead { max-width: 700px; margin: 0 auto 26px; color: var(--muted); font-size: 1.12rem; }
 .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
