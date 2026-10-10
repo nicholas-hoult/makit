@@ -145,6 +145,14 @@ AI 工具是围绕**会话**组织的，而开发者想的是**任务**——"�
 
 下载 `.dmg`，打开后把 makit 拖进「应用程序」。
 
+### Homebrew
+
+```bash
+brew install --cask nicholas-hoult/tap/makit
+```
+
+安装完成后 cask 会清掉隔离属性；如果第一次打开仍被 macOS 拦下，按下面的步骤放行。
+
 ### 第一次打开（未签名，必须这一步）
 
 因为包没有签名，直接双击会被 macOS 拦下来。任选一种：

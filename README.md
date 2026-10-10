@@ -145,6 +145,14 @@ AI tools are organized around **sessions**, while developers think in **tasks**:
 
 Download the `.dmg`, open it, and drag makit into Applications.
 
+### Homebrew
+
+```bash
+brew install --cask nicholas-hoult/tap/makit
+```
+
+The cask removes the quarantine flag after installing. If macOS still blocks the first launch, follow the steps below.
+
 ### First launch (unsigned, this step is required)
 
 Because the package is not signed, double-clicking it directly will be blocked by macOS. Pick either option:

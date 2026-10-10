@@ -12,14 +12,14 @@ cask "makit" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :catalina"
+  depends_on :macos
 
   app "makit.app"
 
-  # The app is not signed or notarized yet (#262): drop the quarantine flag so Gatekeeper does not block the first launch
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/makit.app"]
+  # Not signed or notarized yet (#262): drop the quarantine flag so Gatekeeper lets the first launch through
+  postflight_steps do
+    run "/usr/bin/xattr", args:         ["-dr", "com.apple.quarantine", "{{appdir}}/makit.app"],
+                          must_succeed: false
   end
 
   zap trash: "~/.claude/makit"
