@@ -41,3 +41,6 @@ dist-ssr
 /native/target
 # 编译目录改名为 *.noindex 让 Spotlight 跳过，原位置是指过去的软链接
 *.noindex
+
+# product page: screenshots are copied in by the Pages workflow
+/site/assets/*.jpg

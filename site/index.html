@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>makit — Manage your local Claude Code and Codex sessions</title>
+<meta name="description" content="Gather the AI coding sessions scattered across your terminal windows into one native app: see which are running, which wait for you, and jump back into any of them.">
+<meta property="og:title" content="makit — Manage your local Claude Code and Codex sessions">
+<meta property="og:description" content="Gather the AI coding sessions scattered across your terminal windows into one native app: see which are running, which wait for you, and jump back into any of them.">
+<meta property="og:image" content="https://nicholas-hoult.github.io/makit/assets/dark.jpg">
+<link rel="alternate" hreflang="en" href="https://nicholas-hoult.github.io/makit/">
+<link rel="alternate" hreflang="zh-CN" href="https://nicholas-hoult.github.io/makit/zh/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233b6df0'/%3E%3Cpath d='M8 22V10l8 8 8-8v12' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="nav">
+    <a class="brand" href="./">makit</a>
+    <nav>
+      <a class="hide-sm" href="#features">Why makit</a>
+      <a class="hide-sm" href="#install">Install</a>
+      <a href="https://github.com/nicholas-hoult/makit">GitHub</a>
+      <a class="lang" href="zh/">简体中文</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>All your AI coding sessions,<br>in one window</h1>
+      <p class="lead">makit is a native macOS app (Rust + GPUI, not an Electron wrapper) that manages your local <b>Claude Code</b> and <b>Codex</b> sessions: browse, resume, split terminals, live status.</p>
+      <div class="cta">
+        <a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a>
+        <a class="btn" href="https://github.com/nicholas-hoult/makit">View on GitHub</a>
+      </div>
+      <p class="fine">Universal package (Intel + Apple Silicon), about <span data-size>15 MB</span> · latest <span data-version>v0.1</span> · unsigned: allow it manually on first launch</p>
+      <div class="shot">
+        <img class="only-dark" src="assets/dark.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="2000" height="1285">
+        <img class="only-light" src="assets/light.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="2000" height="1285">
+      </div>
+    </section>
+
+    <section id="solves">
+      <h2>What it solves</h2>
+      <p class="sub">Three projects, each with an AI session attached. A is waiting for you to approve a refactor, B just finished its tests, C's bug is still being fixed. Telling them apart means opening every window. makit puts that on one screen.</p>
+      <div class="grid"><div class="card"><h3>Session list</h3><p>Scans the sessions already on your machine, groups them by project and shows running / waiting for approval / idle / stopped / archived.</p></div><div class="card"><h3>One-click resume</h3><p>Pick a past session and keep going in its original directory; Claude Code sessions can be rescued even if the directory was deleted.</p></div><div class="card"><h3>Split terminals</h3><p>Tree-style splits you resize by dragging: one screen to keep an eye on several sessions.</p></div><div class="card"><h3>Status notifications</h3><p>A desktop notification when a session is waiting for you, so you do not have to watch the window (Claude Code).</p></div></div>
+    </section>
+
+    <section id="features">
+      <h2>Why makit</h2>
+      <p class="sub"></p>
+      <div class="grid"><div class="card"><h3>Light</h3><p>Pure Rust + GPUI native rendering. 7.7 MB installer (single architecture), about 15 MB universal.</p></div><div class="card"><h3>Fast</h3><p>Session list ready in about 0.6–0.9 s with 5,000 sessions; memory around 55–75 MB; appending to a long conversation is constant time.</p></div><div class="card"><h3>Beautiful</h3><p>21 curated themes that follow the system light / dark setting, and iTerm2 .itermcolors import.</p></div><div class="card"><h3>Chinese / English</h3><p>English by default; switch to Chinese or follow the system in Settings, effective immediately.</p></div></div>
+    </section>
+
+    <section id="themes">
+      <h2>Themes</h2>
+      <p class="sub"></p>
+      <div class="themes">
+        <figure><img src="assets/catppuccin.jpg" alt="Catppuccin Mocha" loading="lazy"><figcaption>Catppuccin Mocha</figcaption></figure>
+        <figure><img src="assets/light.jpg" alt="GitHub Light" loading="lazy"><figcaption>GitHub Light</figcaption></figure>
+        <figure><img src="assets/dayfox.jpg" alt="Dayfox" loading="lazy"><figcaption>Dayfox</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p class="sub">macOS only for now (0.1); Linux is planned for 0.2 and Windows for 0.3.</p>
+      <div class="install">
+        <div class="card"><h3>Download</h3><p>Download the <code>.dmg</code>, open it and drag makit into Applications.</p>
+          <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a></p></div>
+        <div class="card"><h3>Homebrew</h3><pre><code>brew install --cask nicholas-hoult/tap/makit</code></pre></div>
+      </div>
+      <div class="note">First launch: this build is not signed by Apple, so macOS stops it once. Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>; if it says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>. Updates downloaded inside the app are not blocked again.</div>
+    </section>
+
+    <section id="perf">
+      <h2>Performance</h2>
+      <p class="sub">Synthetic sessions, Intel Core i7-1068NG7, release build, single architecture. Full data, method and limits are in the README.</p>
+      <table>
+        <thead><tr><th>Metric</th><th>Measured</th></tr></thead>
+        <tbody><tr><td>Installer (.dmg, single architecture)</td><td>7.7 MB</td></tr><tr><td>Session list ready, 5,000 sessions</td><td>0.6–0.9 s</td></tr><tr><td>Memory in use</td><td>55–75 MB</td></tr><tr><td>Each new record in a long conversation (5–200 MB)</td><td>≈ 0.04 ms</td></tr></tbody>
+      </table>
+      <div class="note">makit reads the session files on your machine. The update check only requests version information; nothing about your sessions, paths or projects is uploaded.</div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="row">
+      <span>makit · Dual-licensed MIT or Apache-2.0</span>
+      <span>
+        <a href="https://github.com/nicholas-hoult/makit/releases">Releases</a> ·
+        <a href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.md">Changelog</a> ·
+        <a href="https://github.com/nicholas-hoult/makit/issues">Issues</a>
+      </span>
+    </div>
+  </footer>
+</div>
+<script src="assets/app.js" defer></script>
+</body>
+</html>

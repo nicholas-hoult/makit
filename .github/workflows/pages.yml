@@ -1,0 +1,37 @@
+name: Pages
+
+# Publishes site/ (the product page) to GitHub Pages. The README screenshots are reused, not duplicated in the repo.
+# One-time setup: repository Settings -> Pages -> Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "screenshots/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the site
+        run: |
+          mkdir -p site/assets
+          cp screenshots/dark.jpg screenshots/light.jpg screenshots/catppuccin.jpg screenshots/dayfox.jpg site/assets/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
