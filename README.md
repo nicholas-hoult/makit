@@ -1,10 +1,12 @@
 <h1 align="center">makit</h1>
 
-<p align="center"><b>Make It Happen</b></p>
+<p align="center"><b>A session manager for Claude Code and Codex.</b></p>
+
+<h2 align="center">Stop losing your AI coding sessions.</h2>
 
 <p align="center">
-  Gather the AI coding sessions scattered across your terminal windows into one interface:<br>
-  see which are running, which are waiting for you, and which stopped long ago, and jump back into any of them with one click.
+  makit finds every session on your machine, shows which ones are waiting for you,<br>
+  and picks any of them back up in one click, even after the terminal is gone.
 </p>
 
 [简体中文](README.zh-CN.md) | English
@@ -39,26 +41,45 @@ A native app (Rust + GPUI, not an Electron wrapper). 0.1 ships on macOS only; Li
 
 ---
 
-## What it solves
+## Why makit
 
-Say you have three projects, each with an AI session attached. A is waiting for you to approve a refactor, B just finished running its tests, and C's bug is still being fixed. The terminal windows are scattered everywhere, and the only way to tell which is still alive and which is waiting for you is to open them one by one.
+An AI coding session is a conversation that lives in a terminal window. Close the window, rename the folder, restart the Mac, and the conversation is still on disk, but nothing points at it any more. With a few projects going at once you cannot tell which window is waiting for you, and last Tuesday's session is "somewhere".
 
-makit turns that into a single screen:
+makit changes the unit: **the session is the object, not the window.** It reads the session files that Claude Code and Codex already write, so every session is listed whichever terminal it was started in, with its project, state and history, and it stays listed after the window is gone.
 
-- **Session list** — scans the sessions already on your machine, groups them by project, and shows each one's state (running / waiting for approval / idle / stopped / archived)
-- **One-click resume** — pick a past session and keep chatting, back in its original working directory (Claude Code sessions can be rescued even if the original directory was deleted)
-- **Split terminals** — tree-style splits you can resize by dragging, so one screen keeps an eye on several sessions
-- **Status notifications** — a desktop notification when a session is waiting for you (Claude Code only)
+Unix solved the same problem for processes long ago with job control. This is that, for AI sessions:
 
----
+| Unix job control | makit |
+|---|---|
+| `jobs`: list the jobs and their state | The session list: running / waiting for you / idle / stopped / archived |
+| `Stopped (tty input)`: stuck waiting for you | **Waiting for approval / for an answer**, with a notification |
+| `fg %n`: bring one back | One-click resume, in its original directory |
+| Close the terminal and the job is gone | The session record is on disk: it survives the window, a restart, a renamed folder |
 
-## Features
+## What it does
 
-- **Light** — not a wrapped web page: pure Rust + GPUI native rendering. The installer is 7.7 MB (single-architecture `.dmg`); the universal Intel + Apple Silicon package is about 15 MB
-- **Fast** — the session list is ready in about 0.6–0.9 s with up to 5,000 sessions, and the first launch over 1 GB of session data takes about 3 s (later launches are faster); memory stays around 55–75 MB (data, method and limits in "Performance" below)
-- **Chinese / English** — the interface is in English by default; switch to Chinese or "Follow system" in Settings, taking effect immediately
-- **Beautiful** — 21 curated themes (11 dark, 10 light), automatically follows the system light/dark setting, and can import iTerm2 `.itermcolors` files directly
-- **Cross-platform** — the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Windows is planned for 0.2 and Linux for 0.3. Still in progress, nothing finished yet
+### Never lose a session
+Scans `~/.claude` and `~/.codex`, groups sessions by project or by state, and searches across all of them. Sessions started in any terminal show up, including the ones that stopped long ago. Nothing to migrate and nothing uploaded.
+
+### Know who is waiting
+A state dot on every session, and a desktop notification when one needs approval or an answer (Claude Code; install the hook from Settings). Open ten sessions and look at one place instead of ten windows.
+
+### Pick up where you left off
+Resume a session in its original working directory. If that directory was deleted or moved, makit rebuilds the link so a Claude Code session is not "lost".
+
+### Read it back, reflowed *(experimental, off by default)*
+Agent output is hard-wrapped at the width it was written. Turn on the reflowable view in Settings and the history is re-laid out from the session file as you resize the window, while the live part stays a real terminal.
+
+### Split terminals
+Tree-style splits you resize by dragging, so one screen keeps an eye on several sessions.
+
+## Also
+
+- **Light**: native Rust + GPUI, not a wrapped web page. 7.7 MB installer (single architecture), about 15 MB universal.
+- **Fast**: the session list is ready in about 0.6–0.9 s with up to 5,000 sessions; each new record in a very long conversation costs about 0.04 ms (data and method in "Performance" below).
+- **Chinese / English**: English by default; switch in Settings or follow the system.
+- **Beautiful**: 21 curated themes that follow the system light / dark setting, and iTerm2 `.itermcolors` import.
+- **Cross-platform**: the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Windows is planned for 0.2 and Linux for 0.3.
 
 ### Screenshots
 
@@ -302,6 +323,22 @@ An unsigned app that reads `~/.claude` — you have the right to know exactly wh
 **Processes**
 
 - For terminals you open in makit, **closing the tab closes everything inside it** — including background processes you started by hand in that tab (a dev server, say). This is deliberate: a tab is a session, and it shouldn't keep burning memory and tokens in the background after you close it. Run processes you want to keep outside makit.
+
+---
+
+## FAQ
+
+### How is this different from a terminal or a multiplexer?
+makit does include split terminals, but it is organised around sessions, not windows: it lists sessions started anywhere, keeps their history, and tells you which one is waiting. Use it alongside the terminal you like.
+
+### Which agents are supported?
+Claude Code and Codex. Status and notifications are Claude Code only for now; Codex sessions can be listed and resumed.
+
+### Does it upload my sessions?
+No. It reads local files. The update check only requests version information; nothing about your sessions, paths or projects is sent.
+
+### Why is it not signed?
+0.1 has no Apple developer account yet. The steps to allow it on first launch are in "Install".
 
 ---
 
