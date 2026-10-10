@@ -1,7 +1,7 @@
 name: Release
 
 # 推 v* tag 触发：测试通过后打 macOS 通用包（Intel + Apple Silicon），直接发布 Release（说明取自 CHANGELOG）。
-# 0.1 只发 macOS（#191）；Linux 0.2、Windows 0.3 到时再加 job。
+# 0.1 只发 macOS（#191）；Windows 0.2、Linux 0.3 到时再加 job。
 # 没有签名证书：CI 里走 ad-hoc 签名，用户第一次打开要手动放行（README 有步骤）。
 on:
   push:

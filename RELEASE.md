@@ -1,6 +1,6 @@
 # 发版流程
 
-0.1 只发 macOS 通用包（Intel + Apple Silicon 同一个文件），Linux 计划 0.2、Windows 计划 0.3。
+0.1 只发 macOS 通用包（Intel + Apple Silicon 同一个文件），Windows 计划 0.2、Linux 计划 0.3。
 
 ## 本地打包
 
@@ -38,4 +38,4 @@ UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh  # 通用包 + .dmg（要先 rus
 ## 以后要补的
 
 - Apple 开发者签名 + 公证（需要开发者账号，#262）
-- Linux、Windows 的构建（0.2、0.3）
+- Windows、Linux 的构建（0.2、0.3）

@@ -15,7 +15,7 @@
 
 ### 构建和测试
 
-需要 Rust 工具链和 macOS（目前只发 macOS，Linux 计划 0.2、Windows 计划 0.3）。
+需要 Rust 工具链和 macOS（目前只发 macOS，Windows 计划 0.2、Linux 计划 0.3）。
 
 ```bash
 # 开发运行（日常用 --fast：依赖开优化，自己的代码仍是 debug，增量编译快）
@@ -62,7 +62,7 @@ Thanks for your interest in makit. Fixes of any size are welcome.
 
 ### Build and test
 
-You need a Rust toolchain and macOS (currently macOS only; Linux planned for 0.2, Windows for 0.3).
+You need a Rust toolchain and macOS (currently macOS only; Windows planned for 0.2, Linux for 0.3).
 
 ```bash
 # run in development (--fast: dependencies optimized, your own code stays debug)

@@ -33,7 +33,7 @@ A native app (Rust + GPUI, not an Electron wrapper). 0.1 ships on macOS only; Li
 </p>
 
 > **0.1: three things up front**
-> - macOS only (a universal package for Intel + Apple Silicon). Linux is planned for 0.2, Windows beta for 0.3.
+> - macOS only (a universal package for Intel + Apple Silicon). Windows beta is planned for 0.2, Linux for 0.3.
 > - **Not signed.** You have to allow it manually the first time you open it (steps below). Signing and notarization will wait until there is a developer account.
 > - You need Claude Code or Codex already installed on your machine. makit does not replace them; it only manages their sessions.
 
@@ -58,7 +58,7 @@ makit turns that into a single screen:
 - **Fast** — the session list is ready in about 0.6–0.9 s with up to 5,000 sessions, and the first launch over 1 GB of session data takes about 3 s (later launches are faster); memory stays around 55–75 MB (data, method and limits in "Performance" below)
 - **Chinese / English** — the interface is in English by default; switch to Chinese or "Follow system" in Settings, taking effect immediately
 - **Beautiful** — 21 curated themes (11 dark, 10 light), automatically follows the system light/dark setting, and can import iTerm2 `.itermcolors` files directly
-- **Cross-platform** — the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Linux is planned for 0.2 and Windows for 0.3. Still in progress, nothing finished yet
+- **Cross-platform** — the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Windows is planned for 0.2 and Linux for 0.3. Still in progress, nothing finished yet
 
 ### Screenshots
 
@@ -319,8 +319,8 @@ There are currently no confirmed blocking issues. If you run into a problem, ple
 - [x] Closing a tab fully cleans up the session process
 - [ ] First-launch onboarding
 - [ ] Update notifications
-- [ ] Linux (0.2)
-- [ ] Windows beta (0.3)
+- [ ] Windows beta (0.2)
+- [ ] Linux (0.3)
 
 ---
 
