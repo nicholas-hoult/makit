@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-10
+
+### Changed
+- Session status dots look the same in the sidebar and on pane tabs: shape tells alive from stopped, colour and breathing tell the state (waiting amber and fast, busy blue and slow, idle soft green)
+- Pane dividers, the sidebar edge and its titlebar continuation are a darker shade of the background (brightness x0.92 on light themes, x0.6 on dark ones) instead of a grey overlay, so they read thinner and cleaner
+
+### Fixed
+- The titlebar segment above the sidebar edge now lights up together with the lower part when hovering or dragging the sidebar resizer
+
 ## [0.1.1] - 2026-10-05
 
 首个公开版本（macOS，Intel + Apple Silicon 通用包，未签名）。（版本号从 0.1.1 开始：`v0.1.0` 标签在默认语言改成英文之前打过，没有发布。）纯 Rust 原生应用（GPUI），取代更早的 Tauri 版。

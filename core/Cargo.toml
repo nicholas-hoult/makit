@@ -1,6 +1,6 @@
 [package]
 name = "makit-core"
-version = "0.1.1"
+version = "0.1.2"
 description = "makit 的业务逻辑（会话扫描、运行状态、归档、恢复、PTY 准备、杀进程、hook、perf），不依赖任何 UI 框架；Tauri 版和 GPUI 版共用"
 authors = ["hoult"]
 license = "MIT OR Apache-2.0"
