@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-11
+
+### Added
+- Update notifications: makit checks for a new release in the background (about once a day) and shows an **Update x.y.z** pill in the titlebar. Its menu offers **Update and restart**, **Release notes** and **Skip this version**; Settings has a **Check for updates** button. Only the version information is requested (#200)
+- In-place update: downloads the release installer, verifies its SHA-256 against the published digest, swaps the app bundle after exit and relaunches, rolling back if the swap fails. Homebrew installs are pointed to `brew upgrade --cask makit`; anything that cannot be replaced safely opens the release page
+- Homebrew: `brew install --cask nicholas-hoult/tap/makit` (#268)
+
+### Changed
+- Internal: platform-specific dependencies and code are split per platform, groundwork for Linux and Windows builds (no change in behaviour on macOS) (#184)
+
 ## [0.1.3] - 2026-10-10
 
 ### Performance
@@ -44,7 +54,8 @@ First public release (macOS, universal Intel + Apple Silicon package, unsigned).
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1

@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-11
+
+### 新增
+- 更新提示：makit 在后台检查新版本（约每天一次），有新版时标题栏出现 **Update x.y.z** 药丸；菜单里有 **更新并重启**、**查看更新说明**、**跳过这个版本**；设置里有 **检查更新** 按钮。只请求版本信息（#200）
+- 应用内更新：下载发布的安装包，用公布的 SHA-256 校验，退出后替换 App 并重启，替换失败会回滚；Homebrew 装的提示用 `brew upgrade --cask makit`；任何不能安全替换的情况会打开发布页
+- Homebrew：`brew install --cask nicholas-hoult/tap/makit`（#268）
+
+### 变更
+- 内部：按平台拆分平台相关的依赖和代码，为 Linux / Windows 构建打基础（macOS 上行为不变）（#184）
+
 ## [0.1.3] - 2026-10-10
 
 ### 性能
@@ -43,7 +53,8 @@
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2
 [0.1.1]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1
