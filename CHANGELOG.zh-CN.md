@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-11
+
+### 新增
+- Windows 预览版：发布里附带 `makit-<版本>-windows-x64.zip`（内含 `makit.exe`）。未签名（SmartScreen 会拦一次：更多信息，仍要运行），部分功能还是占位：通知、hook 通道、Windows 快捷键布局（#251）
+- macOS 每个版本三个安装包：`-universal`（Intel + Apple 芯片，应用内更新和 Homebrew 用它）、`-arm64` / `-x64`（体积约一半）
+
+### 变更
+- 安装包改名为 `makit-<版本>-universal.dmg`。应用内更新和 Homebrew 会自动识别；**0.1.4 认不出新名字，0.1.4 请到 Releases 页下载，或用 `brew upgrade --cask makit`**
+
+### 修复
+- 活动标签的标题变化后会重新滚入可见区域，不再有一半被窗格按钮挡住
+
 ## [0.1.4] - 2026-10-11
 
 ### 新增
@@ -53,7 +65,8 @@
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.5
 [0.1.4]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2

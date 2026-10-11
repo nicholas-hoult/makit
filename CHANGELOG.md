@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-10-11
+
+### Added
+- Windows preview: a `makit-<version>-windows-x64.zip` with `makit.exe` is attached to the release. It is unsigned (SmartScreen asks once: More info, Run anyway) and some features are still placeholders: notifications, the hook channel and the Windows shortcut layout (#251)
+- Three macOS installers per release: `-universal` (Intel + Apple Silicon, what the in-app updater and Homebrew use), and `-arm64` / `-x64` at about half the size
+
+### Changed
+- The installer is now named `makit-<version>-universal.dmg`. The in-app updater and Homebrew pick it up automatically; **0.1.4 cannot find the new name, so update 0.1.4 by downloading from the Releases page or `brew upgrade --cask makit`**
+
+### Fixed
+- The active tab is scrolled back into view when its title changes, so it no longer ends up half hidden behind the pane buttons
+
 ## [0.1.4] - 2026-10-11
 
 ### Added
@@ -54,7 +66,8 @@ First public release (macOS, universal Intel + Apple Silicon package, unsigned).
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.5
 [0.1.4]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
 [0.1.2]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2
