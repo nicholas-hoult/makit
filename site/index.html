@@ -18,9 +18,11 @@
   <header class="nav">
     <a class="brand" href="./">makit</a>
     <nav>
-      <a class="hide-sm" href="#features">Why makit</a>
+      <a class="hide-sm" href="#solves">Why makit</a>
       <a class="hide-sm" href="#install">Install</a>
-      <a href="https://github.com/nicholas-hoult/makit">GitHub</a>
+      <a class="hide-sm" href="#faq">FAQ</a>
+      <a class="hide-sm" href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/nicholas-hoult/makit">GitHub<span class="stars" data-stars hidden></span></a>
       <a class="lang" href="zh/">简体中文</a>
     </nav>
   </header>
@@ -35,6 +37,7 @@
         <a class="btn" href="https://github.com/nicholas-hoult/makit">View on GitHub</a>
       </div>
       <p class="fine">Universal package (Intel + Apple Silicon), about <span data-size>15 MB</span> · latest <span data-version>v0.1</span> · unsigned: allow it manually on first launch</p>
+      <p class="traits">Native, light (7.7 MB), good-looking (21 themes). Local, nothing uploaded.</p>
       <div class="shot">
         <img class="only-dark" src="assets/dark.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="2000" height="1285">
         <img class="only-light" src="assets/light.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="2000" height="1285">
@@ -49,8 +52,17 @@
 
     <section id="features">
       <h2>What it does</h2>
-      <p class="sub"></p>
-      <div class="grid"><div class="card"><h3>Never lose a session</h3><p>Scans <code>~/.claude</code> and <code>~/.codex</code>, groups by project or state, searches across all of them. Sessions started in any terminal show up. Nothing to migrate, nothing uploaded.</p></div><div class="card"><h3>Know who is waiting</h3><p>A state dot on every session and a desktop notification when one needs approval or an answer (Claude Code, hook installed from Settings).</p></div><div class="card"><h3>Pick up where you left off</h3><p>Resume in the original directory. If it was deleted or moved, makit rebuilds the link so a Claude Code session is not lost.</p></div><div class="card"><h3>Read it back, reflowed</h3><p>Experimental, off by default. History re-laid out from the session file as you resize; the live part stays a real terminal.</p></div><div class="card"><h3>Split terminals</h3><p>Tree-style splits you resize by dragging, to keep an eye on several sessions.</p></div></div>
+      <ul class="points">
+        <li><b>Never lose a session</b><span>Scans <code>~/.claude</code> and <code>~/.codex</code>, groups by project or state, and searches across all of them. Sessions started in any terminal show up.</span></li>
+        <li><b>Know who is waiting</b><span>A state dot on every session, and a desktop notification when one needs approval or an answer (Claude Code, hook installed from Settings).</span></li>
+        <li><b>Pick up where you left off</b><span>Resume in the original directory. If it was deleted or moved, makit rebuilds the link so a Claude Code session is not lost.</span></li>
+        <li><b>Read it back, reflowed</b><span>Experimental, off by default. History is re-laid out from the session file as you resize; the live part stays a real terminal.</span></li>
+        <li><b>Split terminals</b><span>Tree-style splits you resize by dragging, to keep an eye on several sessions.</span></li>
+        <li><b>Local and private</b><span>Reads session files on your machine. No account, no telemetry, nothing uploaded.</span></li>
+        <li><b>Native and light</b><span>Rust + GPUI, not a wrapped web page. About 55–75 MB of memory, 5,000 sessions listed in under a second.</span></li>
+        <li><b>21 themes, English / 中文</b><span>Themes follow the system light / dark setting; iTerm2 colour schemes can be imported.</span></li>
+        <li><b>Updates built in</b><span>Checks for a new version and replaces itself in place, or <code>brew upgrade</code> if you installed with Homebrew.</span></li>
+      </ul>
     </section>
 
     <section id="themes">
@@ -65,11 +77,14 @@
 
     <section id="install">
       <h2>Install</h2>
-      <p class="sub">macOS only for now (0.1); Windows is planned for 0.2 and Linux for 0.3.</p>
+      <p class="sub">macOS is the main build. Windows is a preview, Linux is planned for 0.3.</p>
       <div class="install">
-        <div class="card"><h3>Download</h3><p>Download the <code>.dmg</code>, open it and drag makit into Applications.</p>
-          <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a></p></div>
+        <div class="card"><h3>macOS</h3><p>Download the <code>.dmg</code>, open it and drag makit into Applications.</p>
+          <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a></p>
+          <p class="small"><code>-universal</code> works on every Mac; <a data-arm href="https://github.com/nicholas-hoult/makit/releases/latest">Apple Silicon</a> and <a data-x64 href="https://github.com/nicholas-hoult/makit/releases/latest">Intel</a> builds are about half the size.</p></div>
         <div class="card"><h3>Homebrew</h3><pre><code>brew install --cask nicholas-hoult/tap/makit</code></pre></div>
+        <div class="card"><h3>Windows (preview)</h3><p>A <code>.zip</code> with <code>makit.exe</code>, unsigned, and some features are still placeholders. Windows SmartScreen asks once: <b>More info → Run anyway</b>.</p>
+          <p style="margin-top:14px"><a class="btn" data-win href="https://github.com/nicholas-hoult/makit/releases/latest">Download for Windows</a></p></div>
       </div>
       <div class="note">First launch: this build is not signed by Apple, so macOS stops it once. Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>; if it says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>. Updates downloaded inside the app are not blocked again.</div>
     </section>
@@ -82,6 +97,25 @@
         <tbody><tr><td>Installer (.dmg, single architecture)</td><td>7.7 MB</td></tr><tr><td>Session list ready, 5,000 sessions</td><td>0.6–0.9 s</td></tr><tr><td>Memory in use</td><td>55–75 MB</td></tr><tr><td>Each new record in a long conversation (5–200 MB)</td><td>≈ 0.04 ms</td></tr></tbody>
       </table>
       <div class="note">makit reads the session files on your machine. The update check only requests version information; nothing about your sessions, paths or projects is uploaded.</div>
+    </section>
+    <section id="faq">
+      <h2>FAQ</h2>
+      <div class="faq">
+        <details><summary>How is this different from a terminal or a multiplexer?</summary><p>makit does include split terminals, but it is organised around sessions, not windows: it lists sessions started anywhere, keeps their history, and tells you which one is waiting. Use it alongside the terminal you like.</p></details>
+        <details><summary>Which agents are supported?</summary><p>Claude Code and Codex. Status and notifications are Claude Code only for now; Codex sessions can be listed and resumed.</p></details>
+        <details><summary>Does it upload my sessions?</summary><p>No. It reads local files. The update check only requests version information; nothing about your sessions, paths or projects is sent.</p></details>
+        <details><summary>What does it read and write on my machine?</summary><p>It reads <code>~/.claude/projects</code>, <code>~/.claude/sessions</code> and <code>~/.codex/sessions</code>. Its own data is in <code>~/.claude/makit</code>. It touches <code>~/.claude/settings.json</code> only when you click “Install hook”. The README lists everything.</p></details>
+        <details><summary>If I delete makit, do I lose my sessions?</summary><p>No. The sessions belong to Claude Code and Codex and stay where they are. Deleting <code>~/.claude/makit</code> only removes makit’s own settings and archive marks.</p></details>
+        <details><summary>Why is it not signed?</summary><p>There is no Apple developer account yet. The steps to allow it on first launch are in “Install”. Updates downloaded inside the app are not blocked again.</p></details>
+        <details><summary>Windows and Linux?</summary><p>Windows has a preview build from 0.1.5 (it runs, but some features are placeholders). Linux is planned for 0.3.</p></details>
+        <details><summary>Is it free?</summary><p>Yes. It is open source, dual-licensed MIT or Apache-2.0.</p></details>
+      </div>
+    </section>
+
+    <section class="final">
+      <h2>Get makit</h2>
+      <p class="sub">Free and open source.</p>
+      <p><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a></p>
     </section>
   </main>
 

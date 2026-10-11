@@ -18,9 +18,11 @@
   <header class="nav">
     <a class="brand" href="./">makit</a>
     <nav>
-      <a class="hide-sm" href="#features">为什么是它</a>
+      <a class="hide-sm" href="#solves">为什么做它</a>
       <a class="hide-sm" href="#install">安装</a>
-      <a href="https://github.com/nicholas-hoult/makit">GitHub</a>
+      <a class="hide-sm" href="#faq">常见问题</a>
+      <a class="hide-sm" href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.zh-CN.md">更新日志</a>
+      <a href="https://github.com/nicholas-hoult/makit">GitHub<span class="stars" data-stars hidden></span></a>
       <a class="lang" href="../">English</a>
     </nav>
   </header>
@@ -35,6 +37,7 @@
         <a class="btn" href="https://github.com/nicholas-hoult/makit">在 GitHub 查看</a>
       </div>
       <p class="fine">通用包（Intel + Apple Silicon），约 <span data-size>15 MB</span> · 当前版本 <span data-version>v0.1</span> · 未签名，首次打开需手动放行</p>
+      <p class="traits">原生、轻量（安装包 7.7 MB）、好看（21 套主题）。本地运行，不上传。</p>
       <div class="shot">
         <img class="only-dark" src="../assets/dark.jpg" alt="makit 界面：左侧按时间分组的会话列表，右侧分屏终端" width="2000" height="1285">
         <img class="only-light" src="../assets/light.jpg" alt="makit 界面：左侧按时间分组的会话列表，右侧分屏终端" width="2000" height="1285">
@@ -49,8 +52,17 @@
 
     <section id="features">
       <h2>它能做什么</h2>
-      <p class="sub"></p>
-      <div class="grid"><div class="card"><h3>不再弄丢会话</h3><p>扫描 <code>~/.claude</code> 和 <code>~/.codex</code>，按项目或状态分组，跨全部会话搜索。任何终端里起的会话都会出现。不用迁移，也不上传。</p></div><div class="card"><h3>知道谁在等你</h3><p>每个会话一个状态点；等审批或等你回答时弹桌面通知（Claude Code，在设置里安装 hook）。</p></div><div class="card"><h3>接着上次聊</h3><p>在原来的工作目录里恢复。目录被删或搬走了，makit 会重建链接，Claude Code 的会话不会丢。</p></div><div class="card"><h3>把对话重排着读</h3><p>实验功能，默认关。历史从会话文件按当前窗口宽度重新排版，活动的那一段仍是真终端。</p></div><div class="card"><h3>分屏终端</h3><p>树形分屏，拖动调大小，一个屏幕盯住多个会话。</p></div></div>
+      <ul class="points">
+        <li><b>不再弄丢会话</b><span>扫描 <code>~/.claude</code> 和 <code>~/.codex</code>，按项目或状态分组，跨全部会话搜索。任何终端里起的会话都会出现。</span></li>
+        <li><b>知道谁在等你</b><span>每个会话一个状态点；等审批或等你回答时弹桌面通知（Claude Code，在设置里安装 hook）。</span></li>
+        <li><b>接着上次聊</b><span>在原来的工作目录里恢复。目录被删或搬走了，makit 会重建链接，Claude Code 的会话不会丢。</span></li>
+        <li><b>把对话重排着读</b><span>实验功能，默认关。历史从会话文件按当前窗口宽度重新排版，活动的那一段仍是真终端。</span></li>
+        <li><b>分屏终端</b><span>树形分屏，拖动调大小，一个屏幕盯住多个会话。</span></li>
+        <li><b>本地、不上传</b><span>只读你本机的会话文件。没有账号，没有遥测，不上传任何内容。</span></li>
+        <li><b>原生、轻</b><span>Rust + GPUI，不是套壳网页。内存约 55–75 MB，5,000 个会话不到一秒就绪。</span></li>
+        <li><b>21 套主题，中文 / English</b><span>主题跟随系统明暗；可以导入 iTerm2 配色。</span></li>
+        <li><b>自带更新</b><span>检查新版本并原地替换；用 Homebrew 装的就 <code>brew upgrade</code>。</span></li>
+      </ul>
     </section>
 
     <section id="themes">
@@ -65,11 +77,14 @@
 
     <section id="install">
       <h2>安装</h2>
-      <p class="sub">目前只有 macOS（0.1）；Windows 计划 0.2，Linux 计划 0.3。</p>
+      <p class="sub">主要是 macOS 版；Windows 是预览版，Linux 计划 0.3。</p>
       <div class="install">
-        <div class="card"><h3>下载安装包</h3><p>下载 <code>.dmg</code>，打开后把 makit 拖进「应用程序」。</p>
-          <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a></p></div>
+        <div class="card"><h3>macOS</h3><p>下载 <code>.dmg</code>，打开后把 makit 拖进「应用程序」。</p>
+          <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a></p>
+          <p class="small"><code>-universal</code> 通用包所有 Mac 都能用；<a data-arm href="https://github.com/nicholas-hoult/makit/releases/latest">Apple 芯片</a>和 <a data-x64 href="https://github.com/nicholas-hoult/makit/releases/latest">Intel</a> 单架构包体积约一半。</p></div>
         <div class="card"><h3>Homebrew</h3><pre><code>brew install --cask nicholas-hoult/tap/makit</code></pre></div>
+        <div class="card"><h3>Windows（预览版）</h3><p>一个带 <code>makit.exe</code> 的 <code>.zip</code>，未签名，部分功能还是占位。Windows SmartScreen 会拦一次：<b>更多信息 → 仍要运行</b>。</p>
+          <p style="margin-top:14px"><a class="btn" data-win href="https://github.com/nicholas-hoult/makit/releases/latest">下载 Windows 版</a></p></div>
       </div>
       <div class="note">第一次打开：这个包还没有 Apple 签名，macOS 会拦一下。到 <b>系统设置 → 隐私与安全性</b> 点 <b>仍要打开</b>；如果提示「已损坏」，在终端运行 <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>。应用内更新下载的文件不会再被拦。</div>
     </section>
@@ -82,6 +97,25 @@
         <tbody><tr><td>安装包（.dmg，单架构）</td><td>7.7 MB</td></tr><tr><td>5,000 个会话，会话列表就绪</td><td>0.6–0.9 s</td></tr><tr><td>运行内存</td><td>55–75 MB</td></tr><tr><td>长对话每新增一条记录（5–200 MB）</td><td>≈ 0.04 ms</td></tr></tbody>
       </table>
       <div class="note">只读你本机的会话文件。检查更新时只请求版本信息，不会上传任何会话内容、路径或项目名。</div>
+    </section>
+    <section id="faq">
+      <h2>常见问题</h2>
+      <div class="faq">
+        <details><summary>和终端、终端复用器有什么不同？</summary><p>makit 也有分屏终端，但它是围绕会话组织的，不是围绕窗口：不管会话在哪里起的都会列出来，保留它们的历史，告诉你哪一个在等你。和你喜欢的终端搭配着用就行。</p></details>
+        <details><summary>支持哪些 agent？</summary><p>Claude Code 和 Codex。状态和通知目前只有 Claude Code；Codex 的会话可以列出和恢复。</p></details>
+        <details><summary>会上传我的会话吗？</summary><p>不会。它只读本地文件。检查更新只请求版本信息，不会发送任何会话内容、路径或项目名。</p></details>
+        <details><summary>它会读写我机器上的哪些东西？</summary><p>读 <code>~/.claude/projects</code>、<code>~/.claude/sessions</code> 和 <code>~/.codex/sessions</code>；自己的数据在 <code>~/.claude/makit</code>；只有你点「安装 hook」时才会碰 <code>~/.claude/settings.json</code>。README 里有完整清单。</p></details>
+        <details><summary>删掉 makit，会话会丢吗？</summary><p>不会。会话属于 Claude Code 和 Codex，原地不动。删 <code>~/.claude/makit</code> 只会清掉 makit 自己的设置和归档标记。</p></details>
+        <details><summary>为什么没有签名？</summary><p>还没有 Apple 开发者账号。第一次打开的放行步骤见「安装」。应用内更新下载的文件不会再被拦。</p></details>
+        <details><summary>Windows 和 Linux 呢？</summary><p>Windows 从 0.1.5 起有预览版（能运行，部分功能还是占位）；Linux 计划 0.3。</p></details>
+        <details><summary>免费吗？</summary><p>免费。开源，MIT 或 Apache-2.0 双许可。</p></details>
+      </div>
+    </section>
+
+    <section class="final">
+      <h2>试试 makit</h2>
+      <p class="sub">免费、开源。</p>
+      <p><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a></p>
     </section>
   </main>
 
