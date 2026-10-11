@@ -35,6 +35,14 @@ jobs:
       - name: Bundle (universal .app + .dmg)
         run: UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh
 
+      # Clients up to 0.1.4 only look for exactly `makit-<version>.dmg`, so the universal installer is also published
+      # under that name (an identical copy). Newer clients and Homebrew use the `-universal` name.
+      - name: Plain-name copy of the universal .dmg
+        run: |
+          for f in native/target/release/bundle/makit-*-universal.dmg; do
+            cp "$f" "${f%-universal.dmg}.dmg"
+          done
+
       - name: Bundle (Apple Silicon .dmg)
         run: ARCH=aarch64 DMG=1 bash native/scripts/bundle.sh
 

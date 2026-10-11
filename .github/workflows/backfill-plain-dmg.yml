@@ -1,0 +1,28 @@
+name: Backfill plain-name dmg
+
+# One-off: attach `makit-<version>.dmg` (a copy of the universal installer) to a release that was published before
+# the release workflow did it, so clients up to 0.1.4 can find the update. Run from the Actions tab with the tag.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, e.g. v0.1.5
+        required: true
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Copy the universal installer to the plain name
+        run: |
+          v="${TAG#v}"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p "makit-${v}-universal.dmg"
+          cp "makit-${v}-universal.dmg" "makit-${v}.dmg"
+          sha256sum "makit-${v}.dmg"
+          gh release upload "$TAG" "makit-${v}.dmg" -R "$GITHUB_REPOSITORY" --clobber
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
