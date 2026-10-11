@@ -1,7 +1,7 @@
 name: Release
 
 # 推 v* tag 触发：测试通过后打 macOS 通用包（Intel + Apple Silicon），直接发布 Release（说明取自 CHANGELOG）。
-# 0.1 只发 macOS（#191）；Windows 0.2、Linux 0.3 到时再加 job。
+# macOS 是正式包；Windows 目前是预览版 .zip（#251，未签名、部分功能还是占位），Linux 0.3 再加 job。
 # 没有签名证书：CI 里走 ad-hoc 签名，用户第一次打开要手动放行（README 有步骤）。
 on:
   push:
@@ -106,3 +106,47 @@ jobs:
             git commit -m "makit ${v}"
             git push origin HEAD
           fi
+
+  # Windows preview (#251): plain .zip with makit.exe, attached to the release the macOS job creates.
+  windows:
+    needs: macos
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - name: Build
+        run: cargo build --release --manifest-path native/Cargo.toml
+
+      - name: Package .zip
+        shell: bash
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || v="dev"
+          dir="makit-${v}-windows-x64"
+          mkdir "$dir"
+          cp native/target/release/makit-native.exe "$dir/makit.exe"
+          cp LICENSE-APACHE LICENSE-MIT THIRD_PARTY_LICENSES.md "$dir/"
+          7z a "$dir.zip" "$dir"
+          echo "ZIP=$dir.zip" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: makit-windows-x64
+          path: ${{ env.ZIP }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP }}
