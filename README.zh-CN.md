@@ -81,6 +81,12 @@ agent 的输出是按写入时的宽度硬换行的。在设置里打开可重�
 - **好看**：21 套精选主题，自动跟随系统深 / 浅色，可导入 iTerm2 的 `.itermcolors`。
 - **跨平台**：目标是 macOS / Linux / Windows 三端。**0.1 先发 macOS**，Windows 计划 0.2、Linux 计划 0.3。
 
+<p align="center"><img src="screenshots/demo-search.gif" alt="⌘K 搜索所有会话，一键恢复" width="720"><br><sub>⌘K 搜索所有会话，一键恢复</sub></p>
+
+<p align="center"><img src="screenshots/demo-wait.gif" alt="会话从运行中变成等待审批" width="720"><br><sub>会话从运行中变成等待审批</sub></p>
+
+<p align="center"><img src="screenshots/demo-switch.gif" alt="切换窗格和标签" width="720"><br><sub>切换窗格和标签</sub></p>
+
 ### 界面
 
 <table>

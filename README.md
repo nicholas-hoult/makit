@@ -81,6 +81,12 @@ Tree-style splits you resize by dragging, so one screen keeps an eye on several 
 - **Beautiful**: 21 curated themes that follow the system light / dark setting, and iTerm2 `.itermcolors` import.
 - **Cross-platform**: the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Windows is planned for 0.2 and Linux for 0.3.
 
+<p align="center"><img src="screenshots/demo-search.gif" alt="⌘K: search every session and resume it" width="720"><br><sub>⌘K: search every session and resume it</sub></p>
+
+<p align="center"><img src="screenshots/demo-wait.gif" alt="A session goes from running to waiting for approval" width="720"><br><sub>A session goes from running to waiting for approval</sub></p>
+
+<p align="center"><img src="screenshots/demo-switch.gif" alt="Switching panes and tabs" width="720"><br><sub>Switching panes and tabs</sub></p>
+
 ### Screenshots
 
 <table>

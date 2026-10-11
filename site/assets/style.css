@@ -112,3 +112,9 @@ section.final .sub { margin-left: auto; margin-right: auto; }
   .nav nav a.hide-sm { display: none; }
   section { padding: 40px 0; }
 }
+
+.demos { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.demos figure { margin: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+.demos video { display: block; width: 100%; height: auto; background: #0f1117; }
+.demos figcaption { padding: 12px 14px 14px; display: grid; gap: 4px; }
+.demos figcaption span { color: var(--muted); font-size: .92rem; }
