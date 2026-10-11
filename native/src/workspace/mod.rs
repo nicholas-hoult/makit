@@ -750,13 +750,19 @@ impl WorkspaceView {
 
     fn render_tab_bar(&mut self, c: &ContainerNode, is_active: bool, is_max: bool, focused: bool, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let active_idx = c.tabs.iter().position(|t| t.id == c.active_tab_id);
+        // The title is part of the key: it often changes right after a tab opens (the session name arrives), which
+        // widens the tab and would leave it half under the actions zone until the user scrolled by hand.
+        let scroll_key = match active_idx {
+            Some(i) => format!("{}\u{1}{}", c.active_tab_id, self.title_of(&c.tabs[i], cx)),
+            None => c.active_tab_id.clone(),
+        };
         let (handle, last) = self.tab_scroll.entry(c.id.clone()).or_insert_with(|| (ScrollHandle::new(), String::new()));
-        // active 标签溢出到视野外时滚回来（只在 active 变了的时候滚，不跟用户手动横滚抢）
-        if *last != c.active_tab_id {
+        // active 标签溢出到视野外时滚回来（只在 active 或它的标题变了的时候滚，不跟用户手动横滚抢）
+        if *last != scroll_key {
             if let Some(i) = active_idx {
                 handle.scroll_to_item(i);
             }
-            *last = c.active_tab_id.clone();
+            *last = scroll_key;
         }
         let handle = handle.clone();
         let drop_idx = self.tab_drop.as_ref().filter(|(cid, _)| *cid == c.id).map(|(_, i)| *i);
