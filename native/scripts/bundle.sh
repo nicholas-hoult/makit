@@ -8,7 +8,8 @@
 #   bash native/scripts/bundle.sh          # release 构建并打包
 #   bash native/scripts/bundle.sh --open   # 打包完顺手启动
 #   UNIVERSAL=1 bash native/scripts/bundle.sh   # Intel + Apple Silicon 通用包（要先 rustup target add 两个目标）
-#   DMG=1 bash native/scripts/bundle.sh         # 再生成 .dmg 安装镜像
+#   ARCH=aarch64 DMG=1 bash native/scripts/bundle.sh   # 单架构包（aarch64 或 x86_64）；.dmg 名字带 -arm64 / -x64
+#   DMG=1 bash native/scripts/bundle.sh         # 再生成 .dmg 安装镜像（通用包名字带 -universal）
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -27,7 +28,19 @@ if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
 fi
 
 target="${CARGO_TARGET_DIR:-$root/native/target}"
-if [[ "${UNIVERSAL:-}" == "1" ]]; then
+dmg_suffix=""
+if [[ -n "${ARCH:-}" ]]; then
+    # 单架构包：只编这一个目标，二进制放回 release/ 下，后面照常打包
+    case "$ARCH" in
+        aarch64) dmg_suffix="-arm64" ;;
+        x86_64) dmg_suffix="-x64" ;;
+        *) echo "ARCH must be aarch64 or x86_64" >&2; exit 1 ;;
+    esac
+    cargo build --release --target "$ARCH-apple-darwin" --manifest-path "$root/native/Cargo.toml"
+    mkdir -p "$target/release"
+    cp "$target/$ARCH-apple-darwin/release/makit-native" "$target/release/makit-native"
+elif [[ "${UNIVERSAL:-}" == "1" ]]; then
+    dmg_suffix="-universal"
     # 通用包（Intel + Apple Silicon 同一个文件，#191）：两个目标各编一次，lipo 合成一个二进制放回 release/ 下，后面照常打包
     for t in aarch64-apple-darwin x86_64-apple-darwin; do
         cargo build --release --target "$t" --manifest-path "$root/native/Cargo.toml"
@@ -82,7 +95,7 @@ codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Authority' || true
 echo "→ $app"
 if [[ "${DMG:-}" == "1" ]]; then
     # 拖进「应用程序」的安装镜像；版本号进文件名，release 里一眼分得出
-    dmg="$target/release/bundle/$APP_NAME-$version.dmg"
+    dmg="$target/release/bundle/$APP_NAME-$version$dmg_suffix.dmg"
     rm -f "$dmg"
     # 镜像里放 .app 和「应用程序」的快捷方式，打开后直接拖过去
     stage="$(mktemp -d)"

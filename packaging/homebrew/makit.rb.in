@@ -2,7 +2,7 @@ cask "makit" do
   version "@VERSION@"
   sha256 "@SHA256@"
 
-  url "https://github.com/nicholas-hoult/makit/releases/download/v#{version}/makit-#{version}.dmg"
+  url "https://github.com/nicholas-hoult/makit/releases/download/v#{version}/makit-#{version}-universal.dmg"
   name "makit"
   desc "Native manager for local Claude Code and Codex sessions"
   homepage "https://github.com/nicholas-hoult/makit"

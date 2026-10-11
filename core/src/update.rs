@@ -78,7 +78,7 @@ pub struct ReleaseInfo {
 const GITHUB_LATEST: &str = "https://api.github.com/repos/nicholas-hoult/makit/releases/latest";
 const GITEE_TAGS: &str = "https://gitee.com/api/v5/repos/nicholas-hoult/makit/tags";
 
-/// `releases/latest` of the GitHub API. Picks `makit-<version>.dmg` as the installer
+/// `releases/latest` of the GitHub API. Picks `makit-<version>-universal.dmg` as the installer (`makit-<version>.dmg` for releases before 0.1.5)
 pub fn parse_github_latest(json: &str) -> Result<ReleaseInfo, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| format!("bad json: {e}"))?;
     let tag = v.get("tag_name").and_then(Value::as_str).ok_or("no tag_name")?;
@@ -86,8 +86,17 @@ pub fn parse_github_latest(json: &str) -> Result<ReleaseInfo, String> {
     let _ = version;
     let version = tag.trim_start_matches('v').to_string();
     let asset = v.get("assets").and_then(Value::as_array).and_then(|assets| {
-        let want = format!("makit-{version}.dmg");
-        assets.iter().find(|a| a.get("name").and_then(Value::as_str) == Some(want.as_str())).map(|a| Asset {
+        let find = |want: &str| assets.iter().find(|a| a.get("name").and_then(Value::as_str) == Some(want));
+        let want = format!("makit-{version}-universal.dmg");
+        let (want, found) = match find(&want) {
+            Some(a) => (want, Some(a)),
+            None => {
+                let old = format!("makit-{version}.dmg");
+                let a = find(&old);
+                (old, a)
+            }
+        };
+        found.map(|a| Asset {
             name: want.clone(),
             url: a.get("browser_download_url").and_then(Value::as_str).unwrap_or_default().to_string(),
             sha256: a.get("digest").and_then(Value::as_str).and_then(|d| d.strip_prefix("sha256:")).map(|h| h.to_ascii_lowercase()),
@@ -233,6 +242,18 @@ mod tests {
         assert_eq!(a.name, "makit-0.1.3.dmg");
         assert_eq!(a.sha256.as_deref(), Some("31d709158a92159d05b04d52d56dfd09d93c1eaa45955d9dbe2a6dd31ef07e40"));
         assert_eq!(a.size, 15710964);
+    }
+
+    #[test]
+    fn github_latest_prefers_the_universal_installer_over_single_architecture_ones() {
+        let r = parse_github_latest(r#"{"tag_name":"v0.1.5","assets":[
+          {"name":"makit-0.1.5-arm64.dmg","browser_download_url":"https://example.invalid/a","size":1},
+          {"name":"makit-0.1.5-universal.dmg","browser_download_url":"https://example.invalid/u","size":2},
+          {"name":"makit-0.1.5-x64.dmg","browser_download_url":"https://example.invalid/x","size":3}]}"#)
+        .unwrap();
+        let a = r.asset.unwrap();
+        assert_eq!(a.name, "makit-0.1.5-universal.dmg");
+        assert_eq!(a.url, "https://example.invalid/u");
     }
 
     #[test]

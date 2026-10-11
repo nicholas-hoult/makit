@@ -162,7 +162,7 @@ AI tools are organized around **sessions**, while developers think in **tasks**:
 
 0.1 only has a universal macOS package; Intel and Apple Silicon share the same file.
 
-**[→ Download the latest version from Releases](https://github.com/nicholas-hoult/makit/releases/latest)** (`makit-<version>.dmg`, about 15 MB)
+**[→ Download the latest version from Releases](https://github.com/nicholas-hoult/makit/releases/latest)** (`makit-<version>-universal.dmg`, about 15 MB; `-arm64` and `-x64` are about half the size, if you know your Mac's chip)
 
 Download the `.dmg`, open it, and drag makit into Applications.
 

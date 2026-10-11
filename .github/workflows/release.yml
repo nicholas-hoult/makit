@@ -30,8 +30,16 @@ jobs:
       - name: Test
         run: cargo test --manifest-path native/Cargo.toml
 
+      # Three installers: universal (what the in-app updater and Homebrew use) plus one per architecture, which is
+      # about half the size. Each run reuses the already compiled targets.
       - name: Bundle (universal .app + .dmg)
         run: UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh
+
+      - name: Bundle (Apple Silicon .dmg)
+        run: ARCH=aarch64 DMG=1 bash native/scripts/bundle.sh
+
+      - name: Bundle (Intel .dmg)
+        run: ARCH=x86_64 DMG=1 bash native/scripts/bundle.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -91,7 +99,7 @@ jobs:
             exit 0
           fi
           v="${GITHUB_REF_NAME#v}"
-          dmg=$(ls native/target/release/bundle/makit-*.dmg | head -1)
+          dmg="native/target/release/bundle/makit-${v}-universal.dmg"
           sha=$(shasum -a 256 "$dmg" | awk '{print $1}')
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/${GITHUB_REPOSITORY_OWNER}/homebrew-tap.git" tap
           mkdir -p tap/Casks

@@ -5,7 +5,8 @@
   fetch(api, { headers: { Accept: "application/vnd.github+json" } })
     .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
     .then(function (rel) {
-      var dmg = (rel.assets || []).filter(function (a) { return /\.dmg$/.test(a.name); })[0];
+      var dmgs = (rel.assets || []).filter(function (a) { return /\.dmg$/.test(a.name); });
+      var dmg = dmgs.filter(function (a) { return /-universal\.dmg$/.test(a.name); })[0] || dmgs[0];
       document.querySelectorAll("[data-version]").forEach(function (el) {
         el.textContent = rel.tag_name;
       });

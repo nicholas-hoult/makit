@@ -9,7 +9,7 @@ bash native/scripts/bundle.sh                    # 本机架构的 makit.app
 UNIVERSAL=1 DMG=1 bash native/scripts/bundle.sh  # 通用包 + .dmg（要先 rustup target add aarch64-apple-darwin x86_64-apple-darwin）
 ```
 
-产物在 `.worktrees/.target-gpui/release/bundle/`（没有该目录时在 `native/target/release/bundle/`）：`makit.app`、`makit-<版本>.dmg`。
+产物在 `.worktrees/.target-gpui/release/bundle/`（没有该目录时在 `native/target/release/bundle/`）：`makit.app`、`makit-<版本>-universal.dmg`（带 `ARCH=aarch64|x86_64` 时是 `-arm64` / `-x64`）。
 
 签名：钥匙串里有名为 `makit-local-sign` 的自签名证书就用它（签名身份固定，重新打包后系统授权不会失效），没有就退回 ad-hoc。两种都**不是** Apple 开发者签名，别人第一次打开要手动放行（见 README）。
 
