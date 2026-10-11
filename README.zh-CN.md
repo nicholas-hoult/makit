@@ -26,7 +26,7 @@
   <a href="#从源码构建">从源码构建</a>
 </p>
 
-原生应用（Rust + GPUI，不是 Electron 套壳），0.1 先发 macOS，Linux、Windows 正在做。支持 **Claude Code** 和 **Codex**。
+**原生、轻量（安装包 7.7 MB）、好看（21 套主题）。** Rust + GPUI，不是 Electron 套壳。本地运行，不上传。macOS 是主要版本，Windows 从 0.1.5 起有预览版，Linux 计划 0.3。支持 **Claude Code** 和 **Codex**。
 
 ⭐ **觉得有用的话，欢迎 Star 和 Fork。** 用着不顺、想要什么功能，直接提 [Issue](https://github.com/nicholas-hoult/makit/issues) 就行；也欢迎 PR。
 

@@ -26,7 +26,7 @@
   <a href="#build-from-source">Build from source</a>
 </p>
 
-A native app (Rust + GPUI, not an Electron wrapper). 0.1 ships on macOS only; Linux and Windows are in the works. Supports **Claude Code** and **Codex**.
+**Native, light (7.7 MB installer), good-looking (21 themes).** Rust + GPUI, not an Electron wrapper. Local only, nothing uploaded. macOS is the main build; Windows is a preview (from 0.1.5), Linux is planned for 0.3. Supports **Claude Code** and **Codex**.
 
 ⭐ **If you find it useful, a Star or a Fork is very welcome.** If something feels off or you want a feature, just open an [Issue](https://github.com/nicholas-hoult/makit/issues). PRs are welcome too.
 
