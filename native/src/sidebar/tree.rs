@@ -17,9 +17,9 @@ use std::ops::Range;
 /// `.tree-body { padding: 4px 0 }`
 pub const PAD_H: f32 = 4.0;
 /// `.tree-group + .tree-group` / `.tree-group + .tree-section` 的 margin-top
-pub const GROUP_GAP: f32 = 10.0;
+pub const GROUP_GAP: f32 = 6.0;
 /// 项目组之间（#277：和状态视图的组间距一样）
-pub const SECTION_GAP: f32 = 10.0;
+pub const SECTION_GAP: f32 = 6.0;
 /// 会话行（#277）：padding 3 + 标题行 16（12px 字）+ 1 + 元信息行 13（10px 字）+ 3 + 常驻描边 2，再加行间 2
 pub const SESSION_H: f32 = 40.0;
 /// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
@@ -512,7 +512,7 @@ mod tests {
                 Item::Empty(s) => format!("E:{s}"),
             })
             .collect();
-        assert_eq!(kinds, ["_4", "H:opened+2", "o1", "o2", "_10", "H:attention-1", "_10", "h1", "h2", "_4"], "折叠后组头和计数还在；不分段的历史没有组头");
+        assert_eq!(kinds, ["_4", "H:opened+2", "o1", "o2", "_6", "H:attention-1", "_6", "h1", "h2", "_4"], "折叠后组头和计数还在；不分段的历史没有组头");
         assert_eq!(t.membership.get(&r("a1")), Some(&GroupRef::Status("attention".into())), "折叠组里没渲染的行也知道自己的组");
         assert_eq!(t.membership.get(&r("h1")), Some(&GroupRef::None));
         assert_eq!(t.item_of_row(r("o2")), Some(3));
@@ -523,8 +523,8 @@ mod tests {
     fn project_view_gaps_and_headers() {
         let t = build(Case { project_view: true, ..Case::default() });
         let hs: Vec<f32> = t.items.iter().map(|i| i.height()).collect();
-        // pad, 已打开组头, o1, o2, 组→项目间距 10, x 头, x1, x2, 10, y 头(折叠), 10, pad
-        assert_eq!(hs, [4.0, 22.0, 40.0, 40.0, 10.0, 22.0, 40.0, 40.0, 10.0, 22.0, 10.0, 4.0]);
+        // pad, 已打开组头, o1, o2, 组→项目间距 6, x 头, x1, x2, 6, y 头(折叠), 6, pad
+        assert_eq!(hs, [4.0, 22.0, 40.0, 40.0, 6.0, 22.0, 40.0, 40.0, 6.0, 22.0, 6.0, 4.0]);
         assert!(matches!(&t.items[9], Item::ProjectHeader { key, collapsed: true, count: 1, .. } if key == "y"));
         assert_eq!(t.membership.get(&r("y1")), Some(&GroupRef::Project { key: "y".into(), has_active: false }));
     }
