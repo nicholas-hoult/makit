@@ -81,8 +81,8 @@ impl SidebarView {
             .h(px(GROUP_LABEL_H))
             // 列表条目默认按内容宽：不撑满的话 hover 底色只盖住文字（Tauri 的 .tree-group-label 是整行块级）
             .w_full()
-            // 标题条上下各留 2（#277）：条本身 20 高，带一层极淡底色，组与组的边界靠它而不是空白
-            .py(px(2.))
+            // 条本身 22 高（带一层极淡底色，组与组的边界靠它），下方留 4 到第一行（#277）
+            .pb(px(4.))
             .pr(px(4.))
             .child(
                 div()
@@ -126,12 +126,12 @@ impl SidebarView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (key2, cwd2, cwd3, name2) = (key.clone(), cwd.clone(), cwd.clone(), name.clone());
-        // 和状态视图的组标签（render_group_header）同一个样式（#277）：外层 24 高、上下各 2，里面一条 20 高的淡底色条，
+        // 和状态视图的组标签（render_group_header）同一个样式（#277）：外层 26 高、下方留 4，里面一条 22 高的淡底色条，
         // 10px 弱文字、箭头槽 8、计数跟在名字后面；只有「+」是项目独有的，靠右、hover 才出现
         div()
             .h(px(PROJECT_HEADER_H))
             .w_full()
-            .py(px(2.))
+            .pb(px(4.))
             .pr(px(4.))
             .child(
         div()
@@ -357,7 +357,8 @@ impl SidebarView {
                 },
                 |d, _, _, cx| crate::workspace::dnd::ghost(&d.title, cx),
             );
-        div().h(px(row_h)).px(px(4.)).child(li).into_any_element()
+        // 行间 2：外层比描边框多 2，由底部 padding 吃掉（行高来源仍是 tree 的常量）
+        div().h(px(row_h)).px(px(4.)).pb(px(2.)).child(li).into_any_element()
     }
 
     /// `.tree-header`：padding 8；搜索框 + 「显示选项」按钮（22×22，margin-left 6，偏离默认时 --accent-text）
