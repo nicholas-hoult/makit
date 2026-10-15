@@ -81,8 +81,6 @@ impl SidebarView {
             .h(px(GROUP_LABEL_H))
             // 列表条目默认按内容宽：不撑满的话 hover 底色只盖住文字（Tauri 的 .tree-group-label 是整行块级）
             .w_full()
-            // 无底色：组边界靠加粗标题 + 计数胶囊；22 高，文字落在下半部分，贴近自己的会话行（#277）
-            .pt(px(6.))
             .pr(px(4.))
             .child(
                 div()
@@ -92,10 +90,11 @@ impl SidebarView {
                     .flex()
                     .items_center()
                     .gap(px(5.))
-                    .pl(px(8.))
+                    .pt(px(2.))
+                    .pb(px(3.))
+                    .pl(px(4.))
                     .pr(px(12.))
                     .rounded(px(4.))
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_size(px(12.))
                     .line_height(px(16.))
                     .text_color(color)
@@ -103,9 +102,9 @@ impl SidebarView {
                     .hover(|s| s.bg(t.bg_hover).text_color(t.fg))
                     .tooltip(tip(tooltip))
                     .child(div().w(px(8.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(10., !collapsed, color, "tree-group-label", t.fg)))
-                    .child(label.to_uppercase())
-                    // 折叠起来之后计数是这一组唯一剩下的信息，所以它必须一直在
-                    .child(count_pill(count, t))
+                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    // 折叠起来之后计数是这一组唯一剩下的信息，所以它必须一直在；放右边（用户 2026-10-16）
+                    .child(div().flex_none().opacity(0.6).child(count.to_string()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_group(&id, cx))),
             )
             .into_any_element()
@@ -126,34 +125,45 @@ impl SidebarView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (key2, cwd2, cwd3, name2) = (key.clone(), cwd.clone(), cwd.clone(), name.clone());
-        // 和状态视图的组标签（render_group_header）同一个样式（#277）：外层 22 高、文字靠下，加粗标题 + 计数胶囊，
-        // 10px 弱文字、箭头槽 8、计数跟在名字后面；只有「+」是项目独有的，靠右、hover 才出现
-        div()
-            .h(px(PROJECT_HEADER_H))
-            .w_full()
-            .pt(px(6.))
-            .pr(px(4.))
-            .child(
         div()
             .id(SharedString::from(format!("proj-{key}")))
             .group("tree-project-header")
-            .size_full()
+            .h(px(PROJECT_HEADER_H))
+            // 块级元素撑满侧栏：名字 flex:1 才能把计数和「+」推到最右，hover 底色也是整行（同 .tree-project-header）
+            .w_full()
             .flex()
             .items_center()
-            .gap(px(5.))
-            .pl(px(8.))
-            .pr(px(12.))
+            .gap(px(4.))
+            .px(px(8.))
+            .py(px(5.))
             .rounded(px(4.))
-            .font_weight(gpui::FontWeight::SEMIBOLD)
             .text_size(px(12.))
             .line_height(px(16.))
             .text_color(t.fg_muted)
             .cursor_pointer()
             .hover(|s| s.bg(t.bg_hover).text_color(t.fg))
-            .child(div().w(px(8.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(10., !collapsed, t.fg_muted, "tree-project-header", t.fg)))
-            .child(div().min_w_0().truncate().child(name))
-            .child(count_pill(count, t))
-            .child(div().flex_1())
+            .child(div().w(px(10.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(12., !collapsed, t.fg_muted, "tree-project-header", t.fg)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(if collapsed { t.fg_muted } else { t.fg })
+                    .child(name),
+            )
+            // `.tree-section-count`：bg-hover 底、全圆角、padding 0 6、10px、500
+            .child(
+                div()
+                    .flex_none()
+                    .px(px(6.))
+                    .rounded_full()
+                    .bg(t.bg_hover)
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(count.to_string()),
+            )
             // `.tree-project-add`：16×16、圆角 3、--fg-subtle、14px；只在表头 hover 时出现
             .child(
                 div()
@@ -193,7 +203,6 @@ impl SidebarView {
                 cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                     this.open_popup(Popup::ProjectMenu { at: ev.position, key: key.clone(), cwd: cwd3.clone() }, window, cx);
                 }),
-            ),
             )
             .into_any_element()
     }
@@ -592,17 +601,4 @@ impl Render for SidebarView {
             .child(aside)
             .child(resizer)
     }
-}
-
-/// 组标题后的计数胶囊（#277）：淡底色 + 常规字重，折叠后它是这一组唯一剩下的信息
-fn count_pill(count: usize, t: &Theme) -> gpui::Div {
-    div()
-        .flex_none()
-        .px(px(6.))
-        .rounded_full()
-        .bg(mix(t.fg_muted, 0.22))
-        .font_weight(gpui::FontWeight::NORMAL)
-        .text_size(px(11.))
-        .line_height(px(16.))
-        .child(count.to_string())
 }

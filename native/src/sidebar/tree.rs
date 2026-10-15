@@ -19,7 +19,7 @@ pub const PAD_H: f32 = 4.0;
 /// `.tree-group + .tree-group` / `.tree-group + .tree-section` 的 margin-top
 pub const GROUP_GAP: f32 = 6.0;
 /// 项目组之间（#277：和状态视图的组间距一样）
-pub const SECTION_GAP: f32 = 6.0;
+pub const SECTION_GAP: f32 = 4.0;
 /// 会话行（#277）：padding 3 + 标题行 16（12px 字）+ 1 + 元信息行 13（10px 字）+ 3 + 常驻描边 2，再加行间 2
 pub const SESSION_H: f32 = 40.0;
 /// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
@@ -29,10 +29,10 @@ pub fn compact_rows(logo: bool, project: bool, short_id: bool, branch: bool) -> 
     !(logo || project || short_id || branch)
 }
 
-/// 组标签（#277）：22 高，无底色，文字靠下
+/// 组标签：和线上同款，字号放大到 12px（#277）
 pub const GROUP_LABEL_H: f32 = 22.0;
-/// 项目头（#277）：和组标签同一个样式
-pub const PROJECT_HEADER_H: f32 = 22.0;
+/// 项目头：和线上同款（padding 5 + 12px 字 16 = 26）
+pub const PROJECT_HEADER_H: f32 = 26.0;
 /// 空状态 `.tree-empty`：padding 20 + 12px 字 17 + 20
 pub const EMPTY_H: f32 = 57.0;
 
@@ -523,8 +523,8 @@ mod tests {
     fn project_view_gaps_and_headers() {
         let t = build(Case { project_view: true, ..Case::default() });
         let hs: Vec<f32> = t.items.iter().map(|i| i.height()).collect();
-        // pad, 已打开组头, o1, o2, 组→项目间距 6, x 头, x1, x2, 6, y 头(折叠), 6, pad
-        assert_eq!(hs, [4.0, 22.0, 40.0, 40.0, 6.0, 22.0, 40.0, 40.0, 6.0, 22.0, 6.0, 4.0]);
+        // pad, 已打开组头, o1, o2, 组→项目间距 6, x 头, x1, x2, 4, y 头(折叠), 4, pad
+        assert_eq!(hs, [4.0, 22.0, 40.0, 40.0, 6.0, 26.0, 40.0, 40.0, 4.0, 26.0, 4.0, 4.0]);
         assert!(matches!(&t.items[9], Item::ProjectHeader { key, collapsed: true, count: 1, .. } if key == "y"));
         assert_eq!(t.membership.get(&r("y1")), Some(&GroupRef::Project { key: "y".into(), has_active: false }));
     }
