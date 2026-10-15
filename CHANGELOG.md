@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-10-16
+
+### Added
+- Interface scale for the sidebar and tab bar: `alt-cmd-=` / `alt-cmd--` / `alt-cmd-0` (zoom in / out / reset). `cmd-+` / `cmd--` still zoom only the terminal font
+- Each release now also attaches the universal installer as `makit-<version>.dmg`, so 0.1.4 clients can find and update to it
+
+### Changed
+- Tighter sidebar: shorter session rows, 2px between rows, smaller gaps between groups, larger group and project titles with the count on the right
+
 ## [0.1.5] - 2026-10-11
 
 ### Added
@@ -66,7 +75,8 @@ First public release (macOS, universal Intel + Apple Silicon package, unsigned).
 
 ---
 
-[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/nicholas-hoult/makit/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.6
 [0.1.5]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.5
 [0.1.4]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4
 [0.1.3]: https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3
