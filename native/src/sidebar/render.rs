@@ -81,6 +81,8 @@ impl SidebarView {
             .h(px(GROUP_LABEL_H))
             // 列表条目默认按内容宽：不撑满的话 hover 底色只盖住文字（Tauri 的 .tree-group-label 是整行块级）
             .w_full()
+            // 标题条上下各留 2（#277）：条本身 20 高，带一层极淡底色，组与组的边界靠它而不是空白
+            .py(px(2.))
             .pr(px(4.))
             .child(
                 div()
@@ -90,11 +92,10 @@ impl SidebarView {
                     .flex()
                     .items_center()
                     .gap(px(5.))
-                    .pt(px(2.))
-                    .pb(px(3.))
-                    .pl(px(4.))
+                    .pl(px(8.))
                     .pr(px(12.))
                     .rounded(px(4.))
+                    .bg(mix(t.fg, 0.05))
                     .text_size(px(10.))
                     .line_height(px(14.))
                     .text_color(color)
@@ -125,45 +126,34 @@ impl SidebarView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (key2, cwd2, cwd3, name2) = (key.clone(), cwd.clone(), cwd.clone(), name.clone());
+        // 和状态视图的组标签（render_group_header）同一个样式（#277）：外层 24 高、上下各 2，里面一条 20 高的淡底色条，
+        // 10px 弱文字、箭头槽 8、计数跟在名字后面；只有「+」是项目独有的，靠右、hover 才出现
+        div()
+            .h(px(PROJECT_HEADER_H))
+            .w_full()
+            .py(px(2.))
+            .pr(px(4.))
+            .child(
         div()
             .id(SharedString::from(format!("proj-{key}")))
             .group("tree-project-header")
-            .h(px(PROJECT_HEADER_H))
-            // 块级元素撑满侧栏：名字 flex:1 才能把计数和「+」推到最右，hover 底色也是整行（同 .tree-project-header）
-            .w_full()
+            .size_full()
             .flex()
             .items_center()
-            .gap(px(4.))
-            .px(px(8.))
-            .py(px(5.))
+            .gap(px(5.))
+            .pl(px(8.))
+            .pr(px(12.))
             .rounded(px(4.))
-            .text_size(px(11.))
-            .line_height(px(15.))
+            .bg(mix(t.fg, 0.05))
+            .text_size(px(10.))
+            .line_height(px(14.))
             .text_color(t.fg_muted)
             .cursor_pointer()
             .hover(|s| s.bg(t.bg_hover).text_color(t.fg))
-            .child(div().w(px(10.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(12., !collapsed, t.fg_muted, "tree-project-header", t.fg)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(if collapsed { t.fg_muted } else { t.fg })
-                    .child(name),
-            )
-            // `.tree-section-count`：bg-hover 底、全圆角、padding 0 6、10px、500
-            .child(
-                div()
-                    .flex_none()
-                    .px(px(6.))
-                    .rounded_full()
-                    .bg(t.bg_hover)
-                    .text_size(px(10.))
-                    .line_height(px(14.))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(count.to_string()),
-            )
+            .child(div().w(px(8.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(10., !collapsed, t.fg_muted, "tree-project-header", t.fg)))
+            .child(div().min_w_0().truncate().child(name))
+            .child(div().flex_none().opacity(0.6).child(count.to_string()))
+            .child(div().flex_1())
             // `.tree-project-add`：16×16、圆角 3、--fg-subtle、14px；只在表头 hover 时出现
             .child(
                 div()
@@ -203,6 +193,7 @@ impl SidebarView {
                 cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
                     this.open_popup(Popup::ProjectMenu { at: ev.position, key: key.clone(), cwd: cwd3.clone() }, window, cx);
                 }),
+            ),
             )
             .into_any_element()
     }

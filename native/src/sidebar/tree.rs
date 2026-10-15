@@ -17,9 +17,9 @@ use std::ops::Range;
 /// `.tree-body { padding: 4px 0 }`
 pub const PAD_H: f32 = 4.0;
 /// `.tree-group + .tree-group` / `.tree-group + .tree-section` 的 margin-top
-pub const GROUP_GAP: f32 = 8.0;
-/// `.tree-section { margin-bottom: 2px }`（项目组之间）
-pub const SECTION_GAP: f32 = 2.0;
+pub const GROUP_GAP: f32 = 6.0;
+/// 项目组之间（#277：和状态视图的组间距一样）
+pub const SECTION_GAP: f32 = 6.0;
 /// 会话行（#277 紧凑排版）：padding 3 + 标题行 16（12px 字）+ 1 + 元信息行 13（10px 字）+ 3 + 常驻描边 2
 pub const SESSION_H: f32 = 38.0;
 /// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
@@ -29,10 +29,10 @@ pub fn compact_rows(logo: bool, project: bool, short_id: bool, branch: bool) -> 
     !(logo || project || short_id || branch)
 }
 
-/// 组标签 `.tree-group-label`：padding 2 / 3 + 10px 字行盒 14
-pub const GROUP_LABEL_H: f32 = 19.0;
-/// 项目头 `.tree-project-header`：padding 5 + 「+」按钮 16（比 11px 字的行盒高）+ 5
-pub const PROJECT_HEADER_H: f32 = 26.0;
+/// 组标签条（#277）：条 20 高 + 上下各 2 的外边距
+pub const GROUP_LABEL_H: f32 = 24.0;
+/// 项目头（#277）：和组标签条同一个样式，20 高 + 上下各 2
+pub const PROJECT_HEADER_H: f32 = 24.0;
 /// 空状态 `.tree-empty`：padding 20 + 12px 字 17 + 20
 pub const EMPTY_H: f32 = 57.0;
 
@@ -512,7 +512,7 @@ mod tests {
                 Item::Empty(s) => format!("E:{s}"),
             })
             .collect();
-        assert_eq!(kinds, ["_4", "H:opened+2", "o1", "o2", "_8", "H:attention-1", "_8", "h1", "h2", "_4"], "折叠后组头和计数还在；不分段的历史没有组头");
+        assert_eq!(kinds, ["_4", "H:opened+2", "o1", "o2", "_6", "H:attention-1", "_6", "h1", "h2", "_4"], "折叠后组头和计数还在；不分段的历史没有组头");
         assert_eq!(t.membership.get(&r("a1")), Some(&GroupRef::Status("attention".into())), "折叠组里没渲染的行也知道自己的组");
         assert_eq!(t.membership.get(&r("h1")), Some(&GroupRef::None));
         assert_eq!(t.item_of_row(r("o2")), Some(3));
@@ -524,7 +524,7 @@ mod tests {
         let t = build(Case { project_view: true, ..Case::default() });
         let hs: Vec<f32> = t.items.iter().map(|i| i.height()).collect();
         // pad, 已打开组头, o1, o2, 组→项目间距 10, x 头, x1, x2, 2, y 头(折叠), 2, pad
-        assert_eq!(hs, [4.0, 19.0, 38.0, 38.0, 8.0, 26.0, 38.0, 38.0, 2.0, 26.0, 2.0, 4.0]);
+        assert_eq!(hs, [4.0, 24.0, 38.0, 38.0, 6.0, 24.0, 38.0, 38.0, 6.0, 24.0, 6.0, 4.0]);
         assert!(matches!(&t.items[9], Item::ProjectHeader { key, collapsed: true, count: 1, .. } if key == "y"));
         assert_eq!(t.membership.get(&r("y1")), Some(&GroupRef::Project { key: "y".into(), has_active: false }));
     }
