@@ -528,12 +528,21 @@ impl TerminalView {
         }
     }
 
+    /// App quit: kill the process tree only (pgrep, a few ms). The `ps -xEww` sweep for escaped processes scans the
+    /// whole process table, so it is done once for all tabs by `WorkspaceView::shutdown_all`, not once per tab:
+    /// with ten tabs the per-tab scan made quitting take ~15 s and the in-place updater look like it never restarted.
     fn kill_blocking(&mut self) {
+        let _ = self.shutdown_for_quit();
+    }
+
+    /// Kills the tree now and returns the pty id so the caller can batch the escaped-process sweep
+    pub fn shutdown_for_quit(&mut self) -> Option<String> {
         self.shut_down = true;
         if let Some(p) = self.pty.take() {
             let _ = p.notifier.0.send(Msg::Shutdown);
-            makit_core::process::kill_pty_by_pid(p.pid, &self.spec.pty_id.clone().unwrap_or_default());
+            makit_core::process::kill_tree(p.pid);
         }
+        self.spec.pty_id.clone().filter(|id| !id.is_empty())
     }
 
     /// 子进程 pid（测试 / 取证用）

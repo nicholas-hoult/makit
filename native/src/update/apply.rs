@@ -64,22 +64,36 @@ pub fn plan(release: &ReleaseInfo, dev: bool) -> Plan {
 /// The detached helper: waits for `$1` (the pid) to exit, swaps `$2` (target) for `$3` (staged), rolls back on
 /// failure, strips the quarantine flag and relaunches
 pub const HELPER: &str = r#"#!/bin/sh
-pid="$1"; target="$2"; staged="$3"
+pid="$1"; target="$2"; staged="$3"; log="$4"
+work="$(dirname "$0")"
+exec >>"$log" 2>&1
+echo "$(date '+%Y-%m-%dT%H:%M:%S') helper started: wait for pid $pid, swap $target"
 n=0
 while kill -0 "$pid" 2>/dev/null; do
-  n=$((n+1)); [ "$n" -gt 300 ] && exit 1
+  n=$((n+1)); [ "$n" -gt 300 ] && { echo "gave up: pid $pid still alive after 60s"; exit 1; }
   sleep 0.2
 done
+echo "old process gone after $n polls"
 backup="$target.old.$$"
 if mv "$target" "$backup"; then
   if mv "$staged" "$target"; then
     /usr/bin/xattr -dr com.apple.quarantine "$target" 2>/dev/null
     rm -rf "$backup"
+    echo "swapped"
   else
+    echo "moving the staged bundle failed, rolling back"
     mv "$backup" "$target"
   fi
+else
+  echo "moving the old bundle aside failed"
 fi
-/usr/bin/open "$target"
+# `open` can fail right after the swap while LaunchServices still has the old bundle cached: retry a few times
+i=0
+while [ "$i" -lt 5 ]; do
+  /usr/bin/open "$target" && { echo "open ok"; break; }
+  i=$((i+1)); echo "open failed (attempt $i)"; sleep 1
+done
+rm -rf "$work"
 "#;
 
 fn run(cmd: &mut Command) -> Result<String, String> {
@@ -137,6 +151,14 @@ fn stage(job: &Job, work: &Path) -> Result<PathBuf, String> {
     Ok(staged)
 }
 
+/// `~/.claude/makit/update-helper.log`: the helper is detached and silent, this is the only trace of what it did
+fn helper_log() -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+    let dir = home.join(".claude").join("makit");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("update-helper.log")
+}
+
 fn launch_helper(job: &Job, work: &Path, staged: &Path) -> Result<(), String> {
     let script = work.join("swap.sh");
     std::fs::write(&script, HELPER).map_err(|e| e.to_string())?;
@@ -145,6 +167,7 @@ fn launch_helper(job: &Job, work: &Path, staged: &Path) -> Result<(), String> {
         .arg(std::process::id().to_string())
         .arg(&job.target)
         .arg(staged)
+        .arg(helper_log())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

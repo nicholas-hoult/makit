@@ -247,9 +247,22 @@ impl WorkspaceView {
         self.recover_pickers.get(tab_id).map(|(p, _)| p.read(cx).debug_state())
     }
 
+    /// App quit: kill every tree first, then sweep escaped processes once for all tabs (one `ps` scan instead of one
+    /// per tab; see `TerminalView::kill_blocking`)
     fn shutdown_all(&mut self, cx: &mut Context<Self>) {
-        let ids: Vec<String> = self.terminals.keys().cloned().collect();
-        self.shutdown_tabs(&ids, cx);
+        let started = std::time::Instant::now();
+        let mut pty_ids: Vec<String> = Vec::new();
+        for t in self.terminals.values() {
+            if let Some(id) = t.view.update(cx, |v, _| v.shutdown_for_quit()) {
+                pty_ids.push(id);
+            }
+        }
+        let refs: Vec<&str> = pty_ids.iter().map(String::as_str).collect();
+        makit_core::process::kill_by_env_marker(&refs);
+        log::info!(target: "workspace", "quit: shut down {} terminals in {} ms", refs.len(), started.elapsed().as_millis());
+        self.terminals.clear();
+        self.recover_pickers.clear();
+        self.hybrids.clear();
     }
 
     fn active_container_id(&self, cx: &App) -> String {
