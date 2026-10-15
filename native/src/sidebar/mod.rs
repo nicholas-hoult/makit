@@ -35,9 +35,10 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use gpui::{
-    px, App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, ListAlignment, ListOffset, ListState, Pixels, Point,
+    App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, ListAlignment, ListOffset, ListState, Pixels, Point,
     Subscription, Task, WeakEntity, Window,
 };
+use crate::ui_scale::px;
 use makit_core::SessionMeta;
 
 use crate::state::{AppEvent, AppState};
@@ -540,7 +541,7 @@ impl SidebarView {
 
     fn set_scroll_top(&mut self, y: f32) {
         let (ix, off) = tree::offset_to_item(&self.tops, y);
-        self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: px(off) });
+        self.list.scroll_to(ListOffset { item_ix: ix, offset_in_item: gpui::px(off) });
     }
 
     /// 选中行滚进视野（block: nearest）
@@ -702,7 +703,7 @@ impl SidebarView {
         let Some(b) = self.list.bounds_for_item(item_ix) else { return };
         // 行的 li 左右各缩进 4px：卡片贴 li 右边 +4 = 列表项右边
         let (x, y) = hover::card_origin(f32::from(b.right()) - 4.0, f32::from(b.top()), f32::from(window.viewport_size().height));
-        self.hover = Some(HoverCard { session_id, at: Point::new(px(x), px(y)) });
+        self.hover = Some(HoverCard { session_id, at: Point::new(gpui::px(x), gpui::px(y)) });
         cx.notify();
     }
 
@@ -782,7 +783,7 @@ impl SidebarView {
 
     /// 自检：滚动（同滚轮），并走一遍滚动后的处理（关悬停卡、滚动条显形）
     pub fn debug_scroll_by(&mut self, dy: f32, cx: &mut Context<Self>) {
-        self.list.scroll_by(px(dy));
+        self.list.scroll_by(gpui::px(dy));
         self.on_scrolled(cx);
     }
 

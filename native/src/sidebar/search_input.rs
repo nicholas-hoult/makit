@@ -14,11 +14,12 @@ use crate::ts;
 use std::ops::Range;
 
 use gpui::{
-    div, fill, point, prelude::*, px, relative, size, App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
+    div, fill, point, prelude::*, relative, size, App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, LayoutId,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine, SharedString, Style,
     TextRun, UTF16Selection, UnderlineStyle, Window,
 };
+use crate::ui_scale::px;
 
 use crate::actions::sidebar as act;
 use crate::theme::ActiveTheme;

@@ -136,6 +136,19 @@ impl Render for Root {
                 let ws = self.workspace.clone();
                 move |_: &term_act::FontReset, _, cx| zoom_active(&ws, crate::terminal::zoom::Zoom::Reset, cx)
             })
+            // ---- 整体缩放（#277）：偏好变化会让侧栏等重新算尺寸 ----
+            .on_action({
+                let state = state.clone();
+                move |_: &app_act::UiScaleIn, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.ui_scale = crate::ui_scale::next(p.ui_scale, crate::ui_scale::Step::In)))
+            })
+            .on_action({
+                let state = state.clone();
+                move |_: &app_act::UiScaleOut, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.ui_scale = crate::ui_scale::next(p.ui_scale, crate::ui_scale::Step::Out)))
+            })
+            .on_action({
+                let state = state.clone();
+                move |_: &app_act::UiScaleReset, _, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.ui_scale = crate::ui_scale::next(p.ui_scale, crate::ui_scale::Step::Reset)))
+            })
             // ---- D 浮层 ----
             .on_action({
                 let host = self.overlays.clone();
@@ -311,6 +324,7 @@ pub fn run() {
             None => persist::NativeState::default(),
         };
         crate::i18n::apply(&prefs.language);
+        crate::ui_scale::set(prefs.ui_scale);
         // 终端主字体 JetBrains Mono 随程序打包（对标 对标产品 / 对标终端，见 terminal/fonts.rs）
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
             log::warn!(target: "font", "failed to load the bundled fonts: {e}");

@@ -44,7 +44,7 @@ impl Owner {
 
 /// 应用级（F0）
 pub mod app {
-    gpui::actions!(makit, [Quit, Refresh, ToggleSidebar]);
+    gpui::actions!(makit, [Quit, Refresh, ToggleSidebar, UiScaleIn, UiScaleOut, UiScaleReset]);
 }
 
 /// 工作区（C；F0 已实现的在 workspace/mod.rs）
@@ -169,6 +169,11 @@ pub fn keymap() -> Vec<Shortcut> {
         sc("cmd-b", None, F0, "shortcut.collapse_expand_the_sidebar", app::ToggleSidebar),
         sc("cmd-r", None, F0, "shortcut.refresh_the_session_list", app::Refresh),
         sc("cmd-q", None, F0, "shortcut.quit", app::Quit),
+        // 整体缩放（#277）。⌘ 单键是终端字号，所以整体缩放加 ⌥；⌘⌥+ = ⌘⌥⇧=，macOS 报成 alt-cmd-+
+        sc("alt-cmd-=", None, F0, "shortcut.ui_scale_in", app::UiScaleIn),
+        sc("alt-cmd-+", None, F0, "shortcut.ui_scale_in", app::UiScaleIn),
+        sc("alt-cmd--", None, F0, "shortcut.ui_scale_out", app::UiScaleOut),
+        sc("alt-cmd-0", None, F0, "shortcut.ui_scale_reset", app::UiScaleReset),
         sc("cmd-t", None, Workspace, "shortcut.new_terminal", w::NewTab),
         sc("cmd-w", None, Workspace, "shortcut.close_the_current_tab", w::CloseTab),
         sc("cmd-d", None, Workspace, "shortcut.split_left_right", w::SplitRight),

@@ -3,9 +3,10 @@
 
 use crate::{tr, ts};
 use gpui::{
-    div, img, list, prelude::*, px, radians, rgb, svg, AnyElement, ClickEvent, Context,
+    div, img, list, prelude::*, radians, rgb, svg, AnyElement, ClickEvent, Context,
     CursorStyle, DragMoveEvent, FontWeight, Hsla, MouseButton, MouseDownEvent, SharedString, Transformation, Window,
 };
+use crate::ui_scale::px;
 
 use super::status_dot;
 use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label};
@@ -53,7 +54,7 @@ impl SidebarView {
         let theme = cx.theme().clone();
         let Some(item) = self.tree.items.get(ix).cloned() else { return div().into_any_element() };
         match item {
-            Item::Space(h) => div().h(px(h)).into_any_element(),
+            Item::Space(h) => div().h(gpui::px(h)).into_any_element(),
             Item::Empty(text) => div()
                 .h(px(tree::EMPTY_H))
                 .p(px(20.))
@@ -236,7 +237,7 @@ impl SidebarView {
             let dot = div()
                 .id(SharedString::from(format!("st-{uid}")))
                 .w(px(12.))
-                .h(px(17.))
+                .h(px(16.))
                 .flex_none()
                 .flex()
                 .items_center()
@@ -250,7 +251,7 @@ impl SidebarView {
         });
 
         let row1 = div()
-            .h(px(17.))
+            .h(px(16.))
             .flex()
             .items_center()
             .gap(px(4.))
@@ -286,13 +287,13 @@ impl SidebarView {
         // `.tree-session-row2`：gap 3、margin-top 2、10px --fg-muted
         let sub = |d: gpui::Div| d.flex_none().opacity(0.7);
         let row2 = div()
-            .mt(px(2.))
-            .h(px(14.))
+            .mt(px(1.))
+            .h(px(13.))
             .flex()
             .items_center()
             .gap(px(3.))
             .text_size(px(10.))
-            .line_height(px(14.))
+            .line_height(px(13.))
             .text_color(t.fg_muted)
             .map(|d| match (&logo, m.tool.as_str()) {
                 _ if !show_logo => d,
@@ -328,20 +329,20 @@ impl SidebarView {
             .items_start()
             .gap(px(6.))
             // padding 5 12 5 8，减掉常驻的 1px 描边位（选中时才上色，免得选中那一刻内容跳 1px）
-            .pt(px(4.))
-            .pb(px(4.))
+            .pt(px(3.))
+            .pb(px(3.))
             .pl(px(7.))
             .pr(px(11.))
             .border_1()
             .border_color(if selected { t.accent } else { gpui::transparent_black() })
             .rounded(px(4.))
             .text_size(px(12.))
-            .line_height(px(17.))
+            .line_height(px(16.))
             .cursor_pointer()
             .when(focused, |d| d.bg(mix(t.accent, 0.15)).child(div().absolute().left_0().top_0().bottom_0().w(px(2.)).rounded_l(px(3.)).bg(t.accent)))
             .when(!focused, |d| d.hover(|s| s.bg(t.bg_hover)))
             .children(status)
-            .when(pinned, |d| d.child(div().flex_none().text_size(px(10.)).line_height(px(17.)).text_color(t.warning).child("★")))
+            .when(pinned, |d| d.child(div().flex_none().text_size(px(10.)).line_height(px(16.)).text_color(t.warning).child("★")))
             .child(div().flex_1().min_w_0().flex().flex_col().child(row1).when(!compact, |d| d.child(row2)))
             // 点了就是选了：鼠标和键盘落在同一个选中态上
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -446,8 +447,8 @@ impl SidebarView {
                 .id("tree-scroll-thumb")
                 .absolute()
                 .right_0()
-                .top(px(top))
-                .w(px(SCROLLBAR_W))
+                .top(gpui::px(top))
+                .w(gpui::px(SCROLLBAR_W))
                 .h(px(h))
                 .py(px(3.))
                 .px(px(2.))
@@ -516,7 +517,7 @@ impl Render for SidebarView {
             .flex_1()
             .min_h_0()
             // 经典滚动条占 9px 宽（WebKit 自定义 ::-webkit-scrollbar 不是 overlay）
-            .child(div().size_full().when(overflow, |d| d.pr(px(SCROLLBAR_W))).child(list_el))
+            .child(div().size_full().when(overflow, |d| d.pr(gpui::px(SCROLLBAR_W))).child(list_el))
             .children(scrollbar)
             .on_mouse_down(MouseButton::Left, cx.listener(|this, _, window, _| this.list_focus.focus(window)))
             .on_drag_move(cx.listener(|this, ev: &DragMoveEvent<ThumbDrag>, _, cx| {
@@ -554,7 +555,7 @@ impl Render for SidebarView {
         let aside = div()
             .id("session-tree")
             .key_context("Sidebar")
-            .w(px(width))
+            .w(gpui::px(width))
             .flex_none()
             .h_full()
             .flex()

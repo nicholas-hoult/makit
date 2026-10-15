@@ -41,10 +41,11 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    canvas, div, point, prelude::*, px, relative, svg, Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context,
+    canvas, div, point, prelude::*, relative, svg, Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Context,
     DragMoveEvent, Empty, Entity, ExternalPaths, FocusHandle, Focusable, FontWeight, MouseButton,
     MouseDownEvent, MouseUpEvent, Pixels, Point, ScrollHandle, SharedString, Size, Subscription, WeakEntity, Window,
 };
+use crate::ui_scale::px;
 
 use crate::actions::workspace as act;
 use crate::state::AppState;

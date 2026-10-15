@@ -17,13 +17,13 @@ use std::ops::Range;
 /// `.tree-body { padding: 4px 0 }`
 pub const PAD_H: f32 = 4.0;
 /// `.tree-group + .tree-group` / `.tree-group + .tree-section` 的 margin-top
-pub const GROUP_GAP: f32 = 10.0;
+pub const GROUP_GAP: f32 = 8.0;
 /// `.tree-section { margin-bottom: 2px }`（项目组之间）
 pub const SECTION_GAP: f32 = 2.0;
-/// 会话行：padding 5 + 标题行 17（12px 字，WebKit 实测行盒 17px）+ 2 + 元信息行 14（10px 字）+ 5
-pub const SESSION_H: f32 = 43.0;
-/// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 2 + 14 = 16px（#238）
-pub const SESSION_H_COMPACT: f32 = 27.0;
+/// 会话行（#277 紧凑排版）：padding 3 + 标题行 16（12px 字）+ 1 + 元信息行 13（10px 字）+ 3 + 常驻描边 2
+pub const SESSION_H: f32 = 38.0;
+/// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
+pub const SESSION_H_COMPACT: f32 = 24.0;
 /// 第二行的四项（图标 / 项目名 / 短 ID / 分支）全关了 → 行高收紧
 pub fn compact_rows(logo: bool, project: bool, short_id: bool, branch: bool) -> bool {
     !(logo || project || short_id || branch)
@@ -62,7 +62,14 @@ pub enum Item {
 }
 
 impl Item {
+    /// Real pixel height: the design height times the interface scale (#277). The virtual list, scroll
+    /// positions and the rendered row all use this, so they cannot disagree about where a row is.
     pub fn height(&self) -> f32 {
+        crate::ui_scale::scaled(self.design_height())
+    }
+
+    /// Height at 100% (the numbers the layout constants above describe).
+    pub fn design_height(&self) -> f32 {
         match self {
             Item::Space(h) => *h,
             Item::GroupHeader { .. } => GROUP_LABEL_H,
@@ -485,8 +492,8 @@ mod tests {
         assert_eq!(normal.items.len(), compact.items.len(), "行数不变");
         let sessions = normal.order.len();
         let (hn, hc): (f32, f32) = (normal.items.iter().map(|i| i.height()).sum(), compact.items.iter().map(|i| i.height()).sum());
-        assert_eq!(hn - hc, sessions as f32 * (SESSION_H - SESSION_H_COMPACT), "每条会话行少 16px，组头 / 间距不动");
-        assert_eq!(SESSION_H - SESSION_H_COMPACT, 16.0, "去掉的正好是第二行的 2 + 14");
+        assert_eq!(hn - hc, sessions as f32 * (SESSION_H - SESSION_H_COMPACT), "每条会话行少 14px，组头 / 间距不动");
+        assert_eq!(SESSION_H - SESSION_H_COMPACT, 14.0, "去掉的正好是第二行的 1 + 13");
     }
 
     // ---- 拍平的结构：组头、间距、状态列、组归属 ----
@@ -505,7 +512,7 @@ mod tests {
                 Item::Empty(s) => format!("E:{s}"),
             })
             .collect();
-        assert_eq!(kinds, ["_4", "H:opened+2", "o1", "o2", "_10", "H:attention-1", "_10", "h1", "h2", "_4"], "折叠后组头和计数还在；不分段的历史没有组头");
+        assert_eq!(kinds, ["_4", "H:opened+2", "o1", "o2", "_8", "H:attention-1", "_8", "h1", "h2", "_4"], "折叠后组头和计数还在；不分段的历史没有组头");
         assert_eq!(t.membership.get(&r("a1")), Some(&GroupRef::Status("attention".into())), "折叠组里没渲染的行也知道自己的组");
         assert_eq!(t.membership.get(&r("h1")), Some(&GroupRef::None));
         assert_eq!(t.item_of_row(r("o2")), Some(3));
@@ -517,7 +524,7 @@ mod tests {
         let t = build(Case { project_view: true, ..Case::default() });
         let hs: Vec<f32> = t.items.iter().map(|i| i.height()).collect();
         // pad, 已打开组头, o1, o2, 组→项目间距 10, x 头, x1, x2, 2, y 头(折叠), 2, pad
-        assert_eq!(hs, [4.0, 19.0, 43.0, 43.0, 10.0, 26.0, 43.0, 43.0, 2.0, 26.0, 2.0, 4.0]);
+        assert_eq!(hs, [4.0, 19.0, 38.0, 38.0, 8.0, 26.0, 38.0, 38.0, 2.0, 26.0, 2.0, 4.0]);
         assert!(matches!(&t.items[9], Item::ProjectHeader { key, collapsed: true, count: 1, .. } if key == "y"));
         assert_eq!(t.membership.get(&r("y1")), Some(&GroupRef::Project { key: "y".into(), has_active: false }));
     }

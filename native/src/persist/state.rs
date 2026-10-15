@@ -31,6 +31,8 @@ pub struct NativeState {
     pub pane_icons: String,
     /// 对话视图：false = 终端（默认，和原来一样）；true = 可重排（历史来自会话文件，活动区来自真终端，#231）。全局，所有绑定了会话的标签一起跟着变
     pub reflow_view: bool,
+    /// Whole-interface scale (#277): one of `ui_scale::STEPS`, 1.0 = design size. The terminal font zoom is separate
+    pub ui_scale: f32,
     /// UI language (#71): `en` (default) / `zh` / `system` (follows the system language)
     pub language: String,
     pub palette: PalettePrefs,
@@ -70,6 +72,7 @@ impl Default for NativeState {
             theme: ThemePrefs::default(),
             pane_icons: "beasts".into(),
             reflow_view: false,
+            ui_scale: 1.0,
             language: crate::i18n::PREF_EN.into(),
             palette: PalettePrefs::default(),
             notify: NotifyPrefs::default(),

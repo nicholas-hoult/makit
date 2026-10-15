@@ -343,6 +343,7 @@ impl AppState {
     pub fn update_prefs(&mut self, cx: &mut Context<Self>, f: impl FnOnce(&mut NativeState)) {
         let language_before = self.prefs.language.clone();
         f(&mut self.prefs);
+        crate::ui_scale::set(self.prefs.ui_scale);
         if self.prefs.language != language_before {
             crate::i18n::apply(&self.prefs.language);
         }

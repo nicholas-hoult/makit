@@ -7,9 +7,10 @@
 
 use crate::{tr, ts};
 use gpui::{
-    anchored, deferred, div, img, point, prelude::*, px, AnyElement, BoxShadow, ClickEvent, Context, Corner, Div, FontWeight,
+    anchored, deferred, div, img, point, prelude::*, AnyElement, BoxShadow, ClickEvent, Context, Corner, Div, FontWeight,
     MouseDownEvent, Pixels, Point, Stateful, Window,
 };
+use crate::ui_scale::px;
 
 use super::groups::SortKey;
 use super::hover;
