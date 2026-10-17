@@ -20,7 +20,7 @@ pub const fn sz(cols: u16, rows: u16) -> Size {
 
 /// 缓冲区小于这个行数时重排很便宜，行列都立即调（VS Code 同值）
 pub const SMALL_BUFFER_LINES: usize = 200;
-/// 列数跟随的节奏：拖动中每这么久重排一次（对标终端 是 25ms，这里取一帧多一点，实测跟得动）
+/// 列数跟随的节奏：拖动中每这么久重排一次（取一帧多一点，实测跟得动）
 pub const COLS_FOLLOW_MS: f64 = 33.0;
 /// 回滚行数（#203：改列数要把整段回滚按新宽度重排，耗时和回滚行数成正比；加大要重新测量）
 pub const SCROLLBACK: usize = 2000;

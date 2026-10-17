@@ -3,8 +3,8 @@
 //! 照搬三件事：
 //! 1. 「越用力越快」由 macOS 自己给 —— 系统送来的位移已经按手速加速过，终端不再做非线性加速；
 //! 2. 精确滚动（触控板，含惯性阶段）位移 × 2 —— 对标终端 `SurfaceView_AppKit.swift` 的做法；
-//! 3. 像素 → 行：对标终端 `Surface.zig` scrollCallback —— 累积到满一行才滚，截断取整，余数留给下一次，
-//!    方向一反丢掉旧余数。
+//! 3. 像素 → 行：累积到满一行才滚，截断取整，余数留给下一次（对标终端 `Surface.zig` scrollCallback 同此算法）；
+//!    方向一反丢掉旧余数是 makit 自己加的（对标终端 不丢，反向滚动会抵消 pending）。
 //! 离散滚轮（鼠标一格一格）每格 3 行，同 对标终端 `discrete:3`（也是 xterm 的默认）。
 //!
 //! 设备区分：WebView 里单个事件分不清「触控板正好 40px」和「鼠标 1 格」，TS 版要靠 `WheelClassifier`
@@ -29,7 +29,7 @@ pub fn precise_pixels_to_rows(pending: f32, delta_px: f32, cell_h: f32, speed: f
         return (0, 0.0);
     }
     let px = delta_px * PRECISE_BOOST * speed;
-    // 方向一反丢掉旧余数（对标终端 Surface.zig）
+    // Drop the old remainder when the direction flips (makit-specific, not taken from the reference terminal)
     let carried = if pending != 0.0 && pending.signum() != px.signum() { 0.0 } else { pending };
     let total = carried + px;
     let rows = (total / cell_h).trunc();
