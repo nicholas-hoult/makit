@@ -9,9 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-17
+
 ### Fixed
 - Quitting with many tabs open is much faster: the sweep for escaped child processes now runs once instead of once per tab. This was why the in-app updater could leave the screen empty for ~15 s before the new version appeared
 - The updater's restart helper retries `open`, writes a log to `~/.claude/makit/update-helper.log` and cleans up its temp folder
+- Failures to read or save the archive list, and codex tab binding failures, are now written to the log instead of passing silently (#254)
 
 ## [0.1.6] - 2026-10-16
 
