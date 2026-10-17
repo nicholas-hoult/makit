@@ -19,11 +19,17 @@ pub fn load_archived() -> std::collections::HashSet<String> {
     }
     let content = match fs::read_to_string(&path) {
         Ok(s) => s,
-        Err(_) => return set,
+        Err(e) => {
+            log::warn!(target: "archive", "cannot read {}: {e}; treating as empty", path.display());
+            return set;
+        }
     };
     let v: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
-        Err(_) => return set,
+        Err(e) => {
+            log::warn!(target: "archive", "cannot parse {}: {e}; treating as empty", path.display());
+            return set;
+        }
     };
     if let Some(arr) = v.as_array() {
         for x in arr {
@@ -36,6 +42,14 @@ pub fn load_archived() -> std::collections::HashSet<String> {
 }
 
 pub fn save_archived(set: &std::collections::HashSet<String>) -> Result<(), String> {
+    let res = write_archived(set);
+    if let Err(e) = &res {
+        log::warn!(target: "archive", "cannot save the archive list: {e}");
+    }
+    res
+}
+
+fn write_archived(set: &std::collections::HashSet<String>) -> Result<(), String> {
     let path = archived_store_path().ok_or_else(|| ts!("core.err.no_home").to_string())?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;

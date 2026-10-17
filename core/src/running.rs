@@ -418,15 +418,30 @@ pub fn codex_session_id_of(path: &Path) -> Option<String> {
 /// Called only when a tab awaits binding (one pgrep per pass + one ps / lsof per matching process)
 pub fn codex_pty_bindings(pty_ids: &[String]) -> Vec<PtyBinding> {
     let Some(sessions_dir) = dirs::home_dir().map(|h| h.join(".codex").join("sessions")) else { return vec![] };
-    let Ok(out) = std::process::Command::new("pgrep").args(["-x", "codex"]).output() else { return vec![] };
+    let out = match std::process::Command::new("pgrep").args(["-x", "codex"]).output() {
+        Ok(o) => o,
+        Err(e) => {
+            log::warn!(target: "running", "codex binding: cannot run pgrep: {e}");
+            return vec![];
+        }
+    };
     let mut result = vec![];
     for pid in String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.trim().parse::<u32>().ok()) {
         let Some(pty) = get_env_var_of_pid(pid, "MAKIT_PTY_ID").filter(|p| pty_ids.contains(p)) else { continue };
-        let Ok(lsof) = std::process::Command::new("lsof").args(["-p", &pid.to_string(), "-Fn"]).output() else { continue };
+        let lsof = match std::process::Command::new("lsof").args(["-p", &pid.to_string(), "-Fn"]).output() {
+            Ok(o) => o,
+            Err(e) => {
+                log::warn!(target: "running", "codex binding: cannot run lsof for pid {pid}: {e}");
+                continue;
+            }
+        };
         let paths = rollout_paths_from_lsof(&String::from_utf8_lossy(&lsof.stdout), &sessions_dir);
         if let Some(sid) = paths.iter().find_map(|p| codex_session_id_of(p)) {
             let short_id = sid.split('-').next().unwrap_or("").to_string();
             result.push(PtyBinding { pty_id: pty, session_id: sid, short_id, name: String::new() });
+        } else {
+            // this pass runs repeatedly while the tab awaits binding, so keep it at debug
+            log::debug!(target: "running", "codex binding: pid {pid} has no readable rollout file yet ({} candidates)", paths.len());
         }
     }
     result
