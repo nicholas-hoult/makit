@@ -8,6 +8,9 @@
 
 ## [Unreleased]
 
+### 修复
+- Windows：`makit.exe` 启动时不再报「无法定位程序输入点 TaskDialogIndirect」。exe 现在内嵌了应用清单（选用 comctl32 v6，并声明按显示器 DPI 感知），发布构建会检查它是否存在。0.1.7 的 Windows 包已用这个修复重新打包（#285）
+
 ## [0.1.7] - 2026-10-17
 
 ### 修复

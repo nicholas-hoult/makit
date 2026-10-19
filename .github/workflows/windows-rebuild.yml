@@ -1,0 +1,54 @@
+name: Rebuild Windows zip
+
+# One-off: rebuild the Windows .zip from the branch this is run on and replace the asset on an existing release,
+# without touching the macOS assets, the Homebrew cask or the version number (#285: the 0.1.7 exe had no manifest
+# and failed at launch). Run from the Actions tab on master with the tag.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag whose Windows zip to replace, e.g. v0.1.7
+        required: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+
+      - name: Build
+        run: cargo build --release --manifest-path native/Cargo.toml
+
+      - name: Verify the exe embeds the comctl32 v6 manifest
+        shell: bash
+        run: grep -aq "Microsoft.Windows.Common-Controls" native/target/release/makit-native.exe
+
+      - name: Package .zip
+        shell: bash
+        run: |
+          v="${TAG#v}"
+          dir="makit-${v}-windows-x64"
+          mkdir "$dir"
+          cp native/target/release/makit-native.exe "$dir/makit.exe"
+          cp LICENSE-APACHE LICENSE-MIT THIRD_PARTY_LICENSES.md "$dir/"
+          7z a "$dir.zip" "$dir"
+          echo "ZIP=$dir.zip" >> "$GITHUB_ENV"
+
+      - name: Replace the asset on the release
+        shell: bash
+        run: |
+          gh release upload "$TAG" "$ZIP" -R "$GITHUB_REPOSITORY" --clobber
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name'
