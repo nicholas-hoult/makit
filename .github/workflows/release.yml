@@ -143,6 +143,11 @@ jobs:
       - name: Build
         run: cargo build --release --manifest-path native/Cargo.toml
 
+      # #285: without the embedded manifest the exe dies at load time ("TaskDialogIndirect not found")
+      - name: Verify the exe embeds the comctl32 v6 manifest
+        shell: bash
+        run: grep -aq "Microsoft.Windows.Common-Controls" native/target/release/makit-native.exe
+
       - name: Package .zip
         shell: bash
         run: |

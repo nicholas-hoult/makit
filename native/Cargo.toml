@@ -10,6 +10,10 @@ publish = false
 name = "makit-native"
 path = "src/main.rs"
 
+# #285: embeds the Windows manifest (comctl32 v6, DPI awareness); see build.rs
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"
+
 [dependencies]
 # 本机没有 Xcode（只有命令行工具，没有 metal 编译器），着色器改成运行时编译
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
