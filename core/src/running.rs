@@ -17,10 +17,15 @@ pub struct RunningInfo {
 }
 
 pub fn load_running_info() -> HashMap<String, RunningInfo> {
-    match dirs::home_dir() {
+    let mut map = match dirs::home_dir() {
         Some(h) => load_running_info_in(&h.join(".claude").join("sessions"), &pid_alive),
         None => HashMap::new(),
+    };
+    // codex writes no status file; its running sessions come from the open-rollout scan (#288)
+    for r in codex_running_sessions() {
+        map.entry(r.session_id).or_insert(RunningInfo { name: r.name, status: r.status, pty_id: String::new(), waiting_for: r.waiting_for, pid: r.pid });
     }
+    map
 }
 
 /// Testable version of `load_running_info`: a directory + "is this pid still alive?".
@@ -92,12 +97,13 @@ pub fn load_running_info_in(dir: &Path, alive: &dyn Fn(u32) -> bool) -> HashMap<
     map
 }
 
-// Lightweight scan: reads only the running state (~/.claude/sessions/*.json), does not scan projects
+// Lightweight scan: reads only the running state (~/.claude/sessions/*.json, plus the running codex processes), does not scan projects
 pub fn list_running_sessions() -> Vec<RunningMeta> {
-    match dirs::home_dir() {
+    let claude = match dirs::home_dir() {
         Some(h) => list_running_sessions_in(&h.join(".claude").join("sessions"), &pid_alive),
         None => vec![],
-    }
+    };
+    combine_running(claude, codex_running_sessions())
 }
 
 /// Testable version of `list_running_sessions`; likewise skips files left behind by dead processes
@@ -445,6 +451,113 @@ pub fn codex_pty_bindings(pty_ids: &[String]) -> Vec<PtyBinding> {
         }
     }
     result
+}
+
+// --------------- codex running state (#288) ---------------
+// claude writes `~/.claude/sessions/<pid>.json` while it runs, so everything above knows what is running. codex writes nothing,
+// so before this a codex session was never `running`: always "stopped" in the sidebar, even with the TUI open in a terminal.
+// What codex does leave is an open rollout file: a live codex process has its session's `rollout-*.jsonl` open (same fact the
+// tab binding above relies on). That says "running", but not waiting / busy (no status field), so those sessions count as idle.
+
+/// codex sessions that are running: `procs` = (pid, `lsof -p <pid> -Fn` output) for each live codex process.
+/// A process with no readable rollout open (just started, or lsof failed) is skipped; two processes on one session count once.
+pub fn codex_running_in(procs: &[(u32, String)], sessions_dir: &Path, session_id_of: &dyn Fn(&Path) -> Option<String>) -> Vec<RunningMeta> {
+    let mut result: Vec<RunningMeta> = vec![];
+    for (pid, lsof_out) in procs {
+        let paths = rollout_paths_from_lsof(lsof_out, sessions_dir);
+        let Some(session_id) = paths.iter().find_map(|p| session_id_of(p)) else { continue };
+        if result.iter().any(|r| r.session_id == session_id) {
+            continue;
+        }
+        result.push(RunningMeta { session_id, status: "idle".into(), waiting_for: String::new(), pid: *pid, name: String::new() });
+    }
+    result
+}
+
+/// Sessions of the codex processes running on this machine (any terminal, not only makit's tabs).
+/// One `pgrep` per call plus one `lsof` per codex process, so callers must not run it per frame; the patrol runs it every 3 s.
+/// No `pgrep` / `lsof` (Windows) just means no codex entries: no log here, it would repeat every few seconds
+/// (`codex_pty_bindings` already warns when the tools are missing).
+pub fn codex_running_sessions() -> Vec<RunningMeta> {
+    let Some(sessions_dir) = dirs::home_dir().map(|h| h.join(".codex").join("sessions")) else { return vec![] };
+    let Ok(out) = std::process::Command::new("pgrep").args(["-x", "codex"]).output() else { return vec![] };
+    let procs: Vec<(u32, String)> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.trim().parse::<u32>().ok())
+        .filter_map(|pid| {
+            let lsof = std::process::Command::new("lsof").args(["-p", &pid.to_string(), "-Fn"]).output().ok()?;
+            Some((pid, String::from_utf8_lossy(&lsof.stdout).into_owned()))
+        })
+        .collect();
+    codex_running_in(&procs, &sessions_dir, &codex_session_id_of)
+}
+
+/// Running sessions of both tools; if a session id is in both, the claude entry (it has the real status) wins.
+pub fn combine_running(claude: Vec<RunningMeta>, codex: Vec<RunningMeta>) -> Vec<RunningMeta> {
+    let mut result = claude;
+    for c in codex {
+        if !result.iter().any(|r| r.session_id == c.session_id) {
+            result.push(c);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod codex_running_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Why test this: what goes wrong on screen is "codex is open in a terminal and its row in the sidebar says stopped"
+    /// (the row also sorts into history instead of the running groups).
+    const DIR: &str = "/Users/me/.codex/sessions";
+    fn lsof(files: &[&str]) -> String {
+        files.iter().enumerate().map(|(i, f)| format!("f{}\nn{f}\n", i + 3)).collect::<String>()
+    }
+    fn id_from_name(p: &Path) -> Option<String> {
+        // stands in for reading the session_meta line: rollout-<id>.jsonl -> <id>
+        p.file_stem()?.to_str()?.strip_prefix("rollout-").map(String::from)
+    }
+    fn run(procs: &[(u32, String)]) -> Vec<RunningMeta> {
+        codex_running_in(procs, &PathBuf::from(DIR), &id_from_name)
+    }
+
+    #[test]
+    fn a_process_with_its_rollout_open_is_a_running_idle_session() {
+        let got = run(&[(100, lsof(&["/Users/me/.codex/sessions/2026/10/24/rollout-abc.jsonl"]))]);
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0].session_id.as_str(), got[0].status.as_str(), got[0].pid), ("abc", "idle", 100));
+        assert!(got[0].waiting_for.is_empty() && got[0].name.is_empty());
+    }
+
+    #[test]
+    fn a_process_without_a_rollout_open_is_not_a_session_yet() {
+        assert!(run(&[(100, lsof(&["/Users/me/.codex/log/codex-tui.log"]))]).is_empty(), "only rollout files under sessions_dir count");
+        assert!(run(&[(100, String::new())]).is_empty(), "lsof printed nothing");
+        assert!(run(&[(100, lsof(&["/elsewhere/rollout-x.jsonl"]))]).is_empty(), "outside sessions_dir");
+    }
+
+    #[test]
+    fn two_processes_two_sessions_but_one_session_twice_counts_once() {
+        let a = "/Users/me/.codex/sessions/2026/10/24/rollout-a.jsonl";
+        let b = "/Users/me/.codex/sessions/2026/10/24/rollout-b.jsonl";
+        let got = run(&[(1, lsof(&[a])), (2, lsof(&[b]))]);
+        assert_eq!(got.iter().map(|r| r.session_id.as_str()).collect::<Vec<_>>(), vec!["a", "b"]);
+        assert_eq!(run(&[(1, lsof(&[a])), (2, lsof(&[a]))]).len(), 1, "same session held by two pids");
+    }
+
+    #[test]
+    fn claude_entry_wins_over_a_codex_entry_for_the_same_id() {
+        let claude = vec![RunningMeta { session_id: "x".into(), status: "busy".into(), waiting_for: String::new(), pid: 7, name: String::new() }];
+        let codex = vec![
+            RunningMeta { session_id: "x".into(), status: "idle".into(), waiting_for: String::new(), pid: 8, name: String::new() },
+            RunningMeta { session_id: "y".into(), status: "idle".into(), waiting_for: String::new(), pid: 9, name: String::new() },
+        ];
+        let got = combine_running(claude, codex);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got.iter().find(|r| r.session_id == "x").unwrap().status, "busy");
+        assert!(got.iter().any(|r| r.session_id == "y"));
+    }
 }
 
 #[cfg(test)]

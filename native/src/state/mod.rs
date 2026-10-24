@@ -181,10 +181,11 @@ impl AppState {
 
         // 存活巡检：进程被 kill / 崩溃 / 终端被关时不会有任何文件事件（`sessions/<pid>.json` 没人删），
         // 靠监听永远等不到「已停止」。有会话在跑时每 3 秒重读一次运行状态（读的都是几十字节的小文件，
-        // 死进程会被 `list_running_sessions` 过滤掉），没有在跑的会话就什么都不做
+        // 死进程会被 `list_running_sessions` 过滤掉），没有在跑的会话就什么都不做。
+        // codex 不写任何文件，它的启动 / 退出也只能靠这一轮发现：列表里有 codex 会话就一直巡（#288，见 `needs_running_patrol`）
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(std::time::Duration::from_secs(3)).await;
-            let any_running = match this.update(cx, |s, _| s.sessions.iter().any(|m| m.running && m.pid > 0)) {
+            let any_running = match this.update(cx, |s, _| sessions::needs_running_patrol(&s.sessions)) {
                 Ok(v) => v,
                 Err(_) => break,
             };
