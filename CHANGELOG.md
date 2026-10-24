@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- When a tab's process ends, the terminal now says how: the exit code for a failure, or the signal if it was killed, instead of always "process exited" (#288)
 - Windows: `makit.exe` no longer fails at launch with "entry point TaskDialogIndirect not found". The exe now embeds the application manifest that selects comctl32 v6 (and per-monitor DPI awareness), and the release build checks for it. The 0.1.7 Windows .zip was rebuilt with this fix (#285)
 
 ## [0.1.7] - 2026-10-17

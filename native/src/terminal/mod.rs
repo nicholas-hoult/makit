@@ -45,6 +45,7 @@ mod search;
 
 pub mod contrast;
 pub mod drop_paths;
+pub mod exit_notice;
 pub mod fonts;
 pub mod grid;
 pub mod keys;
@@ -599,8 +600,9 @@ impl TerminalView {
             AlacEvent::ChildExit(_) | AlacEvent::Exit => {
                 if !self.exited {
                     self.exited = true;
-                    // 同 Tauri 版：写一行 dim 的「[进程已退出]」
-                    self.write_local("\r\n\x1b[2m[进程已退出]\x1b[0m\r\n");
+                    // A dim line saying the process ended; with the exit code / signal when we have one (#288)
+                    let status = if let AlacEvent::ChildExit(s) = ev { Some(s) } else { None };
+                    self.write_local(&format!("\r\n\x1b[2m{}\x1b[0m\r\n", exit_notice::exit_notice(status)));
                     cx.emit(TerminalEvent::Exited);
                     cx.notify();
                 }

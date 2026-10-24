@@ -412,5 +412,8 @@
   "update.toast.opened_page": "已打开下载页",
   "settings.update.title": "更新",
   "settings.update.check": "检查更新",
-  "settings.update.hint": "makit 大约每天检查一次新版本，只请求版本信息，不会发送任何会话内容。"
+  "settings.update.hint": "makit 大约每天检查一次新版本，只请求版本信息，不会发送任何会话内容。",
+  "terminal.exited": "[进程已退出]",
+  "terminal.exited_code": "[进程已退出，退出码 %{code}]",
+  "terminal.exited_signal": "[进程被信号 %{signal} 终止]"
 }

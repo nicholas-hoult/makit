@@ -412,5 +412,8 @@
   "update.toast.opened_page": "Opened the download page",
   "settings.update.title": "Updates",
   "settings.update.check": "Check for updates",
-  "settings.update.hint": "makit checks for a new version about once a day. Only the version information is requested; nothing about your sessions is sent."
+  "settings.update.hint": "makit checks for a new version about once a day. Only the version information is requested; nothing about your sessions is sent.",
+  "terminal.exited": "[process exited]",
+  "terminal.exited_code": "[process exited with code %{code}]",
+  "terminal.exited_signal": "[process killed by signal %{signal}]"
 }
