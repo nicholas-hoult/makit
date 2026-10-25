@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Only one makit can run at a time now. Starting a second one brings the running one to the front and exits, instead of two instances fighting over the hook socket and overwriting each other's saved state. Dev instances with a different data folder are not affected (#291)
+
 ## [0.2.1] - 2026-10-25
 
 ### Changed

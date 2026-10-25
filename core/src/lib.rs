@@ -17,6 +17,7 @@
 //! | `pty_batch` | PTY output coalescing cadence (used by the Tauri version's emit) |
 //! | `perf` | perf.log instrumentation |
 //! | `ai_provider` | Codex session parsing |
+//! | `instance` | Single-instance lock (#291) |
 //! | `transcript` | Conversation model: claude jsonl / codex rollout -> unified `Item` list + incremental reader (#231) |
 //! | `worktree` | git worktree listing |
 
@@ -26,6 +27,7 @@ pub mod archive;
 pub mod environment;
 pub mod fsid;
 pub mod hook;
+pub mod instance;
 pub mod paths;
 pub mod perf;
 pub mod process;

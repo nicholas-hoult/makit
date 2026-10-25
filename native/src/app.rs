@@ -315,8 +315,38 @@ fn save_window(state: &Entity<AppState>, window: &Window, cx: &mut App) {
     }
 }
 
+/// Only one makit may run per data directory (#291): two of them fight over `hook.sock` and overwrite each other's
+/// state files. Takes a lock that lives as long as the returned value; if another instance holds it, brings that one
+/// to the front and exits. Dev instances (another app name, usually another HOME) and self-tests are not limited.
+fn guard_single_instance() -> Option<makit_core::instance::InstanceLock> {
+    use makit_core::instance::{acquire, Acquire};
+    if is_dev_instance() || std::env::var_os("MAKIT_NATIVE_SELFTEST").is_some() {
+        return None;
+    }
+    let path = persist::state_path()?.with_file_name("instance.lock");
+    // up to 5 s: an update restart, or "quit and open again", starts the new process while the old one is still exiting
+    match acquire(&path, std::time::Duration::from_secs(5)) {
+        Acquire::Acquired(lock) => Some(lock),
+        Acquire::Held => {
+            log::info!(target: "app", "another makit is already running: bringing it to the front and exiting");
+            if let Some(bundle) = std::env::current_exe().ok().and_then(|exe| crate::update::apply::app_bundle_of(&exe)) {
+                // LaunchServices activates the running instance of the same bundle instead of starting another
+                let _ = std::process::Command::new("open").arg(bundle).spawn();
+            }
+            std::process::exit(0);
+        }
+        Acquire::Unavailable(why) => {
+            // never refuse to start because the guard itself is broken
+            log::info!(target: "app", "single-instance guard unavailable, starting anyway: {why}");
+            None
+        }
+    }
+}
+
 pub fn run() {
     crate::logging::init();
+    // held until `run` returns, which is when the app quits
+    let _single_instance = guard_single_instance();
     perf::mark("main start");
     Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
