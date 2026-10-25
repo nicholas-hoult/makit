@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-25
+
 ### Changed
 - The update check now runs after every launch and then every hour, instead of about once a day, so a new release shows up the same hour it is published
 
