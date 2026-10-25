@@ -1,6 +1,6 @@
 //! In-app update (#200): background check, titlebar pill, "update and restart".
 //!
-//! Flow: `start` checks shortly after launch and then about once a day (`makit_core::update`); a newer,
+//! Flow: `start` checks shortly after every launch and then every hour while the app stays open (`makit_core::update`); a newer,
 //! not-skipped release makes `available` return it and the titlebar shows a pill. `install` downloads the
 //! release `.dmg`, verifies its SHA-256 against the release API digest, stages the new bundle next to the old
 //! one, then a detached helper swaps the bundles after this process exits and relaunches (see `apply`).
@@ -18,8 +18,10 @@ use makit_core::update::{self as core_update, ReleaseInfo};
 use crate::state::AppState;
 use crate::{tr, ts};
 
-/// Background check interval
-const CHECK_EVERY_SECS: u64 = 24 * 3600;
+/// Background check interval while the app stays open
+const CHECK_EVERY_SECS: u64 = 3600;
+/// The check after launch is skipped only if one happened this recently (restart loops must not hammer the API)
+const STARTUP_MIN_GAP_SECS: u64 = 300;
 /// First check this long after launch, so it never competes with startup
 const FIRST_CHECK_DELAY: Duration = Duration::from_secs(20);
 
@@ -78,9 +80,20 @@ pub fn start(cx: &mut App) {
     }
     cx.spawn(async move |cx| {
         cx.background_executor().timer(FIRST_CHECK_DELAY).await;
+        let mut first = true;
         loop {
+            // the first round after launch always checks (a release made while the app was closed shows up at once);
+            // later rounds follow the hourly interval
+            let launch = std::mem::take(&mut first);
             let due = cx
-                .update(|cx| core_update::check_due(AppState::global(cx).read(cx).prefs.update.last_check, now_secs(), CHECK_EVERY_SECS))
+                .update(|cx| {
+                    let last = AppState::global(cx).read(cx).prefs.update.last_check;
+                    if launch {
+                        core_update::startup_check_due(last, now_secs(), STARTUP_MIN_GAP_SECS)
+                    } else {
+                        core_update::check_due(last, now_secs(), CHECK_EVERY_SECS)
+                    }
+                })
                 .unwrap_or(false);
             if due {
                 let _ = cx.update(|cx| check_now(false, cx));

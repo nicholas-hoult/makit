@@ -138,6 +138,12 @@ pub fn is_available(current: &str, latest: &str, skipped: &str) -> bool {
     }
 }
 
+/// Whether the check made right after launch should run. It runs on every launch so a new release shows up as soon as
+/// the app is opened, except when one just happened (a crash loop or repeated restarts must not hammer the API).
+pub fn startup_check_due(last_check_secs: u64, now_secs: u64, min_gap_secs: u64) -> bool {
+    last_check_secs == 0 || now_secs.saturating_sub(last_check_secs) >= min_gap_secs
+}
+
 /// Whether a periodic check is due
 pub fn check_due(last_check_secs: u64, now_secs: u64, interval_secs: u64) -> bool {
     last_check_secs == 0 || now_secs.saturating_sub(last_check_secs) >= interval_secs
@@ -223,6 +229,15 @@ mod tests {
         assert!(!check_due(1000, 1000 + 3600, 86400));
         assert!(check_due(1000, 1000 + 86400, 86400));
         assert!(!check_due(5000, 100, 86400), "clock went backwards: do not hammer the API");
+    }
+
+    #[test]
+    fn the_launch_check_runs_every_time_unless_one_just_happened() {
+        assert!(startup_check_due(0, 1000, 300), "never checked");
+        assert!(startup_check_due(1000, 1000 + 300, 300), "exactly the gap: allowed");
+        assert!(startup_check_due(1000, 1000 + 7200, 300), "an old check does not block the launch check, unlike the 24 h gate it replaces");
+        assert!(!startup_check_due(1000, 1000 + 299, 300), "restarted within the gap: skip");
+        assert!(!startup_check_due(5000, 100, 300), "clock went backwards: do not hammer the API");
     }
 
     const GITHUB: &str = r#"{
