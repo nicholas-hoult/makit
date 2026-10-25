@@ -26,6 +26,11 @@ const FILES: &[(&str, &[u8])] = &[
     asset!("icons/titlebar-bell.svg"),
     // ---- B 侧栏（SessionTree.tsx）----
     // 头部两个按钮（#238 重新设计，不再照搬 TS 版的三横线和文字符号）：显示选项 = 滑块；展开 / 折叠全部 = 两个 chevron
+    // state icons shared by sidebar rows and tabs (#290): one silhouette per state, see sidebar/status_icon.rs
+    asset!("icons/status-waiting.svg"),
+    asset!("icons/status-busy.svg"),
+    asset!("icons/status-idle.svg"),
+    asset!("icons/status-stopped.svg"),
     asset!("icons/sidebar-options.svg"),
     asset!("icons/sidebar-expand-all.svg"),
     asset!("icons/sidebar-collapse-all.svg"),

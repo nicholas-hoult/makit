@@ -8,7 +8,7 @@ use gpui::{
 };
 use crate::ui_scale::px;
 
-use super::status_dot;
+use super::status_icon;
 use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label};
 use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H, SESSION_H_COMPACT};
 use crate::tooltip::tip;
@@ -234,20 +234,18 @@ impl SidebarView {
         let logo = crate::assets::tool_logo(&m.tool);
 
         let status = show_status.then(|| {
-            let dot = div()
+            // one silhouette per state (#290): shape says which state, colour and motion back it up
+            let icon = div()
                 .id(SharedString::from(format!("st-{uid}")))
-                .w(px(12.))
+                .w(px(16.))
                 .h(px(16.))
                 .flex_none()
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(10.))
-                .text_color(status_dot::color(rs, t))
-                .opacity(status_dot::opacity(rs))
                 .tooltip(tip(rs.title()))
-                .child(rs.icon());
-            dot.into_any_element()
+                .child(status_icon::render(rs, 14., t));
+            icon.into_any_element()
         });
 
         let row1 = div()

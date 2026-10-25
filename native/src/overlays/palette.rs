@@ -212,7 +212,7 @@ impl PaletteView {
         };
         let dot = div().size(px(8.0)).rounded(px(4.0)).flex_none().bg(dot_color);
         let dot = if it.status == ItemStatus::Waiting {
-            // waiting 是唯一「需要人动手」的一档：外发光 + 呼吸（attention-pulse 2s）
+            // waiting 是唯一「需要人动手」的一档：外发光（不再呼吸：呼吸要整窗重绘，见 status_icon.rs #290）
             let ring = mix_alpha(theme.warning, 0.3);
             dot.border_2()
                 .border_color(ring)
@@ -220,10 +220,6 @@ impl PaletteView {
                 .rounded(px(6.0))
                 .ml(px(-2.0))
                 .mr(px(-2.0))
-                .opacity({
-                    crate::pulse::want_ticks();
-                    crate::pulse::opacity(crate::pulse::now_ms(), 2000, 0.55)
-                })
                 .into_any_element()
         } else {
             dot.into_any_element()

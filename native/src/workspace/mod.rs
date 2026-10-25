@@ -844,7 +844,7 @@ impl WorkspaceView {
                             }))
                     })
                     .child(div().min_w(px(20.0)).max_w(px(180.0)).truncate().child(title))
-                    .when_some(status, |d, st| d.child(render_status_dot(st, theme)))
+                    .when_some(status, |d, st| d.child(render_status_icon(st, theme)))
                     .child({
                         let (cid, tid) = (cid.clone(), tid.clone());
                         div()
@@ -1159,17 +1159,10 @@ impl WorkspaceView {
     }
 }
 
-/// Tab status dot: same look as the sidebar rows (#245) — shape = alive, colour + breathing = what it is doing
-fn render_status_dot(st: crate::sidebar::groups::RunState, theme: &Theme) -> AnyElement {
-    use crate::sidebar::status_dot;
-    div()
-        .text_size(px(10.0))
-        .line_height(px(10.0))
-        .ml(px(2.0))
-        .text_color(status_dot::color(st, theme))
-        .opacity(status_dot::opacity(st))
-        .child(st.icon())
-        .into_any_element()
+/// Tab status icon: same look as the sidebar rows (#245, #290) — one silhouette per state
+fn render_status_icon(st: crate::sidebar::groups::RunState, theme: &Theme) -> AnyElement {
+    use crate::sidebar::status_icon;
+    div().ml(px(2.0)).flex().items_center().child(status_icon::render(st, 12., theme)).into_any_element()
 }
 
 /// 闪牌（#201 加强版）：目标 pane 整圈边框闪一下强调色，正中一张牌——大图标「弹出」（先冲过头再回弹）、
