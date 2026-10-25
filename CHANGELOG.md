@@ -9,10 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-25
+
+### Added
+- Windows build: the release now ships a Windows `.zip` (preview) next to the macOS installers, and it starts (#250, #251, #285)
+
+### Changed
+- Session state is shown by shape, not only by colour: a disc with three dots (waiting for you), a ring with an arc (busy), a ring with a tick (idle) and a dashed ring (stopped), in the sidebar and on the tabs. Nothing animates any more (#290, #278)
+
 ### Fixed
+- makit no longer repaints the whole window five times a second while a session is busy or waiting. Before this change the installed app used about 28% of a core with a few running sessions (#290)
 - Codex sessions now show as running in the sidebar while a codex process has them open (they were always listed as stopped). Codex has no status file, so they show as idle, not waiting / busy (#288)
 - When a tab's process ends, the terminal now says how: the exit code for a failure, or the signal if it was killed, instead of always "process exited" (#288)
-- Windows: `makit.exe` no longer fails at launch with "entry point TaskDialogIndirect not found". The exe now embeds the application manifest that selects comctl32 v6 (and per-monitor DPI awareness), and the release build checks for it. The 0.1.7 Windows .zip was rebuilt with this fix (#285)
+- Windows: `makit.exe` no longer fails at launch with "entry point TaskDialogIndirect not found". The exe now embeds the application manifest that selects comctl32 v6 (and per-monitor DPI awareness), and the release build checks for it (#285)
 
 ## [0.1.7] - 2026-10-17
 
