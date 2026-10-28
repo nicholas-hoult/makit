@@ -220,6 +220,12 @@ pub fn diagnostics_text() -> String {
     diagnostics(env!("CARGO_PKG_VERSION"), &os_description(), std::env::consts::ARCH, &dir, &recent_lines(50), &home)
 }
 
+/// 「复制检查结果」的内容（#283）：环境检查报告，家目录脱敏（和诊断信息同一条规矩）
+pub fn doctor_text(checks: &[makit_core::doctor::Check]) -> String {
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    redact(&makit_core::doctor::report_text(checks), &home)
+}
+
 /// panic 记成一行日志：消息 + 位置 + 调用栈（调用栈缩进在后面几行，方便人读）
 pub fn format_panic(message: &str, location: Option<(&str, u32)>, backtrace: &str) -> String {
     let at = match location {
@@ -251,6 +257,20 @@ mod tests {
 
     /// 为什么要测：脱敏漏了，用户把日志贴进公开 issue 就带上了系统用户名（`/Users/<名字>`）。
     /// 边界错了，要么漏（`/Users/me/` 没换），要么误伤（`/Users/me2` 被换成 `~2`）
+    #[test]
+    fn doctor_report_has_no_home_path() {
+        let c = makit_core::doctor::Check {
+            id: "x",
+            level: makit_core::doctor::Level::Warn,
+            title: "t".into(),
+            detail: "在 /Users/me/.npm-global/bin/claude".into(),
+            fix: String::new(),
+        };
+        let text = makit_core::doctor::report_text(&[c]);
+        assert!(!redact(&text, "/Users/me").contains("/Users/me"));
+        assert!(redact(&text, "/Users/me").contains("~/.npm-global/bin/claude"));
+    }
+
     #[test]
     fn home_dir_becomes_tilde() {
         assert_eq!(redact("读 /Users/me/.claude/x.json 失败", "/Users/me"), "读 ~/.claude/x.json 失败");

@@ -415,5 +415,10 @@
   "settings.update.hint": "makit checks for a new version after every launch and then every hour. Only the version information is requested; nothing about your sessions is sent.",
   "terminal.exited": "[process exited]",
   "terminal.exited_code": "[process exited with code %{code}]",
-  "terminal.exited_signal": "[process killed by signal %{signal}]"
+  "terminal.exited_signal": "[process killed by signal %{signal}]",
+  "settings.doctor.run": "Check environment",
+  "settings.doctor.running": "Checking…",
+  "settings.doctor.copy": "Copy results",
+  "settings.doctor.copied": "Check results copied",
+  "settings.doctor.hint": "Read-only: looks at the tools, PATH, proxy variables, hook, data folders and session folders, and tells you what to fix by hand. Nothing is changed. Paste the copied result into an issue; your home folder is replaced with ~."
 }

@@ -282,6 +282,30 @@ pub fn list_sessions(full: bool, now: i64, git_cache: &mut HashMap<String, Optio
     }
 }
 
+/// What the environment check needs to know about the database.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DbProbe {
+    Missing,
+    /// Readable, with this many top-level sessions
+    Ok(usize),
+    /// Opens, but the tables / columns are not the ones we know
+    BadSchema(String),
+    OpenFailed(String),
+}
+
+pub fn probe(db: &Path) -> DbProbe {
+    if !db.exists() {
+        return DbProbe::Missing;
+    }
+    match open_read_only(db) {
+        Err(e) => DbProbe::OpenFailed(e),
+        Ok(conn) => match read_candidates(&conn) {
+            Ok(c) => DbProbe::Ok(c.len()),
+            Err(e) => DbProbe::BadSchema(e),
+        },
+    }
+}
+
 /// A transcript reader for an opencode session, if the database has that session.
 pub fn transcript_reader(session_id: &str) -> Option<crate::transcript::TranscriptReader> {
     let db = db_path().filter(|p| p.exists())?;

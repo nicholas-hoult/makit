@@ -415,5 +415,10 @@
   "settings.update.hint": "makit 每次启动后检查一次新版本，之后每小时再检查一次，只请求版本信息，不会发送任何会话内容。",
   "terminal.exited": "[进程已退出]",
   "terminal.exited_code": "[进程已退出，退出码 %{code}]",
-  "terminal.exited_signal": "[进程被信号 %{signal} 终止]"
+  "terminal.exited_signal": "[进程被信号 %{signal} 终止]",
+  "settings.doctor.run": "环境检查",
+  "settings.doctor.running": "检查中…",
+  "settings.doctor.copy": "复制检查结果",
+  "settings.doctor.copied": "检查结果已复制",
+  "settings.doctor.hint": "只读：检查工具、PATH、代理变量、hook、数据目录和会话目录，告诉你哪里要手动处理，不会改任何东西。复制的结果可以贴进 issue，家目录已替换成 ~。"
 }

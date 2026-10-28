@@ -97,6 +97,9 @@ pub struct SettingsView {
     scrollbar: Entity<crate::scrollbar::Scrollbar>,
     /// 主题选择框这一帧在窗口里的位置（`on_children_prepainted` 写入），下拉列表贴着它展开
     theme_select: Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    /// 环境检查（#283）：None = 还没跑过
+    doctor: Option<Vec<makit_core::doctor::Check>>,
+    doctor_running: bool,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsView {}
@@ -113,7 +116,7 @@ impl SettingsView {
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
         let scroll = gpui::ScrollHandle::new();
         let scrollbar = crate::scrollbar::Scrollbar::handle(&scroll, cx);
-        Self { state, focus, scroll, scrollbar, theme_select: Rc::new(std::cell::Cell::new(None)) }
+        Self { state, focus, scroll, scrollbar, theme_select: Rc::new(std::cell::Cell::new(None)), doctor: None, doctor_running: false }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -251,6 +254,24 @@ impl SettingsView {
         });
     }
 
+    /// 后台跑环境检查（要问登录 shell、跑几个 `--version`，几秒），跑完刷新结果
+    fn run_doctor(&mut self, cx: &mut Context<Self>) {
+        if self.doctor_running {
+            return;
+        }
+        self.doctor_running = true;
+        cx.notify();
+        cx.spawn(async move |this, cx: &mut AsyncApp| {
+            let checks = cx.background_executor().spawn(async { makit_core::doctor::run() }).await;
+            let _ = this.update(cx, |s, cx| {
+                s.doctor = Some(checks);
+                s.doctor_running = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn install_hook(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let handle = window.window_handle();
         cx.spawn(async move |_, cx: &mut AsyncApp| {
@@ -305,6 +326,35 @@ fn select_box(theme: &Theme, id: &'static str, label: impl Into<SharedString>) -
         .cursor_pointer()
         .child(label.into())
         .child(div().text_color(theme.fg_subtle).child("▾"))
+}
+
+/// 环境检查结果：每项一行，左边是分级标记，右边标题 / 详情 / 手动修复建议
+fn doctor_results(theme: &Theme, checks: &[makit_core::doctor::Check]) -> gpui::Div {
+    use makit_core::doctor::Level;
+    div().mt(px(10.0)).flex().flex_col().gap(px(8.0)).children(checks.iter().map(|c| {
+        let color = match c.level {
+            Level::Pass => theme.success,
+            Level::Warn => theme.warning,
+            Level::Fail => theme.danger,
+            Level::Unknown => theme.fg_subtle,
+        };
+        let mut text = div()
+            .flex()
+            .flex_col()
+            .min_w_0()
+            .gap(px(2.0))
+            .child(div().text_size(px(12.0)).text_color(theme.fg).child(c.title.clone()))
+            .child(div().text_size(px(11.0)).text_color(theme.fg_muted).child(c.detail.clone()));
+        if !c.fix.is_empty() {
+            text = text.child(div().text_size(px(11.0)).text_color(theme.fg_subtle).child(format!("→ {}", c.fix)));
+        }
+        div()
+            .flex()
+            .items_start()
+            .gap(px(8.0))
+            .child(div().w(px(36.0)).flex_none().text_size(px(11.0)).font_weight(FontWeight::MEDIUM).text_color(color).child(c.level.label()))
+            .child(text)
+    }))
 }
 
 fn shortcut_row(theme: &Theme, r: &ShortcutRow) -> gpui::Div {
@@ -559,7 +609,30 @@ impl Render for SettingsView {
                                                 super::show_toast(tr!("settings.diagnostics.copied"), super::toast::COPY_OK, cx);
                                             })),
                                     )
-                                    .child(hint(&tr!("settings.diagnostics.hint"))),
+                                    .child(hint(&tr!("settings.diagnostics.hint")))
+                                    // 环境检查（#283）
+                                    .child(
+                                        div()
+                                            .mt(px(10.0))
+                                            .flex()
+                                            .gap(px(8.0))
+                                            .child(
+                                                action_btn(
+                                                    &theme,
+                                                    "run-doctor",
+                                                    if self.doctor_running { tr!("settings.doctor.running") } else { tr!("settings.doctor.run") },
+                                                )
+                                                .on_click(cx.listener(|this, _, _, cx| this.run_doctor(cx))),
+                                            )
+                                            .when_some(self.doctor.clone(), |d, checks| {
+                                                d.child(action_btn(&theme, "copy-doctor", tr!("settings.doctor.copy")).on_click(move |_, _, cx| {
+                                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(crate::logging::doctor_text(&checks)));
+                                                    super::show_toast(tr!("settings.doctor.copied"), super::toast::COPY_OK, cx);
+                                                }))
+                                            }),
+                                    )
+                                    .when_some(self.doctor.as_ref(), |d, checks| d.child(doctor_results(&theme, checks)))
+                                    .child(hint(&tr!("settings.doctor.hint"))),
                             )
                             // Updates (#200)
                             .child(
