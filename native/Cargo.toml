@@ -18,8 +18,7 @@ embed-resource = "3"
 # 本机没有 Xcode（只有命令行工具，没有 metal 编译器），着色器改成运行时编译
 gpui = { version = "0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
 alacritty_terminal = "0.26"
-# 业务逻辑（会话扫描 / 运行状态 / perf.log …）和 Tauri 版共用，不再依赖 src-tauri（#226）：
-# 编译不带 tauri / wry，也不需要 ../dist 占位
+# 业务逻辑（会话扫描 / 运行状态 / perf.log …）
 makit-core = { path = "../core" }
 futures = "0.3"
 serde = { version = "1", features = ["derive"] }

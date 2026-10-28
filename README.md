@@ -383,8 +383,6 @@ bash native/scripts/bundle.sh
 
 Requirements: macOS, Rust stable.
 
-> `src-tauri/` and `src/` in the repo are the pre-0.1 version (Tauri + React). They are frozen and no longer maintained; the current app lives in `native/` and `core/`.
-
 Run the tests:
 
 ```bash

@@ -383,8 +383,6 @@ bash native/scripts/bundle.sh
 
 环境要求：macOS、Rust stable。
 
-> 仓库里的 `src-tauri/` 和 `src/` 是 0.1 之前的旧版（Tauri + React），已经冻结、不再维护，现在的应用在 `native/` 和 `core/` 里。
-
 跑测试：
 
 ```bash

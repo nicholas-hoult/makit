@@ -129,7 +129,7 @@ def main():
     w("|---|---|---|---|")
     w("| JetBrains Mono 字体 | `native/assets/fonts/*.ttf` | SIL OFL 1.1 | 文本见 `native/assets/fonts/OFL.txt`；版权 2020 The JetBrains Mono Project Authors，<https://github.com/JetBrains/JetBrainsMono> |")
     w("| 内置终端配色（21 套） | `native/src/theme/builtin.rs` | MIT（合集） | 取自 iTerm2-Color-Schemes 合集 <https://github.com/mbadolato/iTerm2-Color-Schemes>（MIT）。合集本身是 MIT，但单个主题原作者的授权未逐个核实 |")
-    w("| 应用图标 | `src-tauri/icons/icon.icns` | 待确认 | provenance to be confirmed：仓库内没有记录来源 |")
+    w("| 应用图标 | `native/packaging/icon.icns` | 待确认 | provenance to be confirmed：仓库内没有记录来源 |")
     w("| 工具图标（Claude / Codex 的 .ico） | `native/assets/logos/` | 待确认 | provenance to be confirmed：为对应厂商的商标 / 品牌标识，仅用于指示会话所属工具 |")
     w("| 界面 SVG 图标 | `native/assets/icons/*.svg` | 随 makit（MIT OR Apache-2.0） | 从本项目早期前端抽出；来源见各文件头注释，如有外部来源待确认 |")
     w("")

@@ -1,6 +1,6 @@
 //! makit-core: makit's business logic, independent of any UI framework (#226).
 //!
-//! The Tauri version (`src-tauri/`) is reduced to thin command forwarding + emit; the GPUI version (`native/`) calls this directly.
+//! The GPUI app (`native/`) calls this directly.
 //!
 //! | Module | Contents |
 //! |---|---|
@@ -14,7 +14,7 @@
 //! | `watcher` | Session directory watching, calls back with `WatchEvent` |
 //! | `hook` | Claude Code Notification hook: script installation + unix socket server, calls back for each line |
 //! | `pty_prep` | Pure logic before PTY launch: cwd correction / cwd gate / resume id / shell integration files |
-//! | `pty_batch` | PTY output coalescing cadence (used by the Tauri version's emit) |
+//! | `pty_batch` | PTY output coalescing cadence |
 //! | `perf` | perf.log instrumentation |
 //! | `ai_provider` | Codex session parsing |
 //! | `instance` | Single-instance lock (#291) |

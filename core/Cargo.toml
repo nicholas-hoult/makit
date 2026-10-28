@@ -1,7 +1,7 @@
 [package]
 name = "makit-core"
 version = "0.2.2"
-description = "makit 的业务逻辑（会话扫描、运行状态、归档、恢复、PTY 准备、杀进程、hook、perf），不依赖任何 UI 框架；Tauri 版和 GPUI 版共用"
+description = "makit 的业务逻辑（会话扫描、运行状态、归档、恢复、PTY 准备、杀进程、hook、perf），不依赖任何 UI 框架；供 GPUI 版（native/）使用"
 authors = ["hoult"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
@@ -29,7 +29,7 @@ libc = "0.2"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
-# real_pty_close_tests：用和 Tauri 版 pty_spawn 同一个 portable-pty 开真 pty，验证关 tab 杀得干净
+# real_pty_close_tests：用 portable-pty 开真 pty，验证关 tab 杀得干净
 portable-pty = "0.8"
 
 [profile.dev]
