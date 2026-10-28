@@ -1,17 +1,14 @@
-//! 持久化：`~/.claude/makit/native-state.json`（替代 Tauri 版的 localStorage）。
+//! 持久化：`~/.claude/makit/native-state.json`。
 //!
 //! - 形状在 `state.rs`（`NativeState`）。加字段见那里的规矩。
 //! - 写盘：`Saver` 后台线程防抖 500ms（和 TS 版 `makit-workspace` 的 debounce 一样），
 //!   先写 `.tmp` 再 rename（写到一半被杀也不会留下半个文件）；退出前 `flush()`。
-//! - 首次启动（文件不存在）从 Tauri 版的 WebKit localStorage 导入一次（`webkit.rs`，只读），
-//!   导入失败 / 没找到都不影响启动，照样写出一份默认状态，之后不再导。
+//! - 首次启动（文件不存在）写出一份默认状态。
 //!
 //! 谁来调：只有 `state::AppState` 读写它。各功能包要持久化新东西 = 在 `NativeState` 里加字段，
 //! 改完调 `AppState::save_prefs`（见 state/mod.rs）。
 
 pub mod state;
-#[cfg(target_os = "macos")]
-pub mod webkit;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -55,64 +52,12 @@ pub fn save_to(path: &Path, state: &NativeState) -> std::io::Result<()> {
     result
 }
 
-/// Import of the old Tauri version's WebKit localStorage: only exists on macOS (that version only shipped there)
-#[cfg(target_os = "macos")]
-fn tauri_localstorage_mtime(root: &Path) -> Option<std::time::SystemTime> {
-    webkit::find_localstorage_with_mtime(root).map(|(t, _)| t)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn tauri_localstorage_mtime(_root: &Path) -> Option<std::time::SystemTime> {
-    None
-}
-
-#[cfg(target_os = "macos")]
-fn import_tauri(root: &Path) -> Option<(NativeState, String)> {
-    webkit::import_from(root)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn import_tauri(_root: &Path) -> Option<(NativeState, String)> {
-    None
-}
-
-/// Where the Tauri version kept its data (None where it never existed)
-#[cfg(target_os = "macos")]
-pub fn tauri_webkit_root() -> Option<std::path::PathBuf> {
-    webkit::default_root()
-}
-
-#[cfg(not(target_os = "macos"))]
-pub fn tauri_webkit_root() -> Option<std::path::PathBuf> {
-    None
-}
-
-/// 启动时读状态：文件在、且比 Tauri 版的 localStorage 新就用它；否则从 localStorage 导入，然后立刻写盘。
-/// 迁移期两个版本并存，谁最后用过听谁的（同 hook「谁后启动给谁」）：GPUI 存过之后又在 Tauri 版里
-/// 开 / 关了标签，下次启动 GPUI 跟上 Tauri。`webkit_root` 是 `~/Library/WebKit/com.hoult.makit`（测试可注入）。
-pub fn load_or_import(path: &Path, webkit_root: Option<&Path>) -> NativeState {
-    let tauri_newer = || {
-        let saved = std::fs::metadata(path).and_then(|m| m.modified()).ok();
-        let ls = webkit_root.and_then(tauri_localstorage_mtime);
-        matches!((saved, ls), (Some(a), Some(b)) if b > a)
-    };
-    let existing = load_from(path);
-    if let Some(s) = &existing {
-        if !tauri_newer() {
-            return s.clone();
-        }
+/// 启动时读状态：文件在就用它；不在（首次启动）写出一份默认状态。坏文件的处理见 `load_from`。
+pub fn load_or_default(path: &Path) -> NativeState {
+    if let Some(s) = load_from(path) {
+        return s;
     }
-    let state = match webkit_root.and_then(import_tauri) {
-        Some((s, from)) => {
-            log::info!(target: "persist", "importing the Tauri version settings from {from} (first launch, or the Tauri version was used since)");
-            s
-        }
-        // 读不出来：有旧状态就用旧的（不能退回空白、清掉所有标签），也不写盘
-        None => match existing {
-            Some(s) => return s,
-            None => NativeState::default(),
-        },
-    };
+    let state = NativeState::default();
     if let Err(e) = save_to(path, &state) {
         log::warn!(target: "persist", "writing {} failed: {e}", path.display());
     }
@@ -249,70 +194,15 @@ mod tests {
         assert!(p.with_extension("json.bad").exists());
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn first_launch_imports_once_then_never_again() {
-        let d = tmp("import");
+    fn first_launch_writes_defaults_and_later_launches_read_them() {
+        let d = tmp("first");
         let p = d.join("native-state.json");
-        let wk = d.join("WebKit");
-        webkit::tests::make_localstorage(&wk, &[("makit-theme", "dracula"), ("makit-pinned-sessions", "[\"x\"]")]);
-        let s = load_or_import(&p, Some(&wk));
-        assert_eq!(s.theme.id, "dracula");
-        assert_eq!(s.pinned_sessions, ["x"]);
-        assert!(s.imported_from.is_some());
-        assert!(p.exists(), "导入后立刻写盘");
-        // 用户在 GPUI 版里改了主题；再启动时不能被 localStorage 覆盖回去
-        let mut changed = s.clone();
+        assert_eq!(load_or_default(&p), NativeState::default());
+        assert!(p.exists(), "首次启动立刻写盘");
+        let mut changed = NativeState::default();
         changed.theme.id = "nord".into();
         save_to(&p, &changed).unwrap();
-        assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "nord");
-    }
-
-    /// 迁移期两个版本并存：GPUI 存过之后又在 Tauri 版里开 / 关了标签，下次启动 GPUI 要跟上 Tauri
-    /// （错了就是「GPUI 恢复的是几天前的标签，刚在 Tauri 里开的会话没恢复」）
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn reimports_when_tauri_was_used_after_gpui_saved() {
-        let d = tmp("reimport");
-        let p = d.join("native-state.json");
-        let wk = d.join("WebKit");
-        webkit::tests::make_localstorage(&wk, &[("makit-theme", "dracula")]);
-        let mut s = load_or_import(&p, Some(&wk));
-        s.theme.id = "nord".into();
-        save_to(&p, &s).unwrap();
-        // GPUI 存盘在前，之后 Tauri 写了 localStorage
-        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
-        std::fs::File::options().write(true).open(&p).unwrap().set_modified(old).unwrap();
-        webkit::tests::make_localstorage(&wk, &[("makit-theme", "solarized")]);
-        assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "solarized", "Tauri 更新 → 重新导入");
-        assert!(load_from(&p).unwrap().theme.id == "solarized", "重新导入后立刻写盘");
-    }
-
-    /// Tauri 更新了但读不出来（库坏了 / 被锁）：保留 GPUI 已有的状态，不能退回空白（那会清掉所有标签）
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn failed_reimport_keeps_existing_state() {
-        let d = tmp("reimport-fail");
-        let p = d.join("native-state.json");
-        let wk = d.join("WebKit");
-        let mut s = NativeState::default();
-        s.theme.id = "nord".into();
-        save_to(&p, &s).unwrap();
-        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
-        std::fs::File::options().write(true).open(&p).unwrap().set_modified(old).unwrap();
-        let db = webkit::tests::make_localstorage(&wk, &[("makit-theme", "x")]);
-        std::fs::write(&db, b"not a database").unwrap();
-        assert_eq!(load_or_import(&p, Some(&wk)).theme.id, "nord");
-        assert_eq!(load_from(&p).unwrap().theme.id, "nord", "盘上的也没被覆盖");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn import_failure_does_not_block_startup() {
-        let d = tmp("noimport");
-        let p = d.join("native-state.json");
-        let s = load_or_import(&p, Some(&d.join("不存在")));
-        assert_eq!(s, NativeState::default());
-        assert!(p.exists());
+        assert_eq!(load_or_default(&p).theme.id, "nord", "已有文件不能被默认值覆盖");
     }
 }

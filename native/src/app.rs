@@ -350,7 +350,7 @@ pub fn run() {
     perf::mark("main start");
     Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
-            Some(p) => persist::load_or_import(&p, persist::tauri_webkit_root().as_deref()),
+            Some(p) => persist::load_or_default(&p),
             None => persist::NativeState::default(),
         };
         crate::i18n::apply(&prefs.language);
