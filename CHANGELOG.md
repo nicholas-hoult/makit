@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-28
+
+### Added
+- opencode sessions: they now show up in the sidebar next to Claude Code and Codex, and can be resumed (`opencode -s <id>`), started from the "+" menu, shown as running / busy, and opened in the conversation view. makit reads opencode's SQLite database read-only (#284)
+- Environment check: Settings > Diagnostics > "Check environment" looks at the tools and their versions, PATH, proxy variables, the notification hook, data and session folders and the opencode database, and tells you what to fix by hand. Results can be copied with your home folder redacted (#283)
+
+### Changed
+- The macOS binary grows by about 180 KB (opencode support; it uses the system SQLite library)
 ## [0.2.2] - 2026-10-26
 
 ### Fixed
