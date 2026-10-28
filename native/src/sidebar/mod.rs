@@ -61,7 +61,7 @@ pub struct DraggedSession {
     pub cwd: String,
     /// 拖影上显示的名字（同 tab 标题）
     pub label: String,
-    /// "claude" / "codex"
+    /// "claude" / "codex" / "opencode"
     pub tool: String,
 }
 
@@ -77,7 +77,7 @@ impl DraggedSession {
     }
 
     fn tool_opt(&self) -> Option<&str> {
-        (self.tool == "codex").then_some("codex")
+        makit_core::ai_provider::tool_arg(&self.tool)
     }
 
     /// 落到工作区时开的 tab（kind=resume、initCommand=`clear && <恢复命令>`，同 TS 的 PANE_SPEC_MIME）
@@ -109,7 +109,7 @@ enum Popup {
     SessionMenu { at: Point<Pixels>, session_id: String },
     /// 项目头右键
     ProjectMenu { at: Point<Pixels>, key: String, cwd: String },
-    /// 项目头「+」：选 Claude / Codex
+    /// 项目头「+」：选 Claude / Codex / opencode
     ToolPicker { at: Point<Pixels>, cwd: String },
 }
 
@@ -391,7 +391,7 @@ impl SidebarView {
             let _ = makit_core::recovery::ensure_session_symlink(m.session_id.clone(), m.cwd.clone(), m.storage_folder.clone());
         }
         let title = session_title(&m.display_name, &m.first_user_msg, &m.short_id);
-        let tool = (m.tool == "codex").then_some("codex");
+        let tool = makit_core::ai_provider::tool_arg(&m.tool);
         self.state.update(cx, |s, cx| {
             s.workspace.open_session(&m.session_id, &m.short_id, &m.cwd, Some(&title), tool);
             s.workspace_changed(cx);
@@ -410,7 +410,7 @@ impl SidebarView {
     }
 
     fn new_session_in(&mut self, cwd: &str, tool: &str, cx: &mut Context<Self>) {
-        let tool = (tool == "codex").then_some("codex");
+        let tool = makit_core::ai_provider::tool_arg(tool);
         self.state.update(cx, |s, cx| {
             s.workspace.open_new_session(cwd, tool);
             s.workspace_changed(cx);
@@ -517,7 +517,7 @@ impl SidebarView {
     /// 复制恢复命令：`cd <cwd> && <恢复命令>`（cwd 优先用 last_cwd）
     fn resume_command_line(m: &SessionMeta) -> String {
         let cwd = if m.last_cwd.is_empty() { &m.cwd } else { &m.last_cwd };
-        format!("cd {cwd} && {}", resume_cmd(&m.session_id, (m.tool == "codex").then_some("codex")))
+        format!("cd {cwd} && {}", resume_cmd(&m.session_id, makit_core::ai_provider::tool_arg(&m.tool)))
     }
 
     // ---------- 键盘导航（D7）----------

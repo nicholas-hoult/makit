@@ -371,6 +371,14 @@ pub fn locate_session_file(session_id: &str) -> Option<(PathBuf, crate::transcri
     ai_provider::find_codex_session_file(&codex_dir, session_id).map(|p| (p, crate::transcript::Tool::Codex))
 }
 
+/// A conversation reader for any tool's session: claude / codex read their file, opencode reads its database (#284).
+pub fn open_transcript(session_id: &str) -> Option<crate::transcript::TranscriptReader> {
+    if let Some((path, tool)) = locate_session_file(session_id) {
+        return Some(crate::transcript::TranscriptReader::new(path, tool));
+    }
+    crate::opencode::transcript_reader(session_id)
+}
+
 pub fn read_session_messages(session_id: String) -> Result<Vec<ConversationMessage>, String> {
     let dir = projects_dir().ok_or_else(|| ts!("core.err.no_home").to_string())?;
     let mut found_path: Option<PathBuf> = None;
@@ -556,6 +564,18 @@ impl PhaseTimer {
     }
 }
 
+/// Fill in the running state from the process scan (opencode, like codex, has no status file of its own).
+fn with_running(mut meta: SessionMeta, running_info: &HashMap<String, RunningInfo>) -> SessionMeta {
+    if let Some(ri) = running_info.get(&meta.session_id) {
+        meta.running = true;
+        meta.status = ri.status.clone();
+        meta.waiting_for = ri.waiting_for.clone();
+        meta.pid = ri.pid;
+        meta.pty_id = ri.pty_id.clone();
+    }
+    meta
+}
+
 pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, String> {
     let mut timer = PhaseTimer::new();
     // macOS's ps itself takes 0.3s (up to 0.55s when competing for CPU at startup), and does not depend on the parsing below -- run in parallel (#216)
@@ -627,6 +647,13 @@ pub fn list_sessions(cwd_mode: Option<String>) -> Result<Vec<SessionMeta>, Strin
             }
             timer.mark("codex parse");
         }
+    }
+
+    // opencode: one SQLite database, not files (#284)
+    {
+        let mut git_cache: HashMap<String, Option<String>> = HashMap::new();
+        raw.extend(crate::opencode::list_sessions(true, now, &mut git_cache).into_iter().map(|m| with_running(m, &running_info)));
+        timer.mark("opencode read");
     }
 
     // -- Phase 2: unified post-processing (applies to all tools) ---------------
@@ -709,8 +736,16 @@ pub fn list_sessions_by_paths(
     let mut branch_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut out: Vec<SessionMeta> = Vec::new();
 
+    // opencode reports the database itself (not a per-session file): read what changed in it, once per batch
+    let opencode_db = crate::opencode::db_path();
+    let mut opencode_changed = false;
+
     for p in &paths {
         let path = Path::new(p);
+        if opencode_db.as_deref() == Some(path) {
+            opencode_changed = true;
+            continue;
+        }
         // When the file has been deleted metadata fails, and the parse right after it fails too -> naturally skipped.
         // That is, "a session file was deleted" cannot be synced here; it has to wait for a full load (manual refresh).
         let mtime = path
@@ -739,6 +774,18 @@ pub fn list_sessions_by_paths(
                     .or_insert_with(|| current_branch_for(&cwd_key))
                     .clone()
                 {
+                    meta.git_branch = b;
+                }
+            }
+            out.push(meta);
+        }
+    }
+
+    if opencode_changed {
+        for mut meta in crate::opencode::list_sessions(false, now, &mut git_cache).into_iter().map(|m| with_running(m, &running_info)) {
+            meta.archived = archived_set.contains(&meta.session_id);
+            if !meta.cwd.is_empty() {
+                if let Some(b) = branch_cache.entry(meta.cwd.clone()).or_insert_with(|| current_branch_for(&meta.cwd)).clone() {
                     meta.git_branch = b;
                 }
             }

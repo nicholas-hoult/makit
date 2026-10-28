@@ -28,6 +28,7 @@ pub mod environment;
 pub mod fsid;
 pub mod hook;
 pub mod instance;
+pub mod opencode;
 pub mod paths;
 pub mod perf;
 pub mod process;

@@ -308,6 +308,19 @@ impl SidebarView {
                         .font_weight(FontWeight::BOLD)
                         .child("CX"),
                 ),
+                // opencode has no bundled logo (no official favicon we may embed): a neutral text badge
+                (None, "opencode") => d.child(
+                    div()
+                        .flex_none()
+                        .px(px(4.))
+                        .rounded(px(3.))
+                        .bg(mix(t.fg_muted, 0.18))
+                        .text_color(t.fg_muted)
+                        .text_size(px(8.))
+                        .line_height(px(11.))
+                        .font_weight(FontWeight::BOLD)
+                        .child("OC"),
+                ),
                 _ => d,
             })
             .when(m.status == "busy", |d| d.child(div().flex_none().text_color(t.info).child(status_label::busy())))

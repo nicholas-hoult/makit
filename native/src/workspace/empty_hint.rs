@@ -25,7 +25,7 @@ pub fn empty_hint(tools: &ToolPresence, session_count: usize, loaded: bool, new_
     if !loaded || session_count > 0 {
         return None;
     }
-    let status = format!("Claude Code：{}　Codex：{}", mark(tools.claude()), mark(tools.codex()));
+    let status = format!("Claude Code：{}　Codex：{}　opencode：{}", mark(tools.claude()), mark(tools.codex()), mark(tools.opencode()));
     // 读不了最优先：这时「没有会话」是误导（#256 B1）。原因不明时只说「读取失败」，不断言是权限
     let unreadable = tools.unreadable_dirs();
     if !unreadable.is_empty() {
@@ -80,6 +80,21 @@ mod unreadable_tests {
         let all = h.lines.join("\n");
         assert!(all.contains("~/.codex/sessions") && all.contains("读取失败"), "{all}");
         assert!(!all.contains("权限"), "原因不明时别断言是权限：{all}");
+    }
+
+    #[test]
+    fn unreadable_opencode_dir_is_named() {
+        let t = ToolPresence { opencode_dir: DirState::Unreadable(ErrKind::PermissionDenied), ..Default::default() };
+        let all = empty_hint(&t, 0, true, "⌘T").unwrap().lines.join("\n");
+        assert!(all.contains("~/.local/share/opencode"), "{all}");
+    }
+
+    #[test]
+    fn only_opencode_installed_is_not_told_nothing_was_found() {
+        let t = ToolPresence { opencode_bin: true, ..Default::default() };
+        let h = empty_hint(&t, 0, true, "⌘T").unwrap();
+        assert!(!h.title.contains("还没有找到"), "{h:?}");
+        assert!(h.status.contains("opencode：已检测到"), "{}", h.status);
     }
 
     #[test]

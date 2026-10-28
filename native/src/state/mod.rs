@@ -53,8 +53,8 @@ fn detect_tools() -> makit_core::environment::ToolPresence {
     let t = makit_core::environment::detect();
     log::info!(
         target: "environment",
-        "tool detection: Claude Code command {} session folder {:?}; Codex command {} session folder {:?}",
-        t.claude_bin, t.claude_dir, t.codex_bin, t.codex_dir
+        "tool detection: Claude Code command {} session folder {:?}; Codex command {} session folder {:?}; opencode command {} data folder {:?}",
+        t.claude_bin, t.claude_dir, t.codex_bin, t.codex_dir, t.opencode_bin, t.opencode_dir
     );
     t
 }
@@ -310,6 +310,7 @@ impl AppState {
                 .spawn(async move {
                     let mut b = makit_core::running::resolve_pty_bindings(ids.clone());
                     b.extend(makit_core::running::codex_pty_bindings(&ids));
+                    b.extend(makit_core::running::opencode_pty_bindings(&ids));
                     b
                 })
                 .await;

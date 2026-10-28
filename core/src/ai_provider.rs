@@ -25,12 +25,13 @@ use crate::sessions::{get_git_root, humanize_duration, ConversationMessage, Sess
 pub enum AiTool {
     Claude,
     Codex,
+    Opencode,
 }
 
 impl AiTool {
     #[allow(dead_code)]
     pub fn all() -> &'static [AiTool] {
-        &[AiTool::Claude, AiTool::Codex]
+        &[AiTool::Claude, AiTool::Codex, AiTool::Opencode]
     }
 
     #[allow(dead_code)]
@@ -38,6 +39,7 @@ impl AiTool {
         match self {
             AiTool::Claude => "claude",
             AiTool::Codex => "codex",
+            AiTool::Opencode => "opencode",
         }
     }
 
@@ -48,6 +50,8 @@ impl AiTool {
         match self {
             AiTool::Claude => Some(home.join(".claude").join("projects")),
             AiTool::Codex => Some(home.join(".codex").join("sessions")),
+            // not a sessions directory: opencode keeps its sessions in one SQLite database inside this data directory
+            AiTool::Opencode => crate::opencode::data_dir(),
         }
     }
 
@@ -63,7 +67,43 @@ impl AiTool {
             AiTool::Codex => session_id
                 .map(|id| format!("codex resume {id}"))
                 .unwrap_or_else(|| "codex".into()),
+            AiTool::Opencode => session_id
+                .map(crate::opencode::resume_command)
+                .unwrap_or_else(|| "opencode".into()),
         }
+    }
+}
+
+/// `SessionMeta.tool` is a string (claude sessions carry "claude" or an empty string). The UI passes the tool around as `Option<&str>` where
+/// `None` means claude; this is the one place that maps the string to it, so a new tool is added here rather than in every `== "codex"` check.
+pub fn tool_arg(tag: &str) -> Option<&'static str> {
+    match tag {
+        "codex" => Some("codex"),
+        "opencode" => Some("opencode"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tool_arg_tests {
+    use super::*;
+
+    #[test]
+    fn claude_and_unknown_are_none_the_others_pass_through() {
+        assert_eq!(tool_arg("claude"), None);
+        assert_eq!(tool_arg(""), None, "old data without a tool is claude");
+        assert_eq!(tool_arg("codex"), Some("codex"));
+        assert_eq!(tool_arg("opencode"), Some("opencode"));
+    }
+
+    #[test]
+    fn every_tool_round_trips_through_its_name() {
+        for t in AiTool::all() {
+            let arg = tool_arg(t.name());
+            assert_eq!(arg.is_none(), *t == AiTool::Claude, "{}", t.name());
+            assert!(t.spawn_cmd(Some("ID")).contains("ID") && !t.spawn_cmd(None).contains("ID"));
+        }
+        assert_eq!(AiTool::Opencode.spawn_cmd(Some("ses_1")), "opencode -s ses_1");
     }
 }
 

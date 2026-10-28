@@ -226,7 +226,7 @@ impl SidebarView {
             })))
     }
 
-    /// 「+」弹出的工具选择器：Claude / Codex，带 logo（没缓存时 ◆ / ⬡）
+    /// 「+」弹出的工具选择器：Claude / Codex / opencode，带 logo（没有 logo 时 ◆ / ⬡ / ◇）
     fn render_tool_picker(&self, cwd: &str, t: &Theme, cx: &mut Context<Self>) -> Stateful<Div> {
         let mut menu = self
             .menu_shell("tool-picker", cx)
@@ -241,7 +241,7 @@ impl SidebarView {
             .shadow(shadow(t.var("--shadow-strong"), 8., 24.))
             .text_size(px(12.))
             .line_height(px(16.));
-        for (tool, label, fallback) in [("claude", "Claude", "◆"), ("codex", "Codex", "⬡")] {
+        for (tool, label, fallback) in [("claude", "Claude", "◆"), ("codex", "Codex", "⬡"), ("opencode", "opencode", "◇")] {
             let cwd = cwd.to_string();
             let icon = match crate::assets::tool_logo(tool) {
                 Some(src) => img(src).size(px(16.)).flex_none().rounded(px(3.)).into_any_element(),

@@ -106,6 +106,11 @@ pub fn env_session_id(init_command: &str) -> Option<&str> {
         let id = init_command.split("codex resume ").nth(1)?.split_whitespace().next()?;
         let uuid_shaped = id.len() == 36 && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
         uuid_shaped.then_some(id)
+    }).or_else(|| {
+        // opencode ids are `ses_` + letters / digits, not uuids (#284)
+        let id = init_command.split("opencode -s ").nth(1)?.split_whitespace().next()?;
+        let shaped = id.strip_prefix("ses_").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric()));
+        shaped.then_some(id)
     })
 }
 
@@ -283,6 +288,11 @@ mod spawn_prep_tests {
         // It goes into the environment and is also used to match processes: anything not uuid-shaped is rejected
         assert_eq!(env_session_id("claude -r abc"), None);
         assert_eq!(env_session_id("codex resume ../../x"), None);
+        // opencode: `ses_` ids, same strictness
+        assert_eq!(env_session_id("clear && opencode -s ses_e7d75541bffedkWkyRrDUsv1n7"), Some("ses_e7d75541bffedkWkyRrDUsv1n7"));
+        assert_eq!(env_session_id("opencode -s ../../x"), None);
+        assert_eq!(env_session_id("opencode -s ses_"), None);
+        assert_eq!(env_session_id("opencode"), None, "新会话没有 id");
     }
 
     #[test]

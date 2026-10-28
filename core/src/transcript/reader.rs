@@ -21,6 +21,8 @@ pub struct Changes {
 }
 
 pub struct TranscriptReader {
+    /// opencode sessions live in a database, not a file: when set, everything below the file cursor is unused (#284)
+    opencode: Option<super::opencode::OpencodeSource>,
     path: PathBuf,
     tool: Tool,
     state: State,
@@ -31,10 +33,25 @@ pub struct TranscriptReader {
 
 impl TranscriptReader {
     pub fn new(path: PathBuf, tool: Tool) -> Self {
-        Self { path, tool, state: State::new(tool), inode: None, offset: 0 }
+        Self { opencode: None, path, tool, state: State::new(tool), inode: None, offset: 0 }
+    }
+
+    /// Reader for a session in opencode's database.
+    pub fn opencode(db: PathBuf, session_id: String) -> Self {
+        Self {
+            opencode: Some(super::opencode::OpencodeSource::new(db, session_id)),
+            path: PathBuf::new(),
+            tool: Tool::Claude,
+            state: State::new(Tool::Claude),
+            inode: None,
+            offset: 0,
+        }
     }
 
     pub fn poll(&mut self) -> io::Result<Changes> {
+        if let Some(oc) = &mut self.opencode {
+            return oc.poll();
+        }
         let meta = match std::fs::metadata(&self.path) {
             Ok(m) => m,
             // A file that does not exist yet (session just started, nothing written) is not an error
@@ -83,7 +100,10 @@ impl TranscriptReader {
     }
 
     pub fn len(&self) -> usize {
-        self.state.visible_len()
+        match &self.opencode {
+            Some(oc) => oc.items.len(),
+            None => self.state.visible_len(),
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -91,7 +111,10 @@ impl TranscriptReader {
     }
 
     pub fn item(&self, i: usize) -> &Item {
-        self.state.visible(i)
+        match &self.opencode {
+            Some(oc) => &oc.items[i],
+            None => self.state.visible(i),
+        }
     }
 
     pub fn invalid_lines(&self) -> usize {

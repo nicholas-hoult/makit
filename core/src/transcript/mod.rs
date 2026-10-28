@@ -4,12 +4,13 @@
 //!
 //! - `model`: `Item` / `ItemKind` / `ToolResult`
 //! - `state`: the parsing state machine fed line by line (never touches files; tests use it)
-//! - `claude` / `codex`: per-line parsers for the two formats
+//! - `claude` / `codex`: per-line parsers for the two formats; `opencode`: SQLite rows (message + part) -> Items
 //! - `reader`: `TranscriptReader`, file reading + cursor + incremental updates
 
 pub mod claude;
 pub mod codex;
 pub mod model;
+pub mod opencode;
 pub mod reader;
 pub mod state;
 

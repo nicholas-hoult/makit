@@ -249,10 +249,10 @@ pub fn normalize(ws: &mut WorkspaceState) {
 
 /// 恢复一个已有会话要敲的命令。**只在这里拼**（测试会扫源码，别处手拼会红）
 pub fn resume_cmd(session_id: &str, tool: Option<&str>) -> String {
-    if tool == Some("codex") {
-        format!("codex resume {session_id}")
-    } else {
-        format!("claude -r {session_id}")
+    match tool {
+        Some("codex") => format!("codex resume {session_id}"),
+        Some("opencode") => makit_core::opencode::resume_command(session_id),
+        _ => format!("claude -r {session_id}"),
     }
 }
 
@@ -263,7 +263,7 @@ pub fn resume_init_command(session_id: &str, tool: Option<&str>) -> String {
 
 /// 新建 AI 会话的 initCommand（`openNewSession`）
 pub fn new_session_command(tool: Option<&str>) -> String {
-    if tool == Some("codex") { "codex".into() } else { "claude".into() }
+    tool.unwrap_or("claude").into()
 }
 
 /// 把 shell / new tab 升级成 resume tab（用户在纯 shell 里手打了 claude，后端从 pid 文件认出了会话）。
@@ -1096,6 +1096,10 @@ mod tests {
     fn resume_commands() {
         assert_eq!(resume_cmd(SID, None), format!("claude -r {SID}"));
         assert_eq!(resume_cmd(SID, Some("codex")), format!("codex resume {SID}"));
+        assert_eq!(resume_cmd("ses_abc", Some("opencode")), "opencode -s ses_abc");
+        assert_eq!(new_session_command(None), "claude");
+        assert_eq!(new_session_command(Some("codex")), "codex");
+        assert_eq!(new_session_command(Some("opencode")), "opencode");
         assert_eq!(resume_init_command(SID, None), format!("clear && claude -r {SID}"));
         assert_eq!(resume_init_command(SID, Some("codex")), format!("clear && codex resume {SID}"));
     }

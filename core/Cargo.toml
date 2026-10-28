@@ -22,10 +22,16 @@ base64 = "0.22"
 log = "0.4"
 rust-i18n = "4.2.4"
 
+# opencode keeps its sessions in SQLite (#284). Read-only access. macOS links the system libsqlite3 (always present, adds nothing to the
+# binary); Windows has none, so it compiles SQLite in.
+[target.'cfg(not(windows))'.dependencies]
+rusqlite = "0.37"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]

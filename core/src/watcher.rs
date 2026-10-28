@@ -22,11 +22,20 @@ pub enum WatchEvent {
 }
 
 /// Condense a batch of changed paths into events. When both kinds are present in one batch, `RunningChanged` comes first (matching the original emit order).
-pub fn classify<'a>(paths: impl IntoIterator<Item = &'a Path>, sessions_dir: &Path) -> Vec<WatchEvent> {
+///
+/// opencode keeps its sessions in one SQLite database: a write to the database or its `-wal` / `-shm` is reported as `SessionsChanged([<the database path>])`
+/// (`opencode_db`), and `list_sessions_by_paths` knows that path means "re-read what changed in opencode's database" (#284).
+pub fn classify<'a>(
+    paths: impl IntoIterator<Item = &'a Path>,
+    sessions_dir: &Path,
+    opencode_db: Option<&Path>,
+) -> Vec<WatchEvent> {
     let mut has_session_event = false;
     let mut changed_jsonl: Vec<String> = Vec::new();
     for path in paths {
-        if path.starts_with(sessions_dir) {
+        if let Some(db) = opencode_db.filter(|db| crate::opencode::is_db_file(path, db)) {
+            changed_jsonl.push(db.to_string_lossy().into_owned());
+        } else if path.starts_with(sessions_dir) {
             has_session_event = true;
         } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
             // Report only jsonl: directory creation, lock files and the like carry no information for the frontend.
@@ -59,6 +68,8 @@ pub fn start(on_event: impl Fn(WatchEvent) + Send + 'static) {
     let sessions_dir = home.join(".claude").join("sessions");
     let projects_dir = home.join(".claude").join("projects");
     let codex_sessions_dir = home.join(".codex").join("sessions");
+    let opencode_dir = crate::opencode::data_dir();
+    let opencode_db = crate::opencode::db_path();
 
     let _ = std::fs::create_dir_all(&sessions_dir);
     let _ = std::fs::create_dir_all(&projects_dir);
@@ -74,10 +85,14 @@ pub fn start(on_event: impl Fn(WatchEvent) + Send + 'static) {
         if codex_sessions_dir.exists() {
             let _ = debouncer.watcher().watch(&codex_sessions_dir, RecursiveMode::Recursive);
         }
+        // Not recursive: only the database and its WAL sit directly in here; the subdirectories (logs, snapshots) are noise
+        if let Some(dir) = opencode_dir.as_ref().filter(|d| d.exists()) {
+            let _ = debouncer.watcher().watch(dir, RecursiveMode::NonRecursive);
+        }
 
         for result in rx {
             if let Ok(events) = result {
-                for ev in classify(events.iter().map(|e| e.path.as_path()), &sessions_dir) {
+                for ev in classify(events.iter().map(|e| e.path.as_path()), &sessions_dir, opencode_db.as_deref()) {
                     on_event(ev);
                 }
             }
@@ -104,7 +119,7 @@ mod tests {
             PathBuf::from("/Users/me/.claude/projects/-a"),
             PathBuf::from("/Users/me/.claude/projects/-a/x.lock"),
         ];
-        let got = classify(paths.iter().map(|p| p.as_path()), &sessions);
+        let got = classify(paths.iter().map(|p| p.as_path()), &sessions, None);
         assert_eq!(
             got,
             vec![
@@ -118,13 +133,31 @@ mod tests {
         );
     }
 
+    /// Why: opencode has no per-session file. If the database's WAL writes are not turned into one "opencode changed" path,
+    /// new opencode messages never reach the sidebar until a manual refresh; if the other files in that directory were reported too, every log line would trigger a read.
+    #[test]
+    fn opencode_database_and_wal_become_one_path_and_other_files_are_ignored() {
+        let sessions = PathBuf::from("/Users/me/.claude/sessions");
+        let db = PathBuf::from("/Users/me/.local/share/opencode/opencode.db");
+        let paths = [
+            PathBuf::from("/Users/me/.local/share/opencode/opencode.db-wal"),
+            PathBuf::from("/Users/me/.local/share/opencode/opencode.db"),
+            PathBuf::from("/Users/me/.local/share/opencode/auth.json"),
+            PathBuf::from("/Users/me/.local/share/opencode/log"),
+        ];
+        let got = classify(paths.iter().map(|p| p.as_path()), &sessions, Some(&db));
+        assert_eq!(got, vec![WatchEvent::SessionsChanged(vec![db.to_string_lossy().into_owned()])]);
+        // opencode not installed: the same paths mean nothing
+        assert!(classify(paths.iter().map(|p| p.as_path()), &sessions, None).is_empty());
+    }
+
     #[test]
     fn nothing_interesting_means_no_event() {
         let sessions = PathBuf::from("/Users/me/.claude/sessions");
         let paths = [PathBuf::from("/Users/me/.claude/projects/-a")];
-        assert!(classify(paths.iter().map(|p| p.as_path()), &sessions).is_empty());
+        assert!(classify(paths.iter().map(|p| p.as_path()), &sessions, None).is_empty());
         // Only changes under sessions/: report running state only (a .jsonl under sessions/ is not treated as session content either)
         let paths = [PathBuf::from("/Users/me/.claude/sessions/9.jsonl")];
-        assert_eq!(classify(paths.iter().map(|p| p.as_path()), &sessions), vec![WatchEvent::RunningChanged]);
+        assert_eq!(classify(paths.iter().map(|p| p.as_path()), &sessions, None), vec![WatchEvent::RunningChanged]);
     }
 }

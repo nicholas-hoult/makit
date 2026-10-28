@@ -92,7 +92,7 @@ pub fn apply_full_scan(current: &mut Vec<SessionMeta>, result: Result<Vec<Sessio
 /// claude: only while something runs (a killed process leaves no file event, so we must poll to see it stop).
 /// codex writes no file at all, so a codex that starts or exits is only ever noticed by polling: poll whenever the list holds a codex session.
 pub fn needs_running_patrol(list: &[SessionMeta]) -> bool {
-    list.iter().any(|m| (m.running && m.pid > 0) || m.tool == "codex")
+    list.iter().any(|m| (m.running && m.pid > 0) || m.tool == "codex" || m.tool == "opencode")
 }
 
 #[cfg(test)]
@@ -222,5 +222,7 @@ pub(crate) mod tests {
         assert!(!needs_running_patrol(&[SessionMeta { running: true, pid: 0, ..session("a") }]), "running but no pid to watch");
         let codex = SessionMeta { tool: "codex".into(), ..session("c") };
         assert!(needs_running_patrol(&[codex]), "a codex session exists: its start / exit leaves no file event, so poll");
+        let opencode = SessionMeta { tool: "opencode".into(), ..session("o") };
+        assert!(needs_running_patrol(&[opencode]), "same for opencode: only its database changes, never a pid file");
     }
 }

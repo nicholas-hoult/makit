@@ -57,8 +57,11 @@ pub fn probe_dir(path: &Path) -> DirState {
 pub struct ToolPresence {
     pub claude_bin: bool,
     pub codex_bin: bool,
+    pub opencode_bin: bool,
     pub claude_dir: DirState,
     pub codex_dir: DirState,
+    /// `~/.local/share/opencode` (the directory holding its session database, #284)
+    pub opencode_dir: DirState,
 }
 
 impl ToolPresence {
@@ -71,8 +74,12 @@ impl ToolPresence {
         self.codex_bin || self.codex_dir.exists()
     }
 
+    pub fn opencode(&self) -> bool {
+        self.opencode_bin || self.opencode_dir.exists()
+    }
+
     pub fn any(&self) -> bool {
-        self.claude() || self.codex()
+        self.claude() || self.codex() || self.opencode()
     }
 
     /// Session directories that cannot be read: (path for display, reason). The welcome card and the sidebar use this to say "cannot read" instead of "no sessions"
@@ -83,6 +90,9 @@ impl ToolPresence {
         }
         if let DirState::Unreadable(k) = self.codex_dir {
             v.push(("~/.codex/sessions", k));
+        }
+        if let DirState::Unreadable(k) = self.opencode_dir {
+            v.push(("~/.local/share/opencode", k));
         }
         v
     }
@@ -123,21 +133,27 @@ pub fn detect_in(home: &Path, path_env: &str) -> ToolPresence {
     ToolPresence {
         claude_bin: has_command("claude", &dirs),
         codex_bin: has_command("codex", &dirs),
+        opencode_bin: has_command("opencode", &dirs),
         claude_dir: probe_dir(&home.join(".claude/projects")),
         codex_dir: probe_dir(&home.join(".codex/sessions")),
+        opencode_dir: probe_dir(&home.join(".local/share/opencode")),
     }
 }
 
-/// For debugging / development: `MAKIT_TOOLS=none|claude|codex|both` specifies the detection result directly, ignoring the real PATH and directories.
+/// For debugging / development: `MAKIT_TOOLS=none|claude|codex|opencode|both|all` specifies the detection result directly, ignoring the real PATH and directories.
 /// Why it exists: dev's fake HOME isolates only the session directories, while command detection still reads the dev machine's real PATH, so the "not installed" hint can never be seen.
 /// An unrecognized value returns None (falls through to real detection) without an error
 pub fn parse_override(value: &str) -> Option<ToolPresence> {
-    let on = |claude, codex| Some(ToolPresence { claude_bin: claude, codex_bin: codex, ..Default::default() });
+    let on = |claude, codex, opencode| {
+        Some(ToolPresence { claude_bin: claude, codex_bin: codex, opencode_bin: opencode, ..Default::default() })
+    };
     match value.trim().to_ascii_lowercase().as_str() {
-        "none" => on(false, false),
-        "claude" => on(true, false),
-        "codex" => on(false, true),
-        "both" => on(true, true),
+        "none" => on(false, false, false),
+        "claude" => on(true, false, false),
+        "codex" => on(false, true, false),
+        "opencode" => on(false, false, true),
+        "both" => on(true, true, false),
+        "all" => on(true, true, true),
         _ => None,
     }
 }
@@ -216,6 +232,19 @@ mod tests {
         assert!(detect_in(&h, "").codex_dir.exists());
     }
 
+    /// opencode counts as "installed" when its command or its data directory is there (#284), so a machine with only opencode is not told "nothing found"
+    #[test]
+    fn opencode_is_detected_by_command_or_data_dir() {
+        let h = temp_home("oc");
+        assert!(!detect_in(&h, "").opencode() && !detect_in(&h, "").any());
+        touch(&h.join(".npm-global/bin/opencode"));
+        assert!(detect_in(&h, "").opencode_bin && detect_in(&h, "").any());
+        let h2 = temp_home("oc2");
+        fs::create_dir_all(h2.join(".local/share/opencode")).unwrap();
+        touch(&h2.join(".local/share/opencode/opencode.db"));
+        assert!(detect_in(&h2, "").opencode_dir.exists() && detect_in(&h2, "").any());
+    }
+
     #[test]
     fn a_directory_named_like_the_command_is_not_the_command() {
         let h = temp_home("dir");
@@ -226,12 +255,14 @@ mod tests {
     /// Why test this: if the override switch is wrong, the hint wanted in dev cannot appear, and one would again suspect the hint itself is broken
     #[test]
     fn override_presets() {
-        let on = |c, x| ToolPresence { claude_bin: c, codex_bin: x, ..Default::default() };
-        assert_eq!(parse_override("none"), Some(on(false, false)));
-        assert_eq!(parse_override("claude"), Some(on(true, false)));
-        assert_eq!(parse_override("codex"), Some(on(false, true)));
-        assert_eq!(parse_override("both"), Some(on(true, true)));
-        assert_eq!(parse_override(" BOTH "), Some(on(true, true)), "忽略大小写和空白");
+        let on = |c, x, o| ToolPresence { claude_bin: c, codex_bin: x, opencode_bin: o, ..Default::default() };
+        assert_eq!(parse_override("none"), Some(on(false, false, false)));
+        assert_eq!(parse_override("claude"), Some(on(true, false, false)));
+        assert_eq!(parse_override("codex"), Some(on(false, true, false)));
+        assert_eq!(parse_override("opencode"), Some(on(false, false, true)));
+        assert_eq!(parse_override("both"), Some(on(true, true, false)));
+        assert_eq!(parse_override("all"), Some(on(true, true, true)));
+        assert_eq!(parse_override(" BOTH "), Some(on(true, true, false)), "忽略大小写和空白");
         assert_eq!(parse_override("乱写"), None, "认不出就按真实检测走");
         assert_eq!(parse_override(""), None);
     }

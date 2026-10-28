@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{canvas, div, list, prelude::*, px, Context, Entity, ListAlignment, ListState, Subscription, Window};
-use makit_core::transcript::{Item, TranscriptReader};
+use makit_core::transcript::Item;
 
 use super::feed::poll;
 use super::logic::{list_ops, ListOp};
@@ -49,8 +49,7 @@ impl HybridView {
             let first = cx
                 .background_executor()
                 .spawn(async move {
-                    let (path, tool) = makit_core::sessions::locate_session_file(&id)?;
-                    let mut reader = TranscriptReader::new(path, tool);
+                    let mut reader = makit_core::sessions::open_transcript(&id)?;
                     let p = poll(&mut reader).ok()?;
                     Some((Arc::new(Mutex::new(reader)), p))
                 })

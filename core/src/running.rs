@@ -22,7 +22,7 @@ pub fn load_running_info() -> HashMap<String, RunningInfo> {
         None => HashMap::new(),
     };
     // codex writes no status file; its running sessions come from the open-rollout scan (#288)
-    for r in codex_running_sessions() {
+    for r in codex_running_sessions().into_iter().chain(opencode_running_sessions()) {
         map.entry(r.session_id).or_insert(RunningInfo { name: r.name, status: r.status, pty_id: String::new(), waiting_for: r.waiting_for, pid: r.pid });
     }
     map
@@ -103,7 +103,7 @@ pub fn list_running_sessions() -> Vec<RunningMeta> {
         Some(h) => list_running_sessions_in(&h.join(".claude").join("sessions"), &pid_alive),
         None => vec![],
     };
-    combine_running(claude, codex_running_sessions())
+    combine_running(combine_running(claude, codex_running_sessions()), opencode_running_sessions())
 }
 
 /// Testable version of `list_running_sessions`; likewise skips files left behind by dead processes
@@ -490,6 +490,64 @@ pub fn codex_running_sessions() -> Vec<RunningMeta> {
         })
         .collect();
     codex_running_in(&procs, &sessions_dir, &codex_session_id_of)
+}
+
+// --------------- opencode (#284) ---------------
+
+/// Running opencode terminal UIs resolved to sessions, with busy / idle from the database. No opencode process -> no database read at all.
+pub fn opencode_running_sessions() -> Vec<RunningMeta> {
+    let now_ms = chrono::Local::now().timestamp_millis();
+    let procs = crate::opencode::live_processes(now_ms);
+    if procs.is_empty() {
+        return vec![];
+    }
+    let Some(db) = crate::opencode::db_path().filter(|p| p.exists()) else { return vec![] };
+    let conn = match crate::opencode::open_read_only(&db) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!(target: "running", "opencode running state: {e}");
+            return vec![];
+        }
+    };
+    let cands = crate::opencode::read_candidates(&conn).unwrap_or_default();
+    let mut result: Vec<RunningMeta> = vec![];
+    for p in &procs {
+        let Some(session_id) = crate::opencode::session_of_proc(p, &cands) else { continue };
+        if result.iter().any(|r| r.session_id == session_id) {
+            continue;
+        }
+        let status = if crate::opencode::is_busy(&conn, &session_id) { "busy" } else { "idle" };
+        result.push(RunningMeta { session_id, status: status.into(), waiting_for: String::new(), pid: p.pid, name: String::new() });
+    }
+    result
+}
+
+/// opencode processes whose `MAKIT_PTY_ID` is in `pty_ids` -> (tab id, session id). Called only when a tab awaits binding.
+pub fn opencode_pty_bindings(pty_ids: &[String]) -> Vec<PtyBinding> {
+    let now_ms = chrono::Local::now().timestamp_millis();
+    let procs: Vec<_> = crate::opencode::live_processes(now_ms)
+        .into_iter()
+        .filter_map(|p| get_env_var_of_pid(p.pid, "MAKIT_PTY_ID").filter(|t| pty_ids.contains(t)).map(|t| (t, p)))
+        .collect();
+    if procs.is_empty() {
+        return vec![];
+    }
+    let Some(db) = crate::opencode::db_path().filter(|p| p.exists()) else { return vec![] };
+    let cands = match crate::opencode::open_read_only(&db).and_then(|c| crate::opencode::read_candidates(&c)) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!(target: "running", "opencode binding: {e}");
+            return vec![];
+        }
+    };
+    procs
+        .into_iter()
+        .filter_map(|(pty_id, p)| {
+            let session_id = crate::opencode::session_of_proc(&p, &cands)?;
+            let short_id = session_id.strip_prefix("ses_").unwrap_or(&session_id).chars().take(8).collect();
+            Some(PtyBinding { pty_id, session_id, short_id, name: String::new() })
+        })
+        .collect()
 }
 
 /// Running sessions of both tools; if a session id is in both, the claude entry (it has the real status) wins.

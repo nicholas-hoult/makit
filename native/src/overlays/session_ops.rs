@@ -11,7 +11,7 @@ use crate::state::AppState;
 use crate::workspace::model::{collect_containers, resume_cmd, resume_init_command, Dir, Opened, Side, TabKind, TabSpec};
 
 fn tool_of(s: &SessionMeta) -> Option<&str> {
-    (s.tool == "codex").then_some("codex")
+    makit_core::ai_provider::tool_arg(&s.tool)
 }
 
 /// 复制恢复命令：`cd <cwd> && claude -r <id>`（codex 是 `codex resume <id>`）

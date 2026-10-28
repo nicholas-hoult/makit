@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{div, list, prelude::*, px, Context, Entity, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
-use makit_core::transcript::{Item, TranscriptReader};
+use makit_core::transcript::Item;
 use makit_core::SessionMeta;
 
 use super::detail_logic::subtitle;
@@ -70,8 +70,7 @@ impl DetailView {
                 .background_executor()
                 .spawn(async move {
                     let t0 = std::time::Instant::now();
-                    let (path, tool) = makit_core::sessions::locate_session_file(&id).ok_or_else(|| ts!("detail.not_found", id = id))?;
-                    let mut reader = TranscriptReader::new(path, tool);
+                    let mut reader = makit_core::sessions::open_transcript(&id).ok_or_else(|| ts!("detail.not_found", id = id))?;
                     let p = poll(&mut reader).map_err(|e| e.to_string())?;
                     Ok::<_, String>((Arc::new(Mutex::new(reader)), p, t0.elapsed().as_secs_f64() * 1000.0))
                 })
