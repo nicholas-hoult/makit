@@ -30,6 +30,24 @@ pub enum Acquire {
     Unavailable(String),
 }
 
+/// The lock file for an app name (#291): instances with different names (the shipped `makit`, a `makit-dev`) do not
+/// block each other; two with the same name do. The shipped name keeps the original `instance.lock`, so a running
+/// 0.2.2 and a newer version still see each other.
+pub fn lock_file_name(app_name: &str) -> String {
+    let name = app_name.trim();
+    if name.is_empty() || name == "makit" {
+        return "instance.lock".into();
+    }
+    let safe: String = name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).collect();
+    format!("instance-{safe}.lock")
+}
+
+/// The pid written into the lock file by the instance that holds it, so a second launch can bring that one to the
+/// front even when it is not an `.app` (a dev build). None if unreadable.
+pub fn holder_pid(path: &Path) -> Option<u32> {
+    std::fs::read_to_string(path).ok()?.trim().parse().ok()
+}
+
 /// Take the lock at `path`, waiting up to `wait` for a previous instance that is still shutting down.
 #[cfg(unix)]
 pub fn acquire(path: &Path, wait: Duration) -> Acquire {
@@ -50,6 +68,10 @@ pub fn acquire(path: &Path, wait: Duration) -> Acquire {
         // and is released when `file` is dropped or the process ends
         let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if rc == 0 {
+            // record who holds it, so a second launch can bring this one to the front (`holder_pid`)
+            use std::io::Write;
+            let _ = file.set_len(0);
+            let _ = (&file).write_all(std::process::id().to_string().as_bytes());
             return Acquire::Acquired(InstanceLock { _file: file });
         }
         let err = std::io::Error::last_os_error();
@@ -79,6 +101,24 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("makit-instance-test-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join("instance.lock") // the directory does not exist yet: acquire must create it
+    }
+
+    #[test]
+    fn each_app_name_has_its_own_lock_file() {
+        assert_eq!(lock_file_name("makit"), "instance.lock", "the shipped name keeps the 0.2.2 file name");
+        assert_eq!(lock_file_name("makit-dev"), "instance-makit-dev.lock");
+        assert_ne!(lock_file_name("makit"), lock_file_name("makit-dev"), "dev and the shipped app may run side by side");
+        assert_eq!(lock_file_name("a/b c"), "instance-a-b-c.lock", "anything but letters, digits, - and _ becomes -");
+        assert_eq!(lock_file_name("  "), "instance.lock", "a blank name is the shipped one");
+    }
+
+    #[test]
+    fn the_holder_writes_its_pid_so_a_second_launch_can_find_it() {
+        let p = lock_path("pid");
+        let first = acquire(&p, Duration::ZERO);
+        assert!(matches!(first, Acquire::Acquired(_)));
+        assert_eq!(holder_pid(&p), Some(std::process::id()));
+        assert_eq!(holder_pid(&p.with_file_name("missing.lock")), None);
     }
 
     #[test]

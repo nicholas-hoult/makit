@@ -315,23 +315,29 @@ fn save_window(state: &Entity<AppState>, window: &Window, cx: &mut App) {
     }
 }
 
-/// Only one makit may run per data directory (#291): two of them fight over `hook.sock` and overwrite each other's
-/// state files. Takes a lock that lives as long as the returned value; if another instance holds it, brings that one
-/// to the front and exits. Dev instances (another app name, usually another HOME) and self-tests are not limited.
+/// Only one instance per app name may run on a data directory (#291): two of them fight over `hook.sock` and
+/// overwrite each other's state files. Takes a lock that lives as long as the returned value; if another instance
+/// with the same name holds it, brings that one to the front and exits at once. Self-tests are not limited.
 fn guard_single_instance() -> Option<makit_core::instance::InstanceLock> {
-    use makit_core::instance::{acquire, Acquire};
-    if is_dev_instance() || std::env::var_os("MAKIT_NATIVE_SELFTEST").is_some() {
+    use makit_core::instance::{acquire, holder_pid, lock_file_name, Acquire};
+    if std::env::var_os("MAKIT_NATIVE_SELFTEST").is_some() {
         return None;
     }
-    let path = persist::state_path()?.with_file_name("instance.lock");
-    // up to 5 s: an update restart, or "quit and open again", starts the new process while the old one is still exiting
-    match acquire(&path, std::time::Duration::from_secs(5)) {
+    // one lock per app name: the shipped makit and a makit-dev run side by side, two of the same name do not
+    let path = persist::state_path()?.with_file_name(lock_file_name(app_name()));
+    // no waiting: a second launch must not sit there invisible. The update helper only starts the new version
+    // after the old process has exited (`update::apply`), so an update restart never meets a held lock
+    match acquire(&path, Duration::ZERO) {
         Acquire::Acquired(lock) => Some(lock),
         Acquire::Held => {
-            log::info!(target: "app", "another makit is already running: bringing it to the front and exiting");
-            if let Some(bundle) = std::env::current_exe().ok().and_then(|exe| crate::update::apply::app_bundle_of(&exe)) {
-                // LaunchServices activates the running instance of the same bundle instead of starting another
-                let _ = std::process::Command::new("open").arg(bundle).spawn();
+            let pid = holder_pid(&path);
+            let activated = pid.is_some_and(activate_pid);
+            log::info!(target: "app", "{} is already running (pid {pid:?}, brought to front: {activated}): exiting", app_name());
+            if !activated {
+                if let Some(bundle) = std::env::current_exe().ok().and_then(|exe| crate::update::apply::app_bundle_of(&exe)) {
+                    // LaunchServices activates the running instance of the same bundle instead of starting another
+                    let _ = std::process::Command::new("open").arg(bundle).spawn();
+                }
             }
             std::process::exit(0);
         }
@@ -341,6 +347,28 @@ fn guard_single_instance() -> Option<makit_core::instance::InstanceLock> {
             None
         }
     }
+}
+
+/// Bring the running instance with this pid to the front (works for a bare dev binary too, unlike `open <.app>`)
+#[cfg(target_os = "macos")]
+fn activate_pid(pid: u32) -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    let Some(cls) = AnyClass::get(c"NSRunningApplication") else { return false };
+    // SAFETY: class method returning an autoreleased object or nil; `activateWithOptions:` takes an NSUInteger
+    unsafe {
+        let app: *mut AnyObject = msg_send![cls, runningApplicationWithProcessIdentifier: pid as i32];
+        if app.is_null() {
+            return false;
+        }
+        // NSApplicationActivateAllWindows
+        msg_send![app, activateWithOptions: 1usize]
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn activate_pid(_pid: u32) -> bool {
+    false
 }
 
 pub fn run() {

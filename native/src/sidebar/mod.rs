@@ -381,21 +381,10 @@ impl SidebarView {
     /// 同 App.tsx 的 openResumeTab：已经开着就切过去；在外面跑着（有 pid）就拒绝重复启动；
     /// 否则先补存储路径的软链再开 resume tab（刻意不预检 cwd 在不在，由终端那道闸统一判）
     pub fn open_session(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some(m) = self.state.read(cx).session(id).cloned() else { return };
-        let already_open = opened_order(&self.state.read(cx).workspace.state).iter().any(|x| *x == m.session_id);
-        if !already_open && m.running && m.pid != 0 {
-            toast(ts!("sidebar.toast.already_running", pid = m.pid), crate::overlays::toast::ALREADY_RUNNING, cx);
-            return;
-        }
-        if !already_open && !m.cwd.is_empty() && !m.storage_folder.is_empty() {
-            let _ = makit_core::recovery::ensure_session_symlink(m.session_id.clone(), m.cwd.clone(), m.storage_folder.clone());
-        }
-        let title = session_title(&m.display_name, &m.first_user_msg, &m.short_id);
-        let tool = makit_core::ai_provider::tool_arg(&m.tool);
-        self.state.update(cx, |s, cx| {
-            s.workspace.open_session(&m.session_id, &m.short_id, &m.cwd, Some(&title), tool);
-            s.workspace_changed(cx);
-        });
+        // the same decision as ⌘K (#291): a tab bound to the session, or the tab its running process is in
+        // (`MAKIT_PTY_ID`), is switched to; only otherwise a resume tab is opened. The sidebar used to decide on its
+        // own with a narrower rule and could open a second tab for a session that was already in one.
+        crate::overlays::session_ops::open_session(id, cx);
     }
 
     /// ⌘Enter 左右 / ⇧Enter 上下分屏打开（同 treeOnOpenSessionInSplit：在当前 pane 后面分出一个）
