@@ -197,6 +197,8 @@
   "workspace.menu.close_others": "关闭其他",
   "workspace.menu.close_right": "关闭右侧",
   "workspace.menu.stop": "停止会话",
+  "workspace.menu.pin_tab": "置顶标签",
+  "workspace.menu.unpin_tab": "取消置顶标签",
   "workspace.menu.stop_others": "停止其他标签",
   "workspace.menu.resume": "恢复会话",
   "workspace.stop.confirm_title": "停止 %{count} 个正在工作的会话？",

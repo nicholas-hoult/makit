@@ -197,6 +197,8 @@
   "workspace.menu.close_others": "Close others",
   "workspace.menu.close_right": "Close to the right",
   "workspace.menu.stop": "Stop session",
+  "workspace.menu.pin_tab": "Pin tab",
+  "workspace.menu.unpin_tab": "Unpin tab",
   "workspace.menu.stop_others": "Stop other tabs",
   "workspace.menu.resume": "Resume session",
   "workspace.stop.confirm_title": "Stop %{count} working session(s)?",

@@ -41,6 +41,9 @@ pub struct PaneTab {
     /// user resumes it. Stored, so a restart keeps it stopped. Old saves don't have it (= running).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stopped: bool,
+    /// Pinned to the front of its pane's tab bar (#295). Pinned tabs always come first, in the order they were pinned
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -333,12 +336,20 @@ pub fn tabs_to_stop(tabs: &[PaneTab], anchor_id: &str) -> Vec<String> {
     tabs.iter().filter(|t| t.id != anchor_id && can_stop(t)).map(|t| t.id.clone()).collect()
 }
 
+/// #295: where a tab may land in `tabs` (which doesn't contain it): pinned tabs stay inside the pinned block at the
+/// front, the others stay behind it
+pub fn clamp_tab_index(tabs: &[PaneTab], pinned: bool, idx: usize) -> usize {
+    let pinned_count = tabs.iter().filter(|t| t.pinned).count();
+    if pinned { idx.min(pinned_count) } else { idx.clamp(pinned_count, tabs.len()) }
+}
+
 /// 「关闭其他」/「关闭右侧」要关哪些 tab（显示顺序）。锚点是**右键的那个 tab**；找不到锚点返回空。
 pub fn tabs_to_close(tabs: &[PaneTab], anchor_id: &str, scope: CloseScope) -> Vec<String> {
     let Some(idx) = tabs.iter().position(|t| t.id == anchor_id) else { return Vec::new() };
     match scope {
-        CloseScope::Others => tabs.iter().filter(|t| t.id != anchor_id).map(|t| t.id.clone()).collect(),
-        CloseScope::Right => tabs[idx + 1..].iter().map(|t| t.id.clone()).collect(),
+        // Pinned tabs are left alone by both (#295)
+        CloseScope::Others => tabs.iter().filter(|t| t.id != anchor_id && !t.pinned).map(|t| t.id.clone()).collect(),
+        CloseScope::Right => tabs[idx + 1..].iter().filter(|t| !t.pinned).map(|t| t.id.clone()).collect(),
     }
 }
 
@@ -544,7 +555,7 @@ fn flatten_old_pane_tree(node: &serde_json::Value, panes: &[serde_json::Value]) 
                         session_id: s(p, "sessionId"),
                         label: short.as_ref().map(|x| format!("[{x}]")).unwrap_or_default(),
                         session_short_id: short,
-                        stopped: false,
+                        stopped: false, pinned: false,
                     }
                 }
                 None => PaneTab {
@@ -555,7 +566,7 @@ fn flatten_old_pane_tree(node: &serde_json::Value, panes: &[serde_json::Value]) 
                     session_id: None,
                     session_short_id: None,
                     label: String::new(),
-                    stopped: false,
+                    stopped: false, pinned: false,
                 },
             };
             LayoutNode::Container(ContainerNode {
@@ -679,6 +690,23 @@ impl Workspace {
         cs.first().map(|c| c.id.clone()).unwrap_or_default()
     }
 
+    /// #295: pin a tab (it moves to the end of the pinned block at the front of its pane) or unpin it (it becomes the
+    /// first unpinned tab). Returns whether anything changed
+    pub fn set_tab_pinned(&mut self, tab_id: &str, pinned: bool) -> bool {
+        let Some(cid) = self.locate_tab(tab_id).map(|(c, _)| c.id.clone()) else { return false };
+        let Some(c) = find_container_mut(&mut self.state.root, &cid) else { return false };
+        let Some(cur) = c.tabs.iter().position(|t| t.id == tab_id) else { return false };
+        if c.tabs[cur].pinned == pinned {
+            return false;
+        }
+        let mut t = c.tabs.remove(cur);
+        t.pinned = pinned;
+        // Both cases land on the boundary: the end of the pinned block, which is also the first unpinned slot
+        let at = c.tabs.iter().filter(|t| t.pinned).count();
+        c.tabs.insert(at, t);
+        true
+    }
+
     /// #287: mark a tab stopped / running. Returns whether anything changed
     pub fn set_tab_stopped(&mut self, tab_id: &str, stopped: bool) -> bool {
         let Some(cid) = self.locate_tab(tab_id).map(|(c, _)| c.id.clone()) else { return false };
@@ -790,7 +818,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: String::new(),
-            stopped: false,
+            stopped: false, pinned: false,
         };
         let tab_id = tab.id.clone();
         let new_c = ContainerNode { id: new_id.clone(), active_tab_id: tab_id.clone(), tabs: vec![tab], tab_history: Vec::new() };
@@ -830,7 +858,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: String::new(),
-            stopped: false,
+            stopped: false, pinned: false,
         };
         let id = tab.id.clone();
         self.state.active_container_id = container_id.into();
@@ -866,7 +894,7 @@ impl Workspace {
         let Some(tab) = self.detach_tab(src, tab_id) else { return };
         let id = tab.id.clone();
         if let Some(d) = find_container_mut(&mut self.state.root, dest) {
-            let idx = target_idx.unwrap_or(d.tabs.len()).min(d.tabs.len());
+            let idx = clamp_tab_index(&d.tabs, tab.pinned, target_idx.unwrap_or(d.tabs.len()).min(d.tabs.len()));
             d.tabs.insert(idx, tab);
             d.active_tab_id = id;
         }
@@ -891,7 +919,8 @@ impl Workspace {
                 return;
             }
             let t = c.tabs.remove(cur);
-            c.tabs.insert(insert.min(c.tabs.len()), t);
+            let at = clamp_tab_index(&c.tabs, t.pinned, insert.min(c.tabs.len()));
+            c.tabs.insert(at, t);
         }
         self.settle();
     }
@@ -927,7 +956,7 @@ impl Workspace {
             session_id: spec.session_id.clone(),
             session_short_id: spec.session_short_id.clone(),
             label: spec.session_short_id.as_ref().map(|s| format!("[{s}]")).unwrap_or_default(),
-            stopped: false,
+            stopped: false, pinned: false,
         }
     }
 
@@ -975,7 +1004,7 @@ impl Workspace {
             session_id: Some(session_id.into()),
             session_short_id: Some(short_id.into()),
             label: label.filter(|l| !l.is_empty()).map(String::from).unwrap_or_else(|| format!("[{short_id}]")),
-            stopped: false,
+            stopped: false, pinned: false,
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();
@@ -994,7 +1023,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: ts!("workspace.new_session_label").into(),
-            stopped: false,
+            stopped: false, pinned: false,
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();
@@ -1013,7 +1042,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: String::new(),
-            stopped: false,
+            stopped: false, pinned: false,
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();
@@ -1080,7 +1109,7 @@ mod tests {
     use super::*;
 
     fn tab(id: &str) -> PaneTab {
-        PaneTab { id: id.into(), kind: TabKind::Shell, cwd: "~".into(), init_command: None, session_id: None, session_short_id: None, label: String::new(), stopped: false }
+        PaneTab { id: id.into(), kind: TabKind::Shell, cwd: "~".into(), init_command: None, session_id: None, session_short_id: None, label: String::new(), stopped: false, pinned: false }
     }
     fn container(id: &str, tabs: &[&str]) -> LayoutNode {
         LayoutNode::Container(ContainerNode {
@@ -1271,6 +1300,60 @@ mod tests {
         use crate::sidebar::groups::RunState;
         assert!(stop_needs_confirm(RunState::Busy) && stop_needs_confirm(RunState::Waiting));
         assert!(!stop_needs_confirm(RunState::Idle) && !stop_needs_confirm(RunState::Stopped));
+    }
+
+    fn order(w: &Workspace, cid: &str) -> Vec<String> {
+        find_container(&w.state.root, cid).unwrap().tabs.iter().map(|t| t.id.clone()).collect()
+    }
+    fn one_pane(tabs: &[&str]) -> Workspace {
+        Workspace::new(WorkspaceState { root: container("C1", tabs), active_container_id: "C1".into(), maximized_container_id: None })
+    }
+
+    /// #295 pin goes to the front (after earlier pins), unpin becomes the first ordinary tab.
+    /// Wrong: a pinned tab sits in the middle of the bar, or unpinning throws it to the far end
+    #[test]
+    fn pin_moves_to_the_front_and_unpin_to_the_first_unpinned_slot() {
+        let mut w = one_pane(&["a", "b", "c", "d"]);
+        assert!(w.set_tab_pinned("c", true));
+        assert_eq!(order(&w, "C1"), ["c", "a", "b", "d"]);
+        assert!(w.set_tab_pinned("d", true));
+        assert_eq!(order(&w, "C1"), ["c", "d", "a", "b"], "a later pin goes after the earlier ones");
+        assert!(!w.set_tab_pinned("d", true), "already pinned: nothing changes");
+        assert!(w.set_tab_pinned("c", false));
+        assert_eq!(order(&w, "C1"), ["d", "c", "a", "b"], "unpinned = first after the remaining pins");
+        assert!(w.locate_tab("d").unwrap().1.pinned && !w.locate_tab("c").unwrap().1.pinned);
+        assert!(!w.set_tab_pinned("nope", true));
+    }
+
+    /// Dragging can't break the split: ordinary tabs can't go in front of pinned ones, pinned ones can't leave the block
+    #[test]
+    fn reorder_and_move_keep_pinned_tabs_in_front() {
+        let mut w = one_pane(&["a", "b", "c"]);
+        w.set_tab_pinned("b", true); // b a c
+        w.reorder_tab("C1", "c", 0);
+        assert_eq!(order(&w, "C1"), ["b", "c", "a"], "ordinary tab dropped at 0 lands right after the pinned block");
+        w.reorder_tab("C1", "b", 3);
+        assert_eq!(order(&w, "C1"), ["b", "c", "a"], "pinned tab dropped at the end stays in the block");
+
+        let mut w = Workspace::new(WorkspaceState {
+            root: split(container("C1", &["p", "x"]), container("C2", &["y"])),
+            active_container_id: "C1".into(),
+            maximized_container_id: None,
+        });
+        w.set_tab_pinned("p", true);
+        w.move_tab("C2", "y", "C1", Some(0));
+        assert_eq!(order(&w, "C1"), ["p", "y", "x"]);
+    }
+
+    /// Like pinned browser tabs: "Close others" / "Close to the right" leave pinned tabs alone
+    #[test]
+    fn bulk_close_skips_pinned_tabs() {
+        let tabs = vec![PaneTab { pinned: true, ..tab("p") }, tab("a"), tab("b")];
+        assert_eq!(tabs_to_close(&tabs, "a", CloseScope::Others), ["b"]);
+        assert_eq!(tabs_to_close(&tabs, "p", CloseScope::Right), ["a", "b"]);
+        assert_eq!(tabs_to_close(&tabs, "p", CloseScope::Others), ["a", "b"]);
+        assert_eq!(clamp_tab_index(&tabs, false, 0), 1);
+        assert_eq!(clamp_tab_index(&tabs, true, 3), 1);
     }
 
     #[test]

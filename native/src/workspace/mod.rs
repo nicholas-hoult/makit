@@ -705,7 +705,18 @@ impl WorkspaceView {
                 let stop_others_item =
                     OM::action(tr!("workspace.menu.stop_others"), move |window, cx| drop(w5.update(cx, |v, cx| v.stop_tabs(so.clone(), window, cx))))
                         .disabled(stop_others.is_empty());
+                let (b, w6, pin) = (tid.clone(), w.clone(), !tab.pinned);
+                let pin_item = OM::action(if tab.pinned { tr!("workspace.menu.unpin_tab") } else { tr!("workspace.menu.pin_tab") }, move |_, cx| {
+                    drop(w6.update(cx, |v, cx| {
+                        v.update_ws(cx, |ws| {
+                            ws.set_tab_pinned(&b, pin);
+                            vec![]
+                        })
+                    }))
+                });
                 vec![
+                    pin_item,
+                    OM::separator(),
                     run_item,
                     stop_others_item,
                     OM::separator(),
@@ -949,6 +960,10 @@ impl WorkspaceView {
                                 });
                                 window.dispatch_action(Box::new(crate::actions::sidebar::RevealActive), cx);
                             }))
+                    })
+                    // Pinned tab (#295): a small pin in front of the title
+                    .when(t.pinned, |d| {
+                        d.child(svg().path("icons/tab-pin.svg").size(px(11.0)).flex_none().text_color(theme.fg_muted))
                     })
                     .child(div().min_w(px(20.0)).max_w(px(180.0)).truncate().child(title))
                     .when_some(status, |d, st| d.child(render_status_icon(st, theme)))

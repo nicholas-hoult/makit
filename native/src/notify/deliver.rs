@@ -159,7 +159,7 @@ mod tests {
             session_id: sid.map(String::from),
             session_short_id: None,
             label: String::new(),
-            stopped: false,
+            stopped: false, pinned: false,
         }
     }
     fn container(id: &str, tabs: Vec<PaneTab>, active: &str) -> LayoutNode {

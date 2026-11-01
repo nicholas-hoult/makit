@@ -31,6 +31,7 @@ const FILES: &[(&str, &[u8])] = &[
     asset!("icons/status-busy.svg"),
     asset!("icons/status-idle.svg"),
     asset!("icons/status-stopped.svg"),
+    asset!("icons/tab-pin.svg"),
     asset!("icons/sidebar-options.svg"),
     asset!("icons/sidebar-expand-all.svg"),
     asset!("icons/sidebar-collapse-all.svg"),
