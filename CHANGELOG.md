@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-11-01
+
 ### Fixed
 - Clicking a session in the sidebar no longer opens a second tab for a session that is already open; the sidebar now decides exactly like ⌘K (#291)
 - Opening makit while it is already running now switches to the running window at once, instead of a few seconds of nothing. The shipped app and a dev build (a different app name) can run side by side; two of the same name cannot (#291)
@@ -21,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The macOS binary grows by about 180 KB (opencode support; it uses the system SQLite library)
+
 ## [0.2.2] - 2026-10-26
 
 ### Fixed
