@@ -33,6 +33,8 @@ enum Cmd {
     Detail(String),
     /// Stop the session's tabs, keeping them (#287)
     Stop(String),
+    ArchiveSelected,
+    UnarchiveSelected,
 }
 
 /// 一个右键菜单项；`cmd` 为 None = 灰掉
@@ -71,12 +73,17 @@ impl SidebarView {
             Cmd::NewShell(cwd) => self.new_shell_in(&cwd, cx),
             Cmd::OnlyProject(key) => self.only_this_project(&key, cx),
             Cmd::NewSession(cwd, tool) => self.new_session_in(&cwd, tool, cx),
+            Cmd::ArchiveSelected => self.archive_selected(window, cx),
+            Cmd::UnarchiveSelected => self.unarchive_selected(cx),
         }
     }
 
     /// 会话行右键（SessionTree.tsx treeMenuItems 的 session 分支）。每次渲染重算：后台在刷状态，
     /// 「置顶 / 取消置顶」这类文案要跟着现在的状态走
     fn session_menu(&self, id: &str, cx: &Context<Self>) -> Vec<MenuLine> {
+        if self.menu_targets_multi(id) {
+            return self.multi_menu(cx);
+        }
         let s = self.state.read(cx);
         let Some(m) = s.session(id) else { return vec![] };
         // last_cwd 优先：会话跑起来之后可能 cd 走了，右键要去的是它现在在的目录
@@ -100,6 +107,19 @@ impl SidebarView {
             item(tr!("sidebar.menu.copy_resume"), Cmd::Copy(Self::resume_command_line(m))),
         ]);
         lines
+    }
+
+    /// Right-click on a row of a multi-selection (#294): only the batch actions. "Unarchive" when every selected
+    /// session is archived; otherwise "Archive", counting what it will archive (pinned / already archived are left
+    /// alone), greyed out when that is nothing
+    fn multi_menu(&self, cx: &Context<Self>) -> Vec<MenuLine> {
+        let cands = self.multi_candidates(cx);
+        if let Some(ids) = super::multi_select::unarchive_ids(&cands) {
+            return vec![item(tr!("sidebar.menu.unarchive_selected", n = ids.len()), Cmd::UnarchiveSelected)];
+        }
+        let n = super::multi_select::plan_archive(&cands).ids.len();
+        let label = tr!("sidebar.menu.archive_selected", n = n);
+        vec![if n == 0 { disabled(label) } else { item(label, Cmd::ArchiveSelected) }]
     }
 
     /// 项目头右键

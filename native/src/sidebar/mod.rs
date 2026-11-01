@@ -23,6 +23,7 @@
 pub mod collapse;
 pub mod groups;
 pub mod hover;
+pub mod multi_select;
 mod popups;
 mod render;
 pub mod search_input;
@@ -139,6 +140,8 @@ pub struct SidebarView {
     group_ids: Vec<String>,
     /// 键盘选中（和「当前打开的」是两个正交状态）
     selected: Option<String>,
+    /// ⌘-click / ⇧-click multi-selection for batch archive (#294); empty = plain single selection
+    multi: multi_select::MultiSelect,
     popup: Option<Popup>,
     /// 点在菜单外关掉菜单的那次按下的位置：同一次按下落在「显示选项」按钮上时不要又打开
     closed_by_outside_at: Option<Point<Pixels>>,
@@ -228,6 +231,7 @@ impl SidebarView {
             project_active: Vec::new(),
             group_ids: Vec::new(),
             selected: None,
+            multi: multi_select::MultiSelect::default(),
             popup: None,
             closed_by_outside_at: None,
             hover: None,
@@ -329,6 +333,11 @@ impl SidebarView {
         }
         self.tops = tree::tops(&tree.items);
         self.heights = heights;
+        if !self.multi.is_empty() {
+            // rows that left the list (archived away, searched out) leave the multi-selection
+            let listed: HashSet<&str> = tree.membership.keys().filter_map(|&r| list.get(r)).map(|m| m.session_id.as_str()).collect();
+            self.multi.retain(|id| listed.contains(id));
+        }
         self.tree = tree;
     }
 
@@ -413,6 +422,55 @@ impl SidebarView {
         });
     }
 
+    // ---------- multi-selection (#294) ----------
+
+    /// ⌘-click / ⇧-click on a session row. Moves the keyboard selection there too, without opening it
+    fn multi_click(&mut self, id: &str, range: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let cur = self.selected.clone();
+        if range {
+            let order: Vec<String> = self.tree.order.iter().filter_map(|&r| self.session_id_at(r, cx)).collect();
+            self.multi.select_range(&order, id, cur.as_deref());
+        } else {
+            self.multi.toggle(id, cur.as_deref());
+        }
+        self.selected = Some(id.to_string());
+        self.list_focus.focus(window);
+        cx.notify();
+    }
+
+    /// The right-click menu acts on the multi-selection when the row is part of one (of two or more)
+    fn menu_targets_multi(&self, id: &str) -> bool {
+        self.multi.len() > 1 && self.multi.contains(id)
+    }
+
+    fn multi_candidates(&self, cx: &App) -> Vec<multi_select::Candidate> {
+        let s = self.state.read(cx);
+        let opened: HashSet<String> = opened_order(&s.workspace.state).into_iter().collect();
+        self.multi
+            .ids()
+            .iter()
+            .filter_map(|id| s.session(id))
+            .map(|m| multi_select::Candidate {
+                id: m.session_id.clone(),
+                archived: m.archived,
+                pinned: s.is_pinned(&m.session_id),
+                running: m.running,
+                opened: opened.contains(&m.session_id),
+            })
+            .collect()
+    }
+
+    fn archive_selected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let plan = multi_select::plan_archive(&self.multi_candidates(cx));
+        crate::overlays::session_ops::archive_sessions(plan.ids, plan.active, plan.pinned_skipped, window, cx);
+    }
+
+    fn unarchive_selected(&mut self, cx: &mut Context<Self>) {
+        if let Some(ids) = multi_select::unarchive_ids(&self.multi_candidates(cx)) {
+            crate::overlays::session_ops::unarchive_sessions(ids, cx);
+        }
+    }
+
     fn toggle_pin(&mut self, id: &str, cx: &mut Context<Self>) {
         self.state.update(cx, |s, cx| s.toggle_pin(id, cx));
     }
@@ -437,6 +495,7 @@ impl SidebarView {
     fn move_selection(&mut self, down: bool, cx: &mut Context<Self>) {
         let cur = self.selected.as_deref().and_then(|id| self.row_of(id, cx));
         let next = tree::move_selection(&self.tree.order, cur, down);
+        self.multi.clear();
         self.selected = next.and_then(|r| self.session_id_at(r, cx));
         self.scroll_selected_into_view(cx);
         cx.notify();
@@ -495,6 +554,7 @@ impl SidebarView {
 
     fn clear_selection(&mut self, cx: &mut Context<Self>) {
         self.selected = None;
+        self.multi.clear();
         self.hover = None;
         self.hover_task = None;
         cx.emit(SidebarEvent::ReturnFocus);

@@ -118,6 +118,94 @@ pub fn toggle_archive(session_id: &str, window: &mut Window, cx: &mut App) {
     .detach();
 }
 
+/// Batch archive (#294): one confirm when any of them is running or open in a tab, one write of archived.json,
+/// then each one's tabs are closed and its child processes killed (same as the single archive). The caller has
+/// already left out pinned / archived ones (`sidebar::multi_select::plan_archive`); `pinned_skipped` only goes
+/// into the toast.
+pub fn archive_sessions(ids: Vec<String>, active: usize, pinned_skipped: usize, window: &mut Window, cx: &mut App) {
+    if ids.is_empty() {
+        return;
+    }
+    let n = ids.len();
+    let confirm = (active > 0).then(|| {
+        window.prompt(
+            PromptLevel::Warning,
+            &ts!("sidebar.archive.batch_confirm_title", n = n),
+            Some(&ts!("sidebar.archive.batch_confirm_detail", m = active)),
+            &[PromptButton::ok(ts!("sidebar.menu.archive")), PromptButton::cancel(ts!("common.cancel"))],
+            cx,
+        )
+    });
+    cx.spawn(async move |cx: &mut AsyncApp| {
+        if let Some(rx) = confirm {
+            if rx.await.ok() != Some(0) {
+                return;
+            }
+        }
+        // mark first, as the single archive does: keeps the background running-state merge off them during the write
+        let _ = cx.update(|cx| AppState::global(cx).update(cx, |st, _| st.archiving.extend(ids.iter().cloned())));
+        let batch = ids.clone();
+        let r = cx.background_executor().spawn(async move { makit_core::archive::archive_sessions(&batch) }).await;
+        let _ = cx.update(|cx| {
+            AppState::global(cx).update(cx, |st, _| ids.iter().for_each(|id| { st.archiving.remove(id); }));
+            match r {
+                Ok(_) => {
+                    for id in &ids {
+                        close_session_tabs(id, cx);
+                    }
+                    update_sessions(&ids, cx, |m| {
+                        m.archived = true;
+                        m.running = false;
+                        m.status = "idle".into();
+                    });
+                    let msg = if pinned_skipped > 0 {
+                        ts!("sidebar.toast.archived_n_pinned_skipped", n = n, k = pinned_skipped)
+                    } else {
+                        ts!("sidebar.toast.archived_n", n = n)
+                    };
+                    show_toast(msg, toast::BATCH_ARCHIVED, cx);
+                }
+                Err(e) => show_toast(ts!("sidebar.toast.archive_failed", error = e), toast::ARCHIVE_FAIL, cx),
+            }
+        });
+    })
+    .detach();
+}
+
+/// Batch unarchive (#294): one write, no confirm (nothing is closed)
+pub fn unarchive_sessions(ids: Vec<String>, cx: &mut App) {
+    if ids.is_empty() {
+        return;
+    }
+    cx.spawn(async move |cx: &mut AsyncApp| {
+        let batch = ids.clone();
+        let r = cx.background_executor().spawn(async move { makit_core::archive::unarchive_sessions(&batch) }).await;
+        let _ = cx.update(|cx| match r {
+            Ok(_) => {
+                update_sessions(&ids, cx, |m| m.archived = false);
+                show_toast(ts!("sidebar.toast.unarchived_n", n = ids.len()), toast::BATCH_ARCHIVED, cx);
+            }
+            Err(e) => show_toast(ts!("sidebar.toast.archive_failed", error = e), toast::ARCHIVE_FAIL, cx),
+        });
+    })
+    .detach();
+}
+
+/// `update_session` for many, with one `sessions_changed`
+fn update_sessions(ids: &[String], cx: &mut App, f: impl Fn(&mut SessionMeta)) {
+    let state = AppState::global(cx);
+    state.update(cx, |s, cx| {
+        let mut changed = false;
+        for m in s.sessions.iter_mut().filter(|m| ids.contains(&m.session_id)) {
+            f(m);
+            changed = true;
+        }
+        if changed {
+            s.sessions_changed(cx);
+        }
+    });
+}
+
 /// 关掉这个会话的所有标签（WorkspaceView::close_tab 会一并杀终端和它记下的子进程）。
 /// Not open in any tab: still kill its recorded child processes (the ones that escaped the process group), as the
 /// sidebar's own archive used to — otherwise they would outlive the archived session.

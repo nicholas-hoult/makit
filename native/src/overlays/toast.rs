@@ -16,3 +16,5 @@ pub const RECOVER_REOPEN: u64 = 5000;
 pub const ARCHIVE_FAIL: u64 = 2000;
 /// 在 Finder 中显示失败（Tauri 版静默吞掉；这里给一句，时长同其他失败）
 pub const REVEAL_FAIL: u64 = 2000;
+/// batch archive / unarchive done (#294): long enough to read the count and the pinned-skipped note
+pub const BATCH_ARCHIVED: u64 = 3000;

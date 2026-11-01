@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stop a session without closing its tab: right-click a tab for "Stop session" / "Stop other tabs", or a session in the sidebar for "Stop". The process ends and frees its memory; the tab keeps its place (also across restarts) and shows "Session stopped". Click "Resume" or press Enter to run it again. Stopping a session that is working or waiting on you asks first (#287)
 - A tab whose process exited by itself can be run again in place: press Enter in it, or right-click > "Resume session" (#287)
 - Pin a tab: right-click > "Pin tab" keeps it at the front of its pane, marked with a pin, also across restarts. Unpinning puts it first among the other tabs. "Close others" and "Close to the right" leave pinned tabs open (#295)
+- Batch archive in the sidebar: ⌘-click adds or removes a session from a multi-selection, ⇧-click selects a range, and right-clicking a selected row offers "Archive selected (N)" (or "Unarchive selected (N)" when all of them are archived). Pinned sessions are left alone; if any selected session is running or open in a tab, makit asks once before closing them. Esc clears the selection (#294)
 
 ## [0.2.4] - 2026-11-01
 

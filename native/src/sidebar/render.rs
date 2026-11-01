@@ -224,6 +224,11 @@ impl SidebarView {
         let focused = s.workspace.active_tab().and_then(|t| t.session_id.as_deref()) == Some(m.session_id.as_str());
         // 同一条会话在项目视图里出现两次时，选中框只亮导航那份（#259）
         let selected = nav && self.selected.as_deref() == Some(m.session_id.as_str()) && self.list_focus.is_focused(window);
+        // multi-selected rows (#294) wear the same outline, whatever has focus: the batch acts on exactly these.
+        // While there is a multi-selection only its rows are outlined (a ⌘-click that removes a row moves the
+        // keyboard selection onto it, and it must not look selected)
+        let multi = nav && self.multi.contains(&m.session_id);
+        let selected = selected && (self.multi.is_empty() || multi);
         let rs = meta_state(&m);
         let title = session_title(&m.display_name, &m.first_user_msg, &m.short_id);
         let project = super::groups::basename(if m.git_root.is_empty() { &m.cwd } else { &m.git_root });
@@ -345,7 +350,7 @@ impl SidebarView {
             .pl(px(7.))
             .pr(px(11.))
             .border_1()
-            .border_color(if selected { t.accent } else { gpui::transparent_black() })
+            .border_color(if selected || multi { t.accent } else { gpui::transparent_black() })
             .rounded(px(4.))
             .text_size(px(12.))
             .line_height(px(16.))
@@ -356,7 +361,14 @@ impl SidebarView {
             .when(pinned, |d| d.child(div().flex_none().text_size(px(10.)).line_height(px(16.)).text_color(t.warning).child("★")))
             .child(div().flex_1().min_w_0().flex().flex_col().child(row1).when(!compact, |d| d.child(row2)))
             // 点了就是选了：鼠标和键盘落在同一个选中态上
-            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                // ⌘-click toggles, ⇧-click selects a range (#294); neither opens the session
+                let mods = ev.modifiers();
+                if mods.platform || mods.shift {
+                    this.multi_click(&sid_click, !mods.platform, window, cx);
+                    return;
+                }
+                this.multi.clear();
                 this.selected = Some(sid_click.clone());
                 this.list_focus.focus(window);
                 this.open_session(&sid_click, cx);
@@ -365,6 +377,10 @@ impl SidebarView {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    // right-click outside the multi-selection drops it: the menu is then about this row alone
+                    if !this.multi.contains(&sid_menu) {
+                        this.multi.clear();
+                    }
                     this.open_popup(Popup::SessionMenu { at: ev.position, session_id: sid_menu.clone() }, window, cx);
                 }),
             )
