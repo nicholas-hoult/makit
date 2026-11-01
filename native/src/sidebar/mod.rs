@@ -30,7 +30,7 @@ pub mod selftest;
 pub mod status_icon;
 pub mod tree;
 
-use crate::{tr, ts};
+use crate::tr;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -410,83 +410,6 @@ impl SidebarView {
         self.state.update(cx, |s, cx| {
             s.workspace.open_shell(cwd);
             s.workspace_changed(cx);
-        });
-    }
-
-    /// 归档 / 取消归档（App.tsx handleToggleArchive）：在跑的先弹原生确认；归档后关掉它的所有标签
-    /// （连同子进程），乐观地把 running 置 false
-    fn toggle_archive(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(m) = self.state.read(cx).session(id).cloned() else { return };
-        if m.archived {
-            match makit_core::archive::unarchive_session(m.session_id.clone()) {
-                Ok(()) => self.patch_session(&m.session_id, cx, |x| x.archived = false),
-                Err(e) => toast(ts!("sidebar.toast.archive_failed", error = e), crate::overlays::toast::ARCHIVE_FAIL, cx),
-            }
-            return;
-        }
-        if !m.running {
-            self.do_archive(m, cx);
-            return;
-        }
-        let (confirm_title, confirm_detail) = (ts!("sidebar.archive.confirm_title"), ts!("sidebar.archive.confirm_detail", pid = m.pid));
-        let (archive_label, cancel_label) = (ts!("sidebar.menu.archive"), ts!("common.cancel"));
-        let answer = window.prompt(
-            gpui::PromptLevel::Warning,
-            &confirm_title,
-            Some(&confirm_detail),
-            &[archive_label.as_str(), cancel_label.as_str()],
-            cx,
-        );
-        cx.spawn(async move |this, cx| {
-            if answer.await.ok() == Some(0) {
-                let _ = this.update(cx, |this, cx| this.do_archive(m, cx));
-            }
-        })
-        .detach();
-    }
-
-    fn do_archive(&mut self, m: SessionMeta, cx: &mut Context<Self>) {
-        let id = m.session_id.clone();
-        self.state.update(cx, |s, _| {
-            s.archiving.insert(id.clone());
-        });
-        let res = makit_core::archive::archive_session(id.clone());
-        self.state.update(cx, |s, _| {
-            s.archiving.remove(&id);
-        });
-        if let Err(e) = res {
-            toast(ts!("sidebar.toast.archive_failed", error = e), crate::overlays::toast::ARCHIVE_FAIL, cx);
-            return;
-        }
-        // 关它的全部标签。子进程先杀（closeTabWithChildren：逃出进程组的那些不杀会留在机器上）
-        let pids: Vec<u32> = m.child_processes.iter().map(|p| p.pid).collect();
-        if !pids.is_empty() {
-            makit_core::process::kill_pids(&pids);
-        }
-        self.state.update(cx, |s, cx| {
-            let tabs: Vec<(String, String)> = crate::workspace::model::collect_containers(&s.workspace.state.root)
-                .iter()
-                .flat_map(|c| c.tabs.iter().filter(|t| t.session_id.as_deref() == Some(id.as_str())).map(|t| (c.id.clone(), t.id.clone())))
-                .collect();
-            for (cid, tid) in tabs.into_iter().rev() {
-                s.workspace.close_tab(&cid, &tid);
-            }
-            s.workspace_changed(cx);
-        });
-        self.patch_session(&m.session_id, cx, |x| {
-            x.archived = true;
-            x.running = false;
-            x.status = "idle".into();
-        });
-    }
-
-    /// 乐观地改一条会话（归档状态），下一次增量 / 全量扫描会覆盖成真值
-    fn patch_session(&mut self, id: &str, cx: &mut Context<Self>, f: impl FnOnce(&mut SessionMeta)) {
-        self.state.update(cx, |s, cx| {
-            if let Some(x) = s.sessions.iter_mut().find(|x| x.session_id == id) {
-                f(x);
-                s.sessions_changed(cx);
-            }
         });
     }
 

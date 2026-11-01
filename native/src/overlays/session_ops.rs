@@ -118,18 +118,27 @@ pub fn toggle_archive(session_id: &str, window: &mut Window, cx: &mut App) {
     .detach();
 }
 
-/// 关掉这个会话的所有标签（WorkspaceView::close_tab 会一并杀终端）
+/// 关掉这个会话的所有标签（WorkspaceView::close_tab 会一并杀终端和它记下的子进程）。
+/// Not open in any tab: still kill its recorded child processes (the ones that escaped the process group), as the
+/// sidebar's own archive used to — otherwise they would outlive the archived session.
 fn close_session_tabs(session_id: &str, cx: &mut App) {
-    let Some(h) = host(cx) else { return };
-    let ws = h.read(cx).workspace.clone();
+    let st = AppState::global(cx);
     let targets: Vec<(String, String)> = {
-        let st = AppState::global(cx);
         let s = st.read(cx);
         collect_containers(&s.workspace.state.root)
             .into_iter()
             .flat_map(|c| c.tabs.iter().filter(|t| t.session_id.as_deref() == Some(session_id)).map(move |t| (c.id.clone(), t.id.clone())))
             .collect()
     };
+    if targets.is_empty() {
+        let pids: Vec<u32> = st.read(cx).session(session_id).map(|m| m.child_processes.iter().map(|p| p.pid).collect()).unwrap_or_default();
+        if !pids.is_empty() {
+            makit_core::process::kill_pids(&pids);
+        }
+        return;
+    }
+    let Some(h) = host(cx) else { return };
+    let ws = h.read(cx).workspace.clone();
     for (cid, tid) in targets.into_iter().rev() {
         ws.update(cx, |w, cx| w.close_tab(&cid, &tid, cx));
     }

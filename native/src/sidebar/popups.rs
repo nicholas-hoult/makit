@@ -63,7 +63,7 @@ impl SidebarView {
         self.close_popup(cx);
         match cmd {
             Cmd::TogglePin(id) => self.toggle_pin(&id, cx),
-            Cmd::ToggleArchive(id) => self.toggle_archive(&id, window, cx),
+            Cmd::ToggleArchive(id) => crate::overlays::session_ops::toggle_archive(&id, window, cx),
             Cmd::Reveal(path) => self.reveal_in_finder(path),
             Cmd::Detail(id) => crate::overlays::open_detail(&id, window, cx),
             Cmd::Stop(id) => crate::overlays::session_ops::stop_session_tabs(&id, window, cx),
