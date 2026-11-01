@@ -37,6 +37,10 @@ pub struct PaneTab {
     pub session_id: Option<String>,
     pub session_short_id: Option<String>,
     pub label: String,
+    /// Stopped by the user (#287): the process is gone but the tab keeps its place; it starts again only when the
+    /// user resumes it. Stored, so a restart keeps it stopped. Old saves don't have it (= running).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stopped: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -309,6 +313,26 @@ pub fn repair_resume_tabs(ws: &mut WorkspaceState) -> bool {
     changed
 }
 
+/// #287: a tab can be stopped when it has a session to resume and is not stopped already
+pub fn can_stop(t: &PaneTab) -> bool {
+    t.session_id.is_some() && !t.stopped
+}
+
+/// #287: stopping a session that is in the middle of something (working, or waiting on the user) asks first;
+/// an idle one stops at once
+pub fn stop_needs_confirm(rs: crate::sidebar::groups::RunState) -> bool {
+    use crate::sidebar::groups::RunState;
+    matches!(rs, RunState::Busy | RunState::Waiting)
+}
+
+/// #287 "Stop other tabs": the stoppable tabs of this pane other than the right-clicked one (empty if it's gone)
+pub fn tabs_to_stop(tabs: &[PaneTab], anchor_id: &str) -> Vec<String> {
+    if !tabs.iter().any(|t| t.id == anchor_id) {
+        return Vec::new();
+    }
+    tabs.iter().filter(|t| t.id != anchor_id && can_stop(t)).map(|t| t.id.clone()).collect()
+}
+
 /// 「关闭其他」/「关闭右侧」要关哪些 tab（显示顺序）。锚点是**右键的那个 tab**；找不到锚点返回空。
 pub fn tabs_to_close(tabs: &[PaneTab], anchor_id: &str, scope: CloseScope) -> Vec<String> {
     let Some(idx) = tabs.iter().position(|t| t.id == anchor_id) else { return Vec::new() };
@@ -520,6 +544,7 @@ fn flatten_old_pane_tree(node: &serde_json::Value, panes: &[serde_json::Value]) 
                         session_id: s(p, "sessionId"),
                         label: short.as_ref().map(|x| format!("[{x}]")).unwrap_or_default(),
                         session_short_id: short,
+                        stopped: false,
                     }
                 }
                 None => PaneTab {
@@ -530,6 +555,7 @@ fn flatten_old_pane_tree(node: &serde_json::Value, panes: &[serde_json::Value]) 
                     session_id: None,
                     session_short_id: None,
                     label: String::new(),
+                    stopped: false,
                 },
             };
             LayoutNode::Container(ContainerNode {
@@ -653,6 +679,18 @@ impl Workspace {
         cs.first().map(|c| c.id.clone()).unwrap_or_default()
     }
 
+    /// #287: mark a tab stopped / running. Returns whether anything changed
+    pub fn set_tab_stopped(&mut self, tab_id: &str, stopped: bool) -> bool {
+        let Some(cid) = self.locate_tab(tab_id).map(|(c, _)| c.id.clone()) else { return false };
+        let Some(c) = find_container_mut(&mut self.state.root, &cid) else { return false };
+        let Some(t) = c.tabs.iter_mut().find(|t| t.id == tab_id) else { return false };
+        if t.stopped == stopped {
+            return false;
+        }
+        t.stopped = stopped;
+        true
+    }
+
     pub fn active_container(&self) -> Option<&ContainerNode> {
         find_container(&self.state.root, &self.state.active_container_id)
     }
@@ -752,6 +790,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: String::new(),
+            stopped: false,
         };
         let tab_id = tab.id.clone();
         let new_c = ContainerNode { id: new_id.clone(), active_tab_id: tab_id.clone(), tabs: vec![tab], tab_history: Vec::new() };
@@ -791,6 +830,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: String::new(),
+            stopped: false,
         };
         let id = tab.id.clone();
         self.state.active_container_id = container_id.into();
@@ -887,6 +927,7 @@ impl Workspace {
             session_id: spec.session_id.clone(),
             session_short_id: spec.session_short_id.clone(),
             label: spec.session_short_id.as_ref().map(|s| format!("[{s}]")).unwrap_or_default(),
+            stopped: false,
         }
     }
 
@@ -934,6 +975,7 @@ impl Workspace {
             session_id: Some(session_id.into()),
             session_short_id: Some(short_id.into()),
             label: label.filter(|l| !l.is_empty()).map(String::from).unwrap_or_else(|| format!("[{short_id}]")),
+            stopped: false,
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();
@@ -952,6 +994,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: ts!("workspace.new_session_label").into(),
+            stopped: false,
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();
@@ -970,6 +1013,7 @@ impl Workspace {
             session_id: None,
             session_short_id: None,
             label: String::new(),
+            stopped: false,
         };
         let id = tab.id.clone();
         let active = self.state.active_container_id.clone();
@@ -1036,7 +1080,7 @@ mod tests {
     use super::*;
 
     fn tab(id: &str) -> PaneTab {
-        PaneTab { id: id.into(), kind: TabKind::Shell, cwd: "~".into(), init_command: None, session_id: None, session_short_id: None, label: String::new() }
+        PaneTab { id: id.into(), kind: TabKind::Shell, cwd: "~".into(), init_command: None, session_id: None, session_short_id: None, label: String::new(), stopped: false }
     }
     fn container(id: &str, tabs: &[&str]) -> LayoutNode {
         LayoutNode::Container(ContainerNode {
@@ -1190,6 +1234,58 @@ mod tests {
         assert!(tabs_to_close(&[tab("a")], "a", CloseScope::Others).is_empty());
         assert!(tabs_to_close(&tabs, "zzz", CloseScope::Others).is_empty(), "锚点不在：不能退化成全关");
         assert!(tabs_to_close(&tabs, "zzz", CloseScope::Right).is_empty());
+    }
+
+    /// #287: a save from before the field existed loads as running, and a running tab doesn't write the field
+    /// (wrong: every restored tab comes back stopped, or older builds choke on new saves)
+    #[test]
+    fn stopped_defaults_to_running_and_is_only_written_when_set() {
+        let old = r#"{"id":"t1","kind":"resume","cwd":"/p","initCommand":null,"sessionId":"s1","sessionShortId":"s1","label":""}"#;
+        let t: PaneTab = serde_json::from_str(old).unwrap();
+        assert!(!t.stopped);
+        assert!(!serde_json::to_string(&t).unwrap().contains("stopped"));
+        let st = PaneTab { stopped: true, ..t };
+        let back: PaneTab = serde_json::from_str(&serde_json::to_string(&st).unwrap()).unwrap();
+        assert!(back.stopped);
+    }
+
+    /// #287 "Stop other tabs": only tabs that have a session to resume and are still running.
+    /// Wrong: a plain shell is killed with nothing to bring back, or the tab you right-clicked stops too
+    #[test]
+    fn tabs_to_stop_skips_anchor_shells_and_already_stopped() {
+        let tabs = vec![
+            rtab("a", Some("s1"), TabKind::Resume),
+            rtab("b", Some("s2"), TabKind::Resume),
+            rtab("c", None, TabKind::Shell),
+            PaneTab { stopped: true, ..rtab("d", Some("s4"), TabKind::Resume) },
+            rtab("e", Some("s5"), TabKind::Shell),
+        ];
+        assert_eq!(tabs_to_stop(&tabs, "b"), ["a", "e"]);
+        assert!(tabs_to_stop(&tabs, "zzz").is_empty(), "anchor missing: must not stop everything");
+        assert!(can_stop(&tabs[0]) && !can_stop(&tabs[2]) && !can_stop(&tabs[3]));
+    }
+
+    /// Wrong: a working session is cut off mid-task without a word, or every idle stop nags
+    #[test]
+    fn only_busy_or_waiting_sessions_ask_before_stopping() {
+        use crate::sidebar::groups::RunState;
+        assert!(stop_needs_confirm(RunState::Busy) && stop_needs_confirm(RunState::Waiting));
+        assert!(!stop_needs_confirm(RunState::Idle) && !stop_needs_confirm(RunState::Stopped));
+    }
+
+    #[test]
+    fn set_tab_stopped_flips_only_that_tab() {
+        let mut w = Workspace::new(WorkspaceState {
+            root: container("C1", &["t1", "t2"]),
+            active_container_id: "C1".into(),
+            maximized_container_id: None,
+        });
+        assert!(w.set_tab_stopped("t2", true));
+        assert!(w.locate_tab("t2").unwrap().1.stopped && !w.locate_tab("t1").unwrap().1.stopped);
+        assert!(!w.set_tab_stopped("t2", true), "no change reported when already stopped");
+        assert!(!w.set_tab_stopped("nope", true));
+        assert!(w.set_tab_stopped("t2", false));
+        assert!(!w.locate_tab("t2").unwrap().1.stopped);
         assert!(tabs_to_close(&[], "a", CloseScope::Others).is_empty());
     }
 

@@ -35,6 +35,7 @@ pub mod titlebar;
 pub mod welcome;
 
 use crate::tr;
+use crate::ts;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -297,11 +298,17 @@ impl WorkspaceView {
 
     /// 关标签的唯一入口（⌘W / × / 右键「关闭」/ 终端退出）：先杀掉会话记下的逃出进程组的子进程，再关（#171 同形）
     pub fn close_tab(&mut self, cid: &str, tid: &str, cx: &mut Context<Self>) {
+        self.kill_escaped_children(tid, cx);
+        self.update_ws(cx, |w| w.close_tab(cid, tid));
+    }
+
+    /// Kill the child processes the session recorded as having left the tab's process group (#171)
+    fn kill_escaped_children(&self, tid: &str, cx: &App) {
         let pids: Vec<u32> = {
             let s = self.state.read(cx);
-            find_container(&s.workspace.state.root, cid)
-                .and_then(|c| c.tabs.iter().find(|t| t.id == tid))
-                .and_then(|t| t.session_id.as_deref())
+            s.workspace
+                .locate_tab(tid)
+                .and_then(|(_, t)| t.session_id.as_deref())
                 .and_then(|sid| s.session(sid))
                 .map(|m| m.child_processes.iter().map(|p| p.pid).collect())
                 .unwrap_or_default()
@@ -309,7 +316,86 @@ impl WorkspaceView {
         if !pids.is_empty() {
             makit_core::process::kill_pids(&pids);
         }
-        self.update_ws(cx, |w| w.close_tab(cid, tid));
+    }
+
+    /// Stop tabs (#287): kill their processes exactly like closing does, drop their terminals, keep the tabs where
+    /// they are, marked stopped. Asks first when one of them is in the middle of something (busy / waiting)
+    pub fn stop_tabs(&mut self, tids: Vec<String>, window: &mut Window, cx: &mut Context<Self>) {
+        let tids: Vec<String> = {
+            let ws = &self.state.read(cx).workspace;
+            tids.into_iter().filter(|t| ws.locate_tab(t).is_some_and(|(_, tab)| model::can_stop(tab))).collect()
+        };
+        if tids.is_empty() {
+            return;
+        }
+        let active = {
+            let s = self.state.read(cx);
+            tids.iter()
+                .filter(|t| {
+                    s.workspace
+                        .locate_tab(t)
+                        .and_then(|(_, tab)| tab.session_id.as_deref())
+                        .and_then(|sid| s.session(sid))
+                        .is_some_and(|m| model::stop_needs_confirm(crate::sidebar::groups::run_state(m.running, &m.status)))
+                })
+                .count()
+        };
+        if active == 0 {
+            self.stop_tabs_now(&tids, cx);
+            return;
+        }
+        let rx = window.prompt(
+            gpui::PromptLevel::Warning,
+            &ts!("workspace.stop.confirm_title", count = active),
+            Some(&ts!("workspace.stop.confirm_detail")),
+            &[gpui::PromptButton::ok(ts!("workspace.menu.stop")), gpui::PromptButton::cancel(ts!("common.cancel"))],
+            cx,
+        );
+        cx.spawn(async move |this, cx| {
+            if rx.await.ok() == Some(0) {
+                let _ = this.update(cx, |v, cx| v.stop_tabs_now(&tids, cx));
+            }
+        })
+        .detach();
+    }
+
+    fn stop_tabs_now(&mut self, tids: &[String], cx: &mut Context<Self>) {
+        log::info!(target: "workspace", "stop {} tab(s): {}", tids.len(), tids.join(", "));
+        for tid in tids {
+            self.kill_escaped_children(tid, cx);
+        }
+        let list = tids.to_vec();
+        self.update_ws(cx, |w| {
+            for tid in &list {
+                w.set_tab_stopped(tid, true);
+            }
+            list.clone()
+        });
+        // The stopped tab's terminal (and its focus handle) is gone: let sync_focus hand focus over again
+        self.focused_tab = None;
+        cx.notify();
+    }
+
+    /// Bring a tab back (#287): a stopped tab, or one whose process exited by itself. Its terminal is rebuilt on the
+    /// next frame from the tab's own init command, the same way a tab starts after a restart
+    pub fn resume_tab(&mut self, tid: &str, cx: &mut Context<Self>) {
+        let exited = self.terminals.get(tid).is_some_and(|t| t.view.read(cx).exited);
+        let was_stopped = self.state.read(cx).workspace.locate_tab(tid).is_some_and(|(_, t)| t.stopped);
+        if !exited && !was_stopped {
+            return;
+        }
+        log::info!(target: "workspace", "resume tab {tid} (stopped: {was_stopped}, exited: {exited})");
+        let id = tid.to_string();
+        self.update_ws(cx, |w| {
+            // Resuming from the menu of a background tab also brings it to the front: that's where it runs
+            if let Some(cid) = w.locate_tab(&id).map(|(c, _)| c.id.clone()) {
+                w.tab_click(&cid, &id);
+            }
+            w.set_tab_stopped(&id, false);
+            if exited { vec![id.clone()] } else { vec![] }
+        });
+        self.focused_tab = None;
+        cx.notify();
     }
 
     /// 批量关（关闭其他 / 关闭右侧）：倒序关，中间态不让 active 在剩下的标签之间来回跳
@@ -429,7 +515,7 @@ impl WorkspaceView {
 
     fn ensure_terminal(&mut self, c: &ContainerNode, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = c.tabs.iter().find(|t| t.id == c.active_tab_id) else { return };
-        if self.terminals.contains_key(&tab.id) {
+        if tab.stopped || self.terminals.contains_key(&tab.id) {
             return;
         }
         let spec = SpawnSpec {
@@ -448,10 +534,13 @@ impl WorkspaceView {
         let view = cx.new(|cx| TerminalView::new(spec, window, cx));
         let tid = tab_id.clone();
         let tid_input = tab_id.clone();
-        let sub = cx.subscribe(&view, |_: &mut Self, _, ev: &TerminalEvent, cx| match ev {
+        let tid_resume = tab_id.clone();
+        let sub = cx.subscribe(&view, move |this: &mut Self, _, ev: &TerminalEvent, cx| match ev {
             // 进程退出不关标签（同 Tauri）：终端里已经写了「[进程已退出]」，留着能看 claude 最后的输出，用户自己 ⌘W 关
             TerminalEvent::Exited => cx.notify(),
             TerminalEvent::TitleChanged => cx.notify(),
+            // Enter in a terminal whose process has exited: run it again in place (#287)
+            TerminalEvent::ResumeRequested => this.resume_tab(&tid_resume, cx),
         });
         // 启动目录：不在了 → D 的恢复对话框；按会话起始目录校正了 → 写回标签的 cwd
         let spawn_sub = cx.subscribe_in(&view, window, move |this: &mut Self, _, ev: &TerminalSpawnEvent, window, cx| match ev {
@@ -601,7 +690,25 @@ impl WorkspaceView {
                 };
                 let (p1, p2) = (cwd.clone(), cwd.clone());
                 let resume_has = resume.is_some();
+                // #287: a stopped tab, or one whose process exited by itself, offers "Resume"; a live one "Stop"
+                let exited = self.terminals.get(tid).is_some_and(|t| t.view.read(cx).exited);
+                let stop_others = model::tabs_to_stop(&c.tabs, tid);
+                let run_item = if tab.stopped || exited {
+                    let (b, w) = (tid.clone(), w.clone());
+                    OM::action(tr!("workspace.menu.resume"), move |_, cx| drop(w.update(cx, |v, cx| v.resume_tab(&b, cx))))
+                } else {
+                    let (b, w) = (tid.clone(), w.clone());
+                    OM::action(tr!("workspace.menu.stop"), move |window, cx| drop(w.update(cx, |v, cx| v.stop_tabs(vec![b.clone()], window, cx))))
+                        .disabled(!model::can_stop(tab))
+                };
+                let (w5, so) = (w.clone(), stop_others.clone());
+                let stop_others_item =
+                    OM::action(tr!("workspace.menu.stop_others"), move |window, cx| drop(w5.update(cx, |v, cx| v.stop_tabs(so.clone(), window, cx))))
+                        .disabled(stop_others.is_empty());
                 vec![
+                    run_item,
+                    stop_others_item,
+                    OM::separator(),
                     OM::action(tr!("workspace.menu.close"), close_one),
                     OM::action(tr!("workspace.menu.close_others"), close_others).disabled(others.is_empty()),
                     OM::action(tr!("workspace.menu.close_right"), close_right).disabled(right.is_empty()),
@@ -1025,6 +1132,36 @@ impl WorkspaceView {
             .into_any_element()
     }
 
+    /// What a stopped tab shows (#287): one line and a button. Enter does the same as the button; that key is caught
+    /// on the workspace root, which holds focus (`sync_focus`) whenever the active tab has no terminal
+    fn render_stopped(&self, tid: &str, theme: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        let t2 = tid.to_string();
+        div()
+            .id(SharedString::from(format!("stopped-{tid}")))
+            .size_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap(px(12.0))
+            .child(div().text_color(theme.fg_muted).child(tr!("workspace.stopped.title")))
+            .child(
+                div()
+                    .id(SharedString::from(format!("stopped-resume-{tid}")))
+                    .px(px(12.0))
+                    .py(px(4.0))
+                    .rounded(px(6.0))
+                    .border_1()
+                    .border_color(theme.border)
+                    .text_color(theme.fg)
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme.bg_hover))
+                    .child(tr!("workspace.stopped.resume"))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resume_tab(&t2, cx))),
+            )
+            .into_any_element()
+    }
+
     fn render_body(&mut self, c: &ContainerNode, theme: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let _ = window;
         let overlay = self.hover_drop.as_ref().filter(|(cid, _, _)| *cid == c.id).map(|(_, d, s)| overlay_fraction(*d, *s));
@@ -1044,7 +1181,10 @@ impl WorkspaceView {
             match (self.hybrids.get(&c.active_tab_id), self.terminals.get(&c.active_tab_id)) {
                 (Some(h), _) => div().size_full().child(h.clone()).into_any_element(),
                 (None, Some(t)) => div().size_full().child(t.view.clone()).into_any_element(),
-                (None, None) => Empty.into_any_element(),
+                (None, None) => match c.tabs.iter().find(|t| t.id == c.active_tab_id).filter(|t| t.stopped) {
+                    Some(t) => self.render_stopped(&t.id, theme, cx),
+                    None => Empty.into_any_element(),
+                },
             }
         };
         let (c1, c2, c3, c4, c5, c6) = (c.id.clone(), c.id.clone(), c.id.clone(), c.id.clone(), c.id.clone(), c.id.clone());
@@ -1271,6 +1411,15 @@ impl Render for WorkspaceView {
             .id("workspace")
             .key_context("Workspace")
             .track_focus(&self.focus)
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
+                // Enter on a stopped tab's page resumes it (#287). Only when the root itself is focused: a terminal
+                // or an overlay with focus handles its own keys
+                let stopped = this.state.read(cx).workspace.active_tab().filter(|t| t.stopped).map(|t| t.id.clone());
+                if let Some(tid) = stopped.filter(|_| ev.keystroke.key == "enter") {
+                    this.resume_tab(&tid, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .relative()
             .size_full()
             .bg(cx.theme().bg)

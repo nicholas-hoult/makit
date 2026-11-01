@@ -59,6 +59,12 @@ impl TerminalView {
             return;
         }
         let m = &ev.keystroke.modifiers;
+        let modified = m.platform || m.control || m.alt || m.shift || m.function;
+        if super::exit_notice::resumes_on_key(self.exited, &ev.keystroke.key, modified) {
+            cx.emit(super::TerminalEvent::ResumeRequested);
+            cx.stop_propagation();
+            return;
+        }
         let mode = self.mode();
         if let Some(bytes) = key_to_bytes(&ev.keystroke.key, mods_of(m), mode.contains(TermMode::APP_CURSOR)) {
             self.write_user_cx(bytes, cx);

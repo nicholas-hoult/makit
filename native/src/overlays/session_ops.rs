@@ -160,6 +160,8 @@ pub fn open_session(session_id: &str, cx: &mut App) {
         OpenDecision::Switch { container_id, tab_id } => {
             state.update(cx, |st, cx| {
                 st.workspace.tab_click(&container_id, &tab_id);
+                // Opening a session on purpose brings its stopped tab back (#287)
+                st.workspace.set_tab_stopped(&tab_id, false);
                 st.workspace_changed(cx);
             });
         }
@@ -175,6 +177,24 @@ pub fn open_session(session_id: &str, cx: &mut App) {
             });
         }
     }
+}
+
+/// The tabs bound to this session that can be stopped (#287)
+pub fn stoppable_tabs(ws: &crate::workspace::model::WorkspaceState, session_id: &str) -> Vec<String> {
+    collect_containers(&ws.root)
+        .into_iter()
+        .flat_map(|c| c.tabs.iter())
+        .filter(|t| t.session_id.as_deref() == Some(session_id) && crate::workspace::model::can_stop(t))
+        .map(|t| t.id.clone())
+        .collect()
+}
+
+/// Sidebar "Stop": stop every tab of this session, keeping them (#287)
+pub fn stop_session_tabs(session_id: &str, window: &mut Window, cx: &mut App) {
+    let Some(h) = host(cx) else { return };
+    let ws = h.read(cx).workspace.clone();
+    let tids = stoppable_tabs(&AppState::global(cx).read(cx).workspace.state, session_id);
+    ws.update(cx, |w, cx| w.stop_tabs(tids, window, cx));
 }
 
 /// ⌘Enter / ⌘⇧Enter：在当前 pane 旁边分屏打开（`handleSplitWithSession`，dir V = 左右、H = 上下）

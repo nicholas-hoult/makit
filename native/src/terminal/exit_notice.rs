@@ -55,3 +55,23 @@ mod tests {
         assert!(!s.contains("退出码"), "被信号杀死时没有退出码：{s}");
     }
 }
+
+/// #287: in a terminal whose process has exited, a plain Enter runs the tab again in place.
+/// Anything else (and Enter while the process lives) is ordinary input
+pub fn resumes_on_key(exited: bool, key: &str, modified: bool) -> bool {
+    exited && !modified && key == "enter"
+}
+
+#[cfg(test)]
+mod resume_key_tests {
+    use super::resumes_on_key;
+
+    /// Wrong: Enter in a live claude gets swallowed (prompt never submits), or ⌘Enter / ⇧Enter in a dead tab restarts it
+    #[test]
+    fn only_plain_enter_after_exit_resumes() {
+        assert!(resumes_on_key(true, "enter", false));
+        assert!(!resumes_on_key(false, "enter", false));
+        assert!(!resumes_on_key(true, "enter", true));
+        assert!(!resumes_on_key(true, "a", false));
+    }
+}

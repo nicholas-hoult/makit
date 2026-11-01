@@ -31,6 +31,8 @@ enum Cmd {
     OnlyProject(String),
     NewSession(String, &'static str),
     Detail(String),
+    /// Stop the session's tabs, keeping them (#287)
+    Stop(String),
 }
 
 /// 一个右键菜单项；`cmd` 为 None = 灰掉
@@ -64,6 +66,7 @@ impl SidebarView {
             Cmd::ToggleArchive(id) => self.toggle_archive(&id, window, cx),
             Cmd::Reveal(path) => self.reveal_in_finder(path),
             Cmd::Detail(id) => crate::overlays::open_detail(&id, window, cx),
+            Cmd::Stop(id) => crate::overlays::session_ops::stop_session_tabs(&id, window, cx),
             Cmd::Copy(text) => self.copy(text, cx),
             Cmd::NewShell(cwd) => self.new_shell_in(&cwd, cx),
             Cmd::OnlyProject(key) => self.only_this_project(&key, cx),
@@ -78,9 +81,16 @@ impl SidebarView {
         let Some(m) = s.session(id) else { return vec![] };
         // last_cwd 优先：会话跑起来之后可能 cd 走了，右键要去的是它现在在的目录
         let cwd = if m.last_cwd.is_empty() { m.cwd.clone() } else { m.last_cwd.clone() };
-        vec![
+        let stoppable = !crate::overlays::session_ops::stoppable_tabs(&s.workspace.state, id).is_empty();
+        let mut lines = vec![
             item(if s.is_pinned(id) { tr!("sidebar.menu.unpin") } else { tr!("sidebar.menu.pin") }, Cmd::TogglePin(id.into())),
             item(if m.archived { tr!("sidebar.menu.unarchive") } else { tr!("sidebar.menu.archive") }, Cmd::ToggleArchive(id.into())),
+        ];
+        // Only for a session that has a running tab in makit (#287): one running elsewhere is not ours to stop
+        if stoppable {
+            lines.push(item(tr!("workspace.menu.stop"), Cmd::Stop(id.into())));
+        }
+        lines.extend([
             MenuLine::Sep,
             item(tr!("sidebar.menu.detail"), Cmd::Detail(id.into())),
             MenuLine::Sep,
@@ -88,7 +98,8 @@ impl SidebarView {
             item(tr!("sidebar.menu.copy_path"), Cmd::Copy(cwd)),
             item(tr!("sidebar.menu.copy_id"), Cmd::Copy(m.session_id.clone())),
             item(tr!("sidebar.menu.copy_resume"), Cmd::Copy(Self::resume_command_line(m))),
-        ]
+        ]);
+        lines
     }
 
     /// 项目头右键

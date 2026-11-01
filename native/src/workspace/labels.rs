@@ -112,6 +112,7 @@ mod tests {
             session_id: sid.map(String::from),
             session_short_id: None,
             label: label.into(),
+            stopped: false,
         }
     }
 

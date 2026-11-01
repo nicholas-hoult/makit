@@ -144,6 +144,8 @@ impl Dimensions for TermSize {
 pub enum TerminalEvent {
     TitleChanged,
     Exited,
+    /// Enter pressed after the process exited: the workspace runs the tab again (#287)
+    ResumeRequested,
 }
 
 /// 启动相关的事件（另开一个事件类型，不动 `TerminalEvent`，免得改工作区的 match）
@@ -603,6 +605,7 @@ impl TerminalView {
                     // A dim line saying the process ended; with the exit code / signal when we have one (#288)
                     let status = if let AlacEvent::ChildExit(s) = ev { Some(s) } else { None };
                     self.write_local(&format!("\r\n\x1b[2m{}\x1b[0m\r\n", exit_notice::exit_notice(status)));
+                    self.write_local(&format!("\x1b[2m{}\x1b[0m\r\n", crate::ts!("terminal.press_enter_to_resume")));
                     cx.emit(TerminalEvent::Exited);
                     cx.notify();
                 }
