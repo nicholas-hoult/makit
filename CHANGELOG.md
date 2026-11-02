@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-02
+
 ### Added
 - Stop a session without closing its tab: right-click a tab for "Stop session" / "Stop other tabs", or a session in the sidebar for "Stop". The process ends and frees its memory; the tab keeps its place (also across restarts) and shows "Session stopped". Click "Resume" or press Enter to run it again. Stopping a session that is working or waiting on you asks first (#287)
 - A tab whose process exited by itself can be run again in place: press Enter in it, or right-click > "Resume session" (#287)
