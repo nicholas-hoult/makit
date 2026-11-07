@@ -647,3 +647,42 @@ mod menu_tests {
         assert_eq!(terminal_menu(Some("error: foo")), Some(("复制".to_string(), "搜索选中内容".to_string())));
     }
 }
+
+#[cfg(test)]
+mod wrap_link_tests {
+    use alacritty_terminal::index::Line;
+    use alacritty_terminal::term::{Config, Term};
+    use alacritty_terminal::vte::ansi::Processor;
+    use futures::channel::mpsc::unbounded;
+
+    use super::super::links::row_links;
+    use super::super::{Listener, TermSize};
+    use super::TerminalView;
+
+    fn links_after(cols: usize, bytes: &str) -> Vec<(String, (usize, i32), (usize, i32))> {
+        let (tx, _rx) = unbounded();
+        let mut term = Term::new(Config::default(), &TermSize { cols, rows: 10 }, Listener(tx));
+        let mut p: Processor = Processor::new();
+        p.advance(&mut term, bytes.as_bytes());
+        let rows = TerminalView::logical_rows(&term, Line(0));
+        row_links(&rows).into_iter().map(|l| (l.text, l.start, l.end)).collect()
+    }
+
+    /// Links the terminal itself wrapped (soft wrap, `WRAPLINE`) are one link across the rows, including a wide
+    /// character that does not fit in the last column. A regression here shows up as a path that is underlined on
+    /// one row only and opens the wrong thing when clicked on the other
+    #[test]
+    fn soft_wrapped_links_span_the_rows() {
+        let only = |cols: usize, text: &str| -> (String, (usize, i32), (usize, i32)) {
+            links_after(cols, text).into_iter().find(|l| l.0.len() > 8).expect("a link")
+        };
+        assert_eq!(only(20, "see ~/docs/issue/88-abc.md ok"), ("~/docs/issue/88-abc.md".to_string(), (4, 0), (5, 1)));
+        assert_eq!(only(20, "see https://example.com/a/b/c/d.html ok").1, (4, 0));
+        let cjk = "see ~/docs/issue/88-【方案中】存储模式.md ok";
+        for cols in [19, 20] {
+            let (text, start, end) = only(cols, cjk);
+            assert_eq!(text, "~/docs/issue/88-【方案中】存储模式.md", "cols = {cols}");
+            assert_eq!((start, end.1), ((4, 0), 2), "cols = {cols}: starts on row 0 and ends on row 2");
+        }
+    }
+}
