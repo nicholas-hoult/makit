@@ -21,8 +21,10 @@ use regex::Regex;
 /// 双击 `foo.ts:12` 只选 `foo.ts`；`/` 和 `.` 故意不算，双击路径能整体选中。
 pub const WORD_SEPARATORS: &str = " \t'\"│`|:;,()[]{}<>$";
 
-/// 路径字符（JS 版的 `[\w一-龥.\-]`）
-const W: &str = r"[A-Za-z0-9_\x{4e00}-\x{9fa5}.\-]";
+/// Path characters (the JS version's `[\w一-龥.\-]`), plus the full-width brackets 【】（）《》 that show up in file
+/// names such as `88-【status】title.md`. They make a sentence that wraps a path (`（see ~/a/b）`) swallow one closing
+/// bracket too; `trim_unpaired_closers` takes it off again
+const W: &str = r"[A-Za-z0-9_\x{4e00}-\x{9fa5}\x{3010}\x{3011}\x{ff08}\x{ff09}\x{300a}\x{300b}.\-]";
 const LC: &str = r"(?::[0-9]+(?::[0-9]+)?)?";
 
 /// 匹配本地路径（支持中文文件名 + 目录）：
@@ -32,7 +34,7 @@ const LC: &str = r"(?::[0-9]+(?::[0-9]+)?)?";
 /// 4. ls -F 风格目录（后缀 /）：Pictures/ —— JS 版用前瞻 `(?=\s|$)`，Rust regex 没有前瞻，
 ///    改成把那个空白一起吃进来、匹配后再去掉（`trim_lookahead`）
 static PATH_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    let wc = r"[A-Za-z0-9_\x{4e00}-\x{9fa5}.\-/]";
+    let wc = r"[A-Za-z0-9_\x{4e00}-\x{9fa5}\x{3010}\x{3011}\x{ff08}\x{ff09}\x{300a}\x{300b}.\-/]";
     Regex::new(&format!(
         r"(?:\.{{0,2}}/|~/)?(?:{W}+/)*{W}+\.[A-Za-z0-9_]+{LC}|(?:/|~/){wc}*{W}{LC}|\.{{1,2}}/{wc}*{W}{LC}|{W}+/(?:\s|$)"
     ))
@@ -150,6 +152,26 @@ fn trim_url(u: &str) -> &str {
     s
 }
 
+/// Drops full-width closing brackets at the end of a path that have no opener inside it: the `）` in `（see ~/a/b）`
+/// belongs to the sentence, while the pair in `~/a/【draft】` stays
+fn trim_unpaired_closers(s: &str) -> &str {
+    let mut s = s;
+    while let Some(last) = s.chars().last() {
+        let open = match last {
+            '】' => '【',
+            '）' => '（',
+            '》' => '《',
+            _ => break,
+        };
+        if s.matches(last).count() > s.matches(open).count() {
+            s = &s[..s.len() - last.len_utf8()];
+        } else {
+            break;
+        }
+    }
+    s
+}
+
 /// 在一行文字里找网址和本地路径，返回 char 下标（`end` 不含）。
 /// 网址优先：和网址重叠的路径匹配丢掉 —— 以前没有网址识别，`github.com/a/b` 会被当成相对路径，点了打不开。
 pub fn find_links(text: &str) -> Vec<FoundLink> {
@@ -181,7 +203,7 @@ pub fn find_links(text: &str) -> Vec<FoundLink> {
 
     // 确定的路径：带扩展名、绝对 / ~ / ./ 开头、结尾带斜杠的目录
     for m in PATH_REGEX.find_iter(text) {
-        let raw = m.as_str().trim_end_matches(|c: char| c.is_whitespace());
+        let raw = trim_unpaired_closers(m.as_str().trim_end_matches(|c: char| c.is_whitespace()));
         let (bs, be) = (m.start(), m.start() + raw.len());
         if !is_likely_path(raw) {
             continue;
@@ -436,6 +458,24 @@ mod tests {
         assert_eq!(texts("打开https://x.com/a看看"), v(&["url:https://x.com/a"]), "紧挨着中文也能切干净");
         let pos: Vec<(usize, usize)> = find_links("x https://a.io y").iter().map(|l| (l.start, l.end)).collect();
         assert_eq!(pos, vec![(2, 14)], "位置是字符串下标（https://a.io 共 12 个字符）");
+    }
+
+    /// Full-width brackets in file names (`88-【方案中】标题.md`, `说明（草稿）.md`, `《指南》.md`): the path character
+    /// set used to reject them, so the path was cut at `88-`; on screen the underline covered only the first half
+    /// and a click opened a path that does not exist
+    #[test]
+    fn full_width_brackets_in_file_names() {
+        assert_eq!(
+            texts("Update(~/p/private/docs/issue/88-【方案中】存储模式与多端同步.md)"),
+            v(&["path:~/p/private/docs/issue/88-【方案中】存储模式与多端同步.md"]),
+            "a 【status】 inside the file name"
+        );
+        assert_eq!(texts("看 说明（草稿）.md 吧"), v(&["path:说明（草稿）.md"]), "full-width parentheses");
+        assert_eq!(texts("《指南》v2.md"), v(&["path:《指南》v2.md"]), "title marks");
+        // A full-width bracket that wraps the path in a sentence is not part of it
+        assert_eq!(texts("（见 ~/a/b）"), v(&["path:~/a/b"]), "an outer closing parenthesis is not part of the path");
+        assert_eq!(texts("【~/docs/x】"), v(&["path:~/docs/x"]), "an outer closing bracket is not part of the path");
+        assert_eq!(texts("~/a/【草稿】"), v(&["path:~/a/【草稿】"]), "a matched pair stays");
     }
 
     #[test]
