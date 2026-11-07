@@ -10,6 +10,7 @@
 #   UNIVERSAL=1 bash native/scripts/bundle.sh   # Intel + Apple Silicon 通用包（要先 rustup target add 两个目标）
 #   ARCH=aarch64 DMG=1 bash native/scripts/bundle.sh   # 单架构包（aarch64 或 x86_64）；.dmg 名字带 -arm64 / -x64
 #   DMG=1 bash native/scripts/bundle.sh         # 再生成 .dmg 安装镜像（通用包名字带 -universal）
+#   SIGN_IDENTITY="Developer ID Application: ..." NOTARIZE=1 DMG=1 bash native/scripts/bundle.sh   # 发布包：签名 + 公证（见 RELEASE.md）
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -78,19 +79,40 @@ cat > "$app/Contents/Info.plist" <<PLIST
         <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
         <key>LSMinimumSystemVersion</key><string>10.15</string>
         <key>NSHighResolutionCapable</key><true/>
+        <!-- Shown in the system permission prompts. They are raised by programs running inside the terminal, and macOS asks in the name of the hosting app -->
+        <key>NSMicrophoneUsageDescription</key><string>A program running in a makit terminal is asking for access to the microphone.</string>
+        <key>NSCameraUsageDescription</key><string>A program running in a makit terminal is asking for access to the camera.</string>
+        <key>NSAppleEventsUsageDescription</key><string>A program running in a makit terminal is asking for access to other apps (Apple Events).</string>
+        <key>NSContactsUsageDescription</key><string>A program running in a makit terminal is asking for access to your contacts.</string>
+        <key>NSCalendarsUsageDescription</key><string>A program running in a makit terminal is asking for access to your calendars.</string>
+        <key>NSLocationUsageDescription</key><string>A program running in a makit terminal is asking for access to your location.</string>
+        <key>NSPhotoLibraryUsageDescription</key><string>A program running in a makit terminal is asking for access to your photos.</string>
+        <key>NSDesktopFolderUsageDescription</key><string>A program running in a makit terminal is asking for access to your Desktop folder.</string>
+        <key>NSDocumentsFolderUsageDescription</key><string>A program running in a makit terminal is asking for access to your Documents folder.</string>
+        <key>NSDownloadsFolderUsageDescription</key><string>A program running in a makit terminal is asking for access to your Downloads folder.</string>
+        <key>NSRemovableVolumesUsageDescription</key><string>A program running in a makit terminal is asking for access to removable volumes.</string>
+        <key>NSNetworkVolumesUsageDescription</key><string>A program running in a makit terminal is asking for access to network volumes.</string>
 </dict>
 </plist>
 PLIST
 
-# 本机运行够用，给别人装要换成开发者证书 + 公证。不签的话通知授权、键盘监听这类权限申请会被系统拒掉。
-# 优先用钥匙串里的本地自签名证书 makit-local-sign：签名身份固定，重新打包后录屏等授权不会失效；
-# ad-hoc（-s -）每次编译哈希都变，系统会把已有授权判成另一个程序。
-sign_id="-"
-if security find-identity -p codesigning | grep -q '"makit-local-sign"'; then
-    sign_id="makit-local-sign"
+# Distribution signing: SIGN_IDENTITY names a "Developer ID Application" certificate in the keychain. That turns on the
+# hardened runtime and a secure timestamp (both required for notarization) and the entitlements the programs running
+# inside the terminal need (packaging/makit.entitlements). Without it (a local build) the app is signed with the local
+# self-signed certificate makit-local-sign if there is one, else ad hoc: enough to run on this machine, and the system
+# permission grants (screen recording and the like) survive a rebuild only with a stable identity; an ad-hoc hash changes
+# on every compile and the system takes the new build for another program.
+if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+    codesign --force --timestamp --options runtime --entitlements "$root/native/packaging/makit.entitlements" --sign "$SIGN_IDENTITY" "$app"
+    codesign --verify --strict --verbose=2 "$app"
+else
+    sign_id="-"
+    if security find-identity -p codesigning | grep -q '"makit-local-sign"'; then
+        sign_id="makit-local-sign"
+    fi
+    codesign --force --sign "$sign_id" "$app"
 fi
-codesign --force --sign "$sign_id" "$app"
-codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Authority' || true
+codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Authority|flags' || true
 
 echo "→ $app"
 if [[ "${DMG:-}" == "1" ]]; then
@@ -103,6 +125,15 @@ if [[ "${DMG:-}" == "1" ]]; then
     ln -s /Applications "$stage/Applications"
     hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$stage" -ov -format UDZO "$dmg"
     rm -rf "$stage"
+    if [[ -n "${SIGN_IDENTITY:-}" ]]; then
+        codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
+        codesign --verify --verbose=2 "$dmg"
+        # NOTARIZE=1 also needs NOTARY_KEY_PATH / NOTARY_KEY_ID / NOTARY_ISSUER_ID, see notarize.sh
+        if [[ "${NOTARIZE:-}" == "1" ]]; then bash "$root/native/scripts/notarize.sh" "$dmg"; fi
+    elif [[ "${NOTARIZE:-}" == "1" ]]; then
+        echo "NOTARIZE=1 needs SIGN_IDENTITY: an unsigned build cannot be notarized" >&2
+        exit 1
+    fi
     echo "→ $dmg"
 fi
 if [[ "${1:-}" == "--open" ]]; then open "$app"; fi

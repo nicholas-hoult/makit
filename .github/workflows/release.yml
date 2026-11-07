@@ -2,7 +2,7 @@ name: Release
 
 # 推 v* tag 触发：测试通过后打 macOS 通用包（Intel + Apple Silicon），直接发布 Release（说明取自 CHANGELOG）。
 # macOS 是正式包；Windows 目前是预览版 .zip（#251，未签名、部分功能还是占位），Linux 0.3 再加 job。
-# 没有签名证书：CI 里走 ad-hoc 签名，用户第一次打开要手动放行（README 有步骤）。
+# macOS 包用 Developer ID 签名并公证（#262，Secrets 见下面的 Set up signing）；推 tag 时缺 Secrets 会直接失败，不会发出没签名的包。
 on:
   push:
     tags:
@@ -30,6 +30,51 @@ jobs:
       - name: Test
         run: cargo test --manifest-path native/Cargo.toml
 
+      # Signing and notarization (#262). Repository secrets:
+      #   APPLE_CERTIFICATE_BASE64    the "Developer ID Application" certificate with its private key, exported as .p12, base64
+      #   APPLE_CERTIFICATE_PASSWORD  the .p12 password
+      #   APPLE_SIGNING_IDENTITY      the certificate's full name, "Developer ID Application: <name> (<team id>)"
+      #   ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_P8_BASE64   an App Store Connect API key (.p8, base64) for notarytool
+      # A tag build without them fails rather than publish an installer macOS will refuse to open; a manual run
+      # without them just builds unsigned, for testing the rest.
+      - name: Set up signing
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          for v in APPLE_CERTIFICATE_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY ASC_API_KEY_ID ASC_API_ISSUER_ID ASC_API_KEY_P8_BASE64; do
+            if [ -z "${!v}" ]; then
+              case "$GITHUB_REF" in
+                refs/tags/v*) echo "::error::the secret $v is not set: refusing to publish an unsigned installer"; exit 1 ;;
+                *) echo "$v is not set: building unsigned"; exit 0 ;;
+              esac
+            fi
+          done
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          kpass="$(uuidgen)"
+          security create-keychain -p "$kpass" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$kpass" "$keychain"
+          (umask 077; printf '%s' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12")
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kpass" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain"
+          (umask 077; printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8")
+          {
+            echo "SIGNING_KEYCHAIN=$keychain"
+            echo "SIGN_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            echo "NOTARIZE=1"
+            echo "NOTARY_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
+            echo "NOTARY_KEY_ID=$ASC_API_KEY_ID"
+            echo "NOTARY_ISSUER_ID=$ASC_API_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
       # Three installers: universal (what the in-app updater and Homebrew use) plus one per architecture, which is
       # about half the size. Each run reuses the already compiled targets.
       - name: Bundle (universal .app + .dmg)
@@ -48,6 +93,27 @@ jobs:
 
       - name: Bundle (Intel .dmg)
         run: ARCH=x86_64 DMG=1 bash native/scripts/bundle.sh
+
+      # What a user's Mac will check: the installer is notarized (ticket stapled) and the app inside passes Gatekeeper
+      - name: Verify signing and notarization
+        if: env.SIGN_IDENTITY != ''
+        run: |
+          for dmg in native/target/release/bundle/makit-*.dmg; do
+            echo "== $dmg"
+            xcrun stapler validate "$dmg"
+            spctl -a -t open --context context:primary-signature -vv "$dmg"
+            mnt="$(mktemp -d)"
+            hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mnt" "$dmg"
+            spctl -a -t exec -vv "$mnt/makit.app"
+            codesign -dv --verbose=2 "$mnt/makit.app" 2>&1 | grep -E "Authority|TeamIdentifier|flags"
+            hdiutil detach -quiet "$mnt"
+          done
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          [ -n "$SIGNING_KEYCHAIN" ] && security delete-keychain "$SIGNING_KEYCHAIN" || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -81,8 +147,6 @@ jobs:
                 echo "$zh"
               fi
             fi
-            echo
-            echo "**Unsigned build**: on first launch macOS asks you to allow the app manually, see the [README](https://github.com/${GITHUB_REPOSITORY}#first-launch-unsigned-this-step-is-required)."
           } > release-notes.md
           cat release-notes.md
 
