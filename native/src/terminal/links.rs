@@ -291,6 +291,47 @@ pub fn cells_to_text(cells: &[Cell]) -> (String, Vec<usize>) {
     (text, col_of)
 }
 
+/// Does `next` continue `prev` because the *program* wrapped a long token (a real newline plus an indent, no wrap flag
+/// on the terminal row)? Returns how many leading cells of `next` are that indent.
+///
+/// Claude Code does this to its reply text: a long path is cut at the right edge and the rest goes on the next row
+/// after a two-space indent. The test is deliberately narrow, because a wrong join glues unrelated rows into one link:
+/// the last word of `prev` must be at least `MIN_TAIL` cells long and reach the right edge (one empty column is
+/// allowed only when the first character of `next` is a wide one that did not fit), and `next` must start with
+/// 1..=`MAX_INDENT` spaces followed by something. No indent means no join, so `ls` columns that happen to fill the
+/// row stay apart.
+pub fn hard_wrap_indent(prev: &[Cell], next: &[Cell]) -> Option<usize> {
+    const MIN_TAIL: usize = 8;
+    const MAX_INDENT: usize = 8;
+    let blank = |c: &Cell| c.width > 0 && c.chars.trim().is_empty();
+    let last = prev.iter().rposition(|c| c.width > 0 && !c.chars.trim().is_empty())?;
+    let end = last + prev[last].width.max(1) as usize - 1;
+    let gap = prev.len() - 1 - end;
+    // the word that touches the edge, in cells (a wide character's second cell counts too)
+    let tail = prev[..=last].iter().rev().take_while(|c| !blank(c)).count();
+    if tail < MIN_TAIL {
+        return None;
+    }
+    let indent = next.iter().take_while(|c| blank(c)).count();
+    if !(1..=MAX_INDENT).contains(&indent) {
+        return None;
+    }
+    let first = next.get(indent).filter(|c| c.width > 0 && !c.chars.trim().is_empty())?;
+    match gap {
+        0 => Some(indent),
+        1 if first.width == 2 => Some(indent),
+        _ => None,
+    }
+}
+
+/// Turns the first `n` cells of a continuation row into cells without a character, so the text of the joined rows
+/// reads straight through (`cells_to_text` skips them) while every cell keeps its place for the underline
+pub fn blank_indent(cells: &mut [Cell], n: usize) {
+    for c in cells.iter_mut().take(n) {
+        *c = Cell::new("", 0);
+    }
+}
+
 /// 分词器：输入一段文字，返回 (起始 char 下标, 词) 列表。真实现见 `segment.rs`（macOS 系统分词）
 pub type Segmenter<'a> = &'a dyn Fn(&str) -> Vec<(usize, String)>;
 
@@ -610,5 +651,52 @@ mod tests {
         assert_eq!(calls.get(), 2, "同一批里重复的只查一次，5 秒内不再查");
         cache.existing(&v(&["/a"]), 5001.0, check);
         assert_eq!(calls.get(), 3, "过期重查");
+    }
+
+    // ---- hard wrap: the program broke the line itself (real newline + indent), not the terminal ----
+
+    fn line(s: &str, cols: usize) -> Vec<Cell> {
+        format!("{s:<cols$}").chars().map(|ch| c(&ch.to_string(), 1)).collect()
+    }
+
+    /// Claude Code wraps its reply text itself: a long path is cut at the right edge and the rest goes on the next
+    /// row after a two-space indent, with no wrap flag. Without joining, each half is a separate "link" and the
+    /// second one points at a file that does not exist
+    #[test]
+    fn hard_wrapped_rows_are_joined_when_the_first_one_is_flush_with_the_edge() {
+        let prev = line("  see ~/docs/issue/88-abc", 25);
+        assert_eq!(hard_wrap_indent(&prev, &line("  def-ghi.md ok", 25)), Some(2));
+        // one empty column is a wide character that did not fit; anything else must touch the edge
+        let wide = |s: &str| -> Vec<Cell> {
+            let mut v: Vec<Cell> = "  ".chars().map(|ch| c(&ch.to_string(), 1)).collect();
+            for ch in s.chars() {
+                v.extend([c(&ch.to_string(), 2), c("", 0)]);
+            }
+            v.resize(25, c(" ", 1));
+            v
+        };
+        let one_short = line("  see ~/docs/issue/88-ab", 25);
+        assert_eq!(hard_wrap_indent(&one_short, &wide("【方案】")), Some(2), "a wide character left one column empty");
+        assert_eq!(hard_wrap_indent(&one_short, &line("  bc.md", 25)), None, "a narrow character would have fit: the word had ended");
+        assert_eq!(hard_wrap_indent(&line("  see ~/docs/issue/88-a", 25), &wide("【方案】")), None, "two empty columns");
+        // the indent has to be there: `ls` columns that happen to fill the row must not be glued together
+        assert_eq!(hard_wrap_indent(&prev, &line("def-ghi.md", 25)), None);
+        assert_eq!(hard_wrap_indent(&prev, &line("                  x", 25)), None, "too deep to be an indent");
+        assert_eq!(hard_wrap_indent(&prev, &line("   ", 25)), None, "an indent with nothing after it");
+        // a short word at the edge is just a word
+        assert_eq!(hard_wrap_indent(&line("  the cat sat on the mat", 25), &line("  and so on", 25)), None);
+        assert_eq!(hard_wrap_indent(&line("  see ~/docs/issue/88-abc ", 26), &line("  x.md", 26)), None, "a space at the edge: the token ended");
+    }
+
+    #[test]
+    fn a_hard_wrapped_path_is_one_link_once_the_indent_is_blanked() {
+        let mut next = line("  def-ghi.md ok", 25);
+        let prev = line("  see ~/docs/issue/88-abc", 25);
+        let n = hard_wrap_indent(&prev, &next).unwrap();
+        blank_indent(&mut next, n);
+        let rows = vec![Row { y: 0, cells: prev }, Row { y: 1, cells: next }];
+        let l = row_links(&rows).into_iter().find(|l| !l.verify).expect("a link");
+        assert_eq!(l.text, "~/docs/issue/88-abcdef-ghi.md");
+        assert_eq!((l.start, l.end), ((6, 0), (11, 1)), "starts on row 0 and ends on the last letter of row 1");
     }
 }

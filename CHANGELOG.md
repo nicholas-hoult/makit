@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- A long path or URL that a program wrapped itself (real line break plus an indent, as Claude Code does in its replies) is now one link in the terminal, so ⌘-click opens the whole path instead of just one half
 - File paths whose names contain full-width brackets (such as `88-【status】title.md`) are now one link in the terminal; they used to be cut short at the bracket, so ⌘-click did nothing or opened the wrong path
 
 ## [0.2.5] - 2026-11-02

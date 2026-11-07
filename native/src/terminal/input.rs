@@ -373,30 +373,15 @@ impl TerminalView {
 
     // ───────────────────────── 链接 ─────────────────────────
 
-    /// 从这一行往上、往下沿折行把整条逻辑行摸出来（各最多 50 行）
+    /// 从这一行往上、往下沿折行把整条逻辑行摸出来（各最多 50 行）。
+    /// 折行有两种：终端自己折的（行尾有 WRAPLINE 标记），和程序自己折的（真换行 + 缩进，没有标记，Claude Code 的回复
+    /// 正文就是这样；判定见 `links::hard_wrap_indent`）。后一种把续行开头的缩进抹掉，路径文本才连得上
     fn logical_rows(term: &Term<Listener>, line: Line) -> Vec<Row> {
         let top = term.topmost_line();
         let bottom = term.bottommost_line();
         let cols = term.columns();
-        let wrapped = |l: Line| term.grid()[l][Column(cols - 1)].flags.contains(Flags::WRAPLINE);
-        let mut start = line;
-        for _ in 0..MAX_WRAP_ROWS {
-            if start <= top || !wrapped(start - 1) {
-                break;
-            }
-            start = start - 1;
-        }
-        let mut end = line;
-        for _ in 0..MAX_WRAP_ROWS {
-            if end >= bottom || !wrapped(end) {
-                break;
-            }
-            end = end + 1;
-        }
-        let mut rows = Vec::new();
-        let mut l = start;
-        while l <= end {
-            let cells = (0..cols)
+        let row_cells = |l: Line| -> Vec<Cell> {
+            (0..cols)
                 .map(|c| {
                     let cell = &term.grid()[l][Column(c)];
                     if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
@@ -408,7 +393,38 @@ impl TerminalView {
                     }
                     Cell::new(s, if cell.flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 })
                 })
-                .collect();
+                .collect()
+        };
+        let soft = |l: Line| term.grid()[l][Column(cols - 1)].flags.contains(Flags::WRAPLINE);
+        // does row `l` continue on row `l + 1`?
+        let joined = |l: Line| soft(l) || links::hard_wrap_indent(&row_cells(l), &row_cells(l + 1)).is_some();
+        let mut start = line;
+        for _ in 0..MAX_WRAP_ROWS {
+            if start <= top || !joined(start - 1) {
+                break;
+            }
+            start = start - 1;
+        }
+        let mut end = line;
+        for _ in 0..MAX_WRAP_ROWS {
+            if end >= bottom || !joined(end) {
+                break;
+            }
+            end = end + 1;
+        }
+        let mut rows = Vec::new();
+        let mut prev: Option<Vec<Cell>> = None;
+        let mut l = start;
+        while l <= end {
+            let mut cells = row_cells(l);
+            if let Some(p) = &prev {
+                if !soft(l - 1) {
+                    if let Some(n) = links::hard_wrap_indent(p, &cells) {
+                        links::blank_indent(&mut cells, n);
+                    }
+                }
+            }
+            prev = Some(row_cells(l));
             rows.push(Row { y: l.0, cells });
             l = l + 1;
         }
@@ -489,9 +505,13 @@ impl TerminalView {
                 continue;
             }
             if let Some(vr) = to_view(start_y + i as i32) {
-                segments.push((vr, s.max(rs) - rs, e.min(re) - rs));
+                let (mut a, b) = (s.max(rs) - rs, e.min(re) - rs);
+                // the indent of a program-wrapped continuation row is blanked: start the underline after it
+                while a < b && r.cells.get(a).map(|c| c.width == 0 && c.chars.is_empty()).unwrap_or(false) {
+                    a += 1;
+                }
+                segments.push((vr, a, b));
             }
-            let _ = r;
         }
         self.hover = Some(HoverLink { segments, target });
     }
@@ -660,11 +680,16 @@ mod wrap_link_tests {
     use super::TerminalView;
 
     fn links_after(cols: usize, bytes: &str) -> Vec<(String, (usize, i32), (usize, i32))> {
+        links_from(cols, bytes, 0)
+    }
+
+    /// The links of the logical row that contains screen row `from`
+    fn links_from(cols: usize, bytes: &str, from: i32) -> Vec<(String, (usize, i32), (usize, i32))> {
         let (tx, _rx) = unbounded();
         let mut term = Term::new(Config::default(), &TermSize { cols, rows: 10 }, Listener(tx));
         let mut p: Processor = Processor::new();
         p.advance(&mut term, bytes.as_bytes());
-        let rows = TerminalView::logical_rows(&term, Line(0));
+        let rows = TerminalView::logical_rows(&term, Line(from));
         row_links(&rows).into_iter().map(|l| (l.text, l.start, l.end)).collect()
     }
 
@@ -684,5 +709,19 @@ mod wrap_link_tests {
             assert_eq!(text, "~/docs/issue/88-【方案中】存储模式.md", "cols = {cols}");
             assert_eq!((start, end.1), ((4, 0), 2), "cols = {cols}: starts on row 0 and ends on row 2");
         }
+    }
+
+    /// Claude Code's own wrapping: the first row is filled to the last column, a real newline follows, and the rest
+    /// is indented by two spaces. The path must be one link whichever of the rows the mouse is over
+    #[test]
+    fn a_path_the_program_wrapped_is_one_link_from_either_row() {
+        let text = "  see ~/docs/issue/88-abc\r\n  def-ghi.md ok";
+        for from in [0, 1] {
+            let l = links_from(25, text, from).into_iter().find(|l| l.0.len() > 12).expect("a link");
+            assert_eq!(l, ("~/docs/issue/88-abcdef-ghi.md".to_string(), (6, 0), (11, 1)), "from row {from}");
+        }
+        // not glued: the first row is not flush with the edge
+        let apart = links_from(26, "  see ~/docs/issue/88-abc\r\n  def-ghi.md ok", 1);
+        assert!(apart.iter().all(|l| l.0 != "~/docs/issue/88-abcdef-ghi.md"), "{apart:?}");
     }
 }
