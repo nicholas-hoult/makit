@@ -46,7 +46,7 @@
 
 An AI coding session is a conversation that lives in a terminal window. Close the window, rename the folder, restart the Mac, and the conversation is still on disk, but nothing points at it any more. With a few projects going at once you cannot tell which window is waiting for you, and last Tuesday's session is "somewhere".
 
-makit changes the unit: **the session is the object, not the window.** It reads the session files that Claude Code and Codex already write, so every session is listed whichever terminal it was started in, with its project, state and history, and it stays listed after the window is gone.
+makit changes the unit: **the session is the object, not the window.** It reads the session records that Claude Code, Codex and opencode already write, so every session is listed whichever terminal it was started in, with its project, state and history, and it stays listed after the window is gone.
 
 Unix solved the same problem for processes long ago with job control. This is that, for AI sessions:
 
@@ -209,8 +209,9 @@ makit manages AI CLIs **you have already installed**, so you need at least one o
 
 - [Claude Code](https://claude.ai/code)
 - [Codex](https://github.com/openai/codex)
+- [opencode](https://opencode.ai)
 
-If neither is installed, makit will be empty when it opens.
+If none of them is installed, makit will be empty when it opens.
 
 ---
 
@@ -288,21 +289,23 @@ The full list is in the app's Settings panel.
 
 ## Which AI CLIs are supported
 
-Two, but **their capabilities differ**, so please read this before installing:
+Three, but **their capabilities differ**, so please read this before installing:
 
-| | Claude Code | Codex |
-|---|---|---|
-| Scan existing sessions on this machine | ✅ | ✅ |
-| Resume past sessions | ✅ | ✅ |
-| Start new sessions | ✅ | ✅ |
-| Running / waiting state | ✅ | ❌ always shown as "Stopped" |
-| Desktop notifications | ✅ | ❌ |
-| Hover detail card (directory, branch, first / last topic) | ✅ | ✅ |
-| Resume after the launch directory was deleted | ✅ | N/A (Codex does not index sessions by directory) |
+| | Claude Code | Codex | opencode |
+|---|---|---|---|
+| Scan existing sessions on this machine | ✅ | ✅ | ✅ |
+| Resume past sessions | ✅ | ✅ | ✅ |
+| Start new sessions | ✅ | ✅ | ✅ |
+| Running state | ✅ | ✅ (while a codex process has the session open) | ✅ |
+| Busy state | ✅ | ❌ shown as idle | ✅ |
+| Waiting-for-you state | ✅ | ❌ | ❌ |
+| Desktop notifications | ✅ | ❌ | ❌ |
+| Hover detail card (directory, branch, first / last topic) | ✅ | ✅ | not verified |
+| Resume after the launch directory was deleted | ✅ | N/A (Codex does not index sessions by directory) | not verified |
 
-**Why the asymmetry**: makit does not detect the running state itself; it reads the state Claude Code writes to `~/.claude/sessions/<pid>.json`. Codex has no equivalent, so its sessions can be managed and resumed, but you can't tell "running or waiting for you".
+**Why the asymmetry**: Claude Code writes its live state to `~/.claude/sessions/<pid>.json`, which makit reads. Codex has no equivalent, so makit only sees whether a codex process has the session open: running or idle, never busy or waiting. opencode keeps its sessions in a SQLite database, which makit reads read-only (through the system SQLite library) to show running and busy.
 
-The Codex path has not been fully verified on real machines yet. In 0.1, treat it as a **known limitation** rather than a finished feature.
+The Codex and opencode paths have had less real-machine testing than Claude Code; treat their state display as best-effort.
 
 Other CLIs (Gemini, etc.) are not supported for now.
 
@@ -314,7 +317,7 @@ An unsigned app that reads `~/.claude` — you have the right to know exactly wh
 
 **Reads**
 
-- `~/.claude/projects/`, `~/.claude/sessions/`, `~/.codex/sessions/` — scans existing sessions to build the list and states
+- `~/.claude/projects/`, `~/.claude/sessions/`, `~/.codex/sessions/`, and opencode's SQLite database (read-only) — scans existing sessions to build the list and states
 
 **Writes**
 
@@ -339,7 +342,7 @@ An unsigned app that reads `~/.claude` — you have the right to know exactly wh
 makit does include split terminals, but it is organised around sessions, not windows: it lists sessions started anywhere, keeps their history, and tells you which one is waiting. Use it alongside the terminal you like.
 
 ### Which agents are supported?
-Claude Code and Codex. Status and notifications are Claude Code only for now; Codex sessions can be listed and resumed.
+Claude Code, Codex and opencode. Sessions of all three can be listed and resumed. The "waiting for you" state and notifications are Claude Code only for now.
 
 ### Does it upload my sessions?
 No. It reads local files. The update check only requests version information; nothing about your sessions, paths or projects is sent.
