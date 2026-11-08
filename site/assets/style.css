@@ -40,6 +40,9 @@ img, video { max-width: 100%; display: block; }
 .top nav { display: flex; align-items: center; gap: 20px; margin-left: auto; font-size: .93rem; }
 .top nav a { color: var(--muted); }
 .top nav a:hover { color: var(--fg); text-decoration: none; }
+.top nav a.back { color: var(--fg); font-weight: 600; white-space: nowrap; }
+/* <i>/<em> stay emphasis. Synthetic italics make Chinese words such as 进程 hard to read. */
+html[lang|="zh"] :is(i, em) { font-style: normal; font-weight: 600; }
 .stars { margin-left: 6px; font-size: .78rem; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; }
 .menu-btn { display: none; background: none; border: 1px solid var(--line); border-radius: 7px; color: var(--fg); font: inherit; font-size: .88rem; padding: 3px 10px; cursor: pointer; }
 
@@ -110,6 +113,8 @@ footer { border-top: 1px solid var(--line); padding: 18px 20px; color: var(--mut
 footer .row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
 @media (max-width: 900px) {
+  .top { height: auto; min-height: 56px; padding-top: 8px; padding-bottom: 8px; }
+  .top nav { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }
   .layout { display: block; }
   .menu-btn { display: inline-block; }
   .top nav .hide-sm { display: none; }

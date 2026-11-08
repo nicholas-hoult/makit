@@ -148,7 +148,7 @@ def render_body(body):
     flush_items()
     return "\n".join(parts)
 
-def page(lang, title, canonical, css, icon, other_href, other_label, home, releases, blurb):
+def page(lang, title, canonical, css, icon, other_href, other_label, home, back_label, releases, blurb):
     nav = []
     blocks = []
     for rel in releases:
@@ -185,6 +185,7 @@ def page(lang, title, canonical, css, icon, other_href, other_label, home, relea
 <header class="top">
   <a class="brand" href="%s">makit</a>
   <nav>
+    <a class="back" href="%s">%s</a>
     <a href="%s">%s</a>
     <a href="https://github.com/nicholas-hoult/makit">GitHub</a>
   </nav>
@@ -204,7 +205,8 @@ def page(lang, title, canonical, css, icon, other_href, other_label, home, relea
 </body>
 </html>
 """ % (
-        lang, html.escape(title), canonical, icon, icon, css, home,
+        lang, html.escape(title), canonical, icon, icon, css,
+        home, home, html.escape(back_label),
         other_href, html.escape(other_label), html.escape(title),
         "\n    ".join(nav), html.escape(title), html.escape(blurb[0]), "\n".join(blocks),
     )
@@ -223,9 +225,9 @@ def write_pages(releases):
         "There are no published stable releases.",
     )
     zh_html = page("zh-CN", "更新日志", "https://makit.unitysight.com/changelog/",
-                   "../assets/style.css", "../assets/favicon.png", "../en/changelog/", "English", "../", releases, zh_blurb)
+                   "../assets/style.css", "../assets/favicon.png", "../en/changelog/", "English", "../", "返回官网", releases, zh_blurb)
     en_html = page("en", "Changelog", "https://makit.unitysight.com/en/changelog/",
-                   "../../assets/style.css", "../../assets/favicon.png", "../../changelog/", "简体中文", "../../", releases, en_blurb)
+                   "../../assets/style.css", "../../assets/favicon.png", "../../changelog/", "简体中文", "../", "Back to website", releases, en_blurb)
     zh.write_text(zh_html, encoding="utf-8")
     en.write_text(en_html, encoding="utf-8")
     print("published releases", [r["tag_name"] for r in releases])
@@ -249,6 +251,14 @@ def self_check():
             raise SystemExit("self-check dropped release text: %s" % needle)
     if "draft" in rendered or ">pre<" in rendered:
         raise SystemExit("self-check leaked draft or prerelease")
+    sample_page = page("zh-CN", "更新日志", "https://makit.unitysight.com/changelog/",
+                       "../assets/style.css", "../assets/favicon.png", "../en/changelog/", "English", "../", "返回官网", [], ("说明", "空"))
+    if 'class="brand" href="../">makit' not in sample_page or 'class="back" href="../">返回官网' not in sample_page:
+        raise SystemExit("self-check missing Chinese home link")
+    en_page = page("en", "Changelog", "https://makit.unitysight.com/en/changelog/",
+                   "../../assets/style.css", "../../assets/favicon.png", "../../changelog/", "简体中文", "../", "Back to website", [], ("note", "empty"))
+    if 'class="back" href="../">Back to website' not in en_page or 'href="../../">makit' in en_page:
+        raise SystemExit("self-check English home link is wrong")
     print("self-check ok")
 
 def main():
