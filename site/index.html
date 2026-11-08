@@ -62,7 +62,7 @@
         <a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a>
         <a class="btn" href="https://github.com/nicholas-hoult/makit">View on GitHub</a>
       </div>
-      <p class="fine">Universal package (Intel + Apple Silicon), about <span data-size>15 MB</span> · latest <span data-version>v0.2</span> · unsigned: allow it manually on first launch</p>
+      <p class="fine">Universal package (Intel + Apple Silicon), about <span data-size>15 MB</span> · latest <span data-version>v0.2</span> · signed and notarized by Apple (0.2.7 and later)</p>
       <div class="shot">
         <img src="assets/dayfox.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="2000" height="1285">
       </div>
@@ -90,7 +90,7 @@
     <section id="quickstart">
       <h2>Quick start</h2>
       <ol class="steps">
-        <li><b>Install and open makit.</b> Download the <code>.dmg</code>, drag makit into Applications. The first launch needs one manual “Open Anyway” (see <a href="#install">Download and install</a>).</li>
+        <li><b>Install and open makit.</b> Download the <code>.dmg</code>, drag makit into Applications and open it. Versions before 0.2.7 are unsigned and need one extra step on the first launch (see <a href="#install">Download and install</a>).</li>
         <li><b>Look at the sidebar.</b> Your Claude Code and Codex sessions are already there, grouped by time. Click one to pick it back up in its original directory.</li>
         <li><b>Press <kbd>⌘K</kbd>.</b> Type a few letters of a project or task, press Enter. The session opens in a new tab.</li>
         <li><b>Turn on notifications</b> (Claude Code): Settings → install the hook. From then on a desktop notification tells you when a session needs approval or an answer.</li>
@@ -108,7 +108,7 @@
         <div class="card"><h3>Windows (preview)</h3><p>A <code>.zip</code> with <code>makit.exe</code>, unsigned, and some features are still placeholders. Windows SmartScreen asks once: <b>More info → Run anyway</b>.</p>
           <p style="margin-top:14px"><a class="btn" data-win href="https://github.com/nicholas-hoult/makit/releases/latest">Download for Windows</a></p></div>
       </div>
-      <div class="note"><b>First launch on macOS.</b> This build is not signed by Apple, so macOS stops it once. Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>; if it says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>. Updates downloaded inside the app are not blocked again.</div>
+      <div class="note"><b>First launch on macOS.</b> From 0.2.7 the app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click. <b>Versions before 0.2.7 are unsigned</b>: macOS stops them once. Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>; if it says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>.</div>
     </section>
 
     <section id="sessions">
@@ -236,7 +236,7 @@
         <details><summary>Which agents are supported?</summary><p>Claude Code, Codex and opencode. Sessions of all three are listed and can be resumed. The “waiting for you” state and notifications are Claude Code only for now.</p></details>
         <details><summary>Does it upload my sessions?</summary><p>No. It reads local files. The update check only requests version information; nothing about your sessions, paths or projects is sent.</p></details>
         <details><summary>If I delete makit, do I lose my sessions?</summary><p>No. The sessions belong to Claude Code and Codex and stay where they are. Deleting <code>~/.claude/makit</code> only removes makit’s own settings and archive marks.</p></details>
-        <details><summary>Why is it not signed?</summary><p>Not yet. The steps to allow it on first launch are in “Download and install”. Updates downloaded inside the app are not blocked again.</p></details>
+        <details><summary>Is it signed?</summary><p>Yes, from 0.2.7: signed with an Apple Developer ID and notarized by Apple. It is an individual developer account, so the certificate carries the author’s legal name. Versions before 0.2.7 are unsigned; the steps to open them are in “Download and install”.</p></details>
         <details><summary>Windows and Linux?</summary><p>Windows has a preview build (it runs, but some features are placeholders). Linux is planned for 0.3.</p></details>
         <details><summary>Is it free?</summary><p>Yes. It is open source, dual-licensed MIT or Apache-2.0.</p></details>
       </div>

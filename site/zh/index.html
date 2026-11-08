@@ -62,7 +62,7 @@
         <a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a>
         <a class="btn" href="https://github.com/nicholas-hoult/makit">在 GitHub 查看</a>
       </div>
-      <p class="fine">通用安装包（Intel + Apple Silicon），约 <span data-size>15 MB</span> · 当前版本 <span data-version>v0.2</span> · 暂未签名，首次打开需手动允许</p>
+      <p class="fine">通用安装包（Intel + Apple Silicon），约 <span data-size>15 MB</span> · 当前版本 <span data-version>v0.2</span> · 已签名并经 Apple 公证（0.2.7 起）</p>
       <div class="shot">
         <img src="../assets/dayfox.jpg" alt="makit 界面：左侧按时间分组的会话列表，右侧分屏终端" width="2000" height="1285">
       </div>
@@ -90,7 +90,7 @@
     <section id="quickstart">
       <h2>快速上手</h2>
       <ol class="steps">
-        <li><b>安装并打开 makit。</b>下载 <code>.dmg</code>，将 makit 拖入「应用程序」文件夹。首次打开时需在系统设置中手动选择一次「仍要打开」（详见<a href="#install">下载与安装</a>）。</li>
+        <li><b>安装并打开 makit。</b>下载 <code>.dmg</code>，将 makit 拖入「应用程序」文件夹后打开。0.2.7 之前的版本没有签名，首次打开多一个步骤（详见<a href="#install">下载与安装</a>）。</li>
         <li><b>查看侧栏。</b>您已有的 Claude Code、Codex、opencode 会话会自动列出，并按时间分组。选择任一会话，即可在原工作目录中继续对话。</li>
         <li><b>按 <kbd>⌘K</kbd>。</b>输入项目名或任务关键字，按回车，会话将在新标签中打开。</li>
         <li><b>开启通知</b>（Claude Code）：在设置中安装 hook。此后会话需要审批或等待回答时，系统会弹出桌面通知。</li>
@@ -108,7 +108,7 @@
         <div class="card"><h3>Windows（预览版）</h3><p>包含 <code>makit.exe</code> 的 <code>.zip</code> 压缩包，暂未签名，部分功能尚未实现。首次运行时 Windows SmartScreen 会给出提示，请依次选择：<b>更多信息 → 仍要运行</b>。</p>
           <p style="margin-top:14px"><a class="btn" data-win href="https://github.com/nicholas-hoult/makit/releases/latest">下载 Windows 版</a></p></div>
       </div>
-      <div class="note"><b>macOS 首次打开。</b>该安装包暂未经过 Apple 签名，首次打开时 macOS 会予以拦截。请前往 <b>系统设置 → 隐私与安全性</b>，点击 <b>仍要打开</b>；如提示「已损坏」，请在终端执行 <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>。通过应用内更新下载的版本不会再被拦截。</div>
+      <div class="note"><b>macOS 首次打开。</b>0.2.7 起应用已用 Apple Developer ID 签名并经 Apple 公证，双击即可打开。<b>0.2.7 之前的版本没有签名</b>，首次打开时 macOS 会予以拦截：请前往 <b>系统设置 → 隐私与安全性</b>，点击 <b>仍要打开</b>；如提示「已损坏」，请在终端执行 <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>。</div>
     </section>
 
     <section id="sessions">
@@ -236,7 +236,7 @@
         <details><summary>支持哪些 agent？</summary><p>Claude Code、Codex 和 opencode。三者的会话均可列出和恢复；「等待操作」状态及通知目前仅支持 Claude Code。</p></details>
         <details><summary>会上传我的会话吗？</summary><p>不会。它仅读取本地文件。检查更新时只请求版本信息，不会发送任何会话内容、路径或项目名称。</p></details>
         <details><summary>删掉 makit，会话会丢吗？</summary><p>不会。会话归 Claude Code、Codex 所有，保留在原位置。删除 <code>~/.claude/makit</code> 只会清除 makit 自身的设置和归档标记。</p></details>
-        <details><summary>为什么没有签名？</summary><p>目前尚未签名。首次打开的放行步骤见「下载与安装」。通过应用内更新下载的版本不会再被拦截。</p></details>
+        <details><summary>有没有签名？</summary><p>有，0.2.7 起：用 Apple Developer ID 签名并经 Apple 公证。因为是个人开发者账号，证书上显示的是作者的法定姓名。0.2.7 之前的版本没有签名，打开步骤见「下载与安装」。</p></details>
         <details><summary>Windows 和 Linux 呢？</summary><p>Windows 提供预览版（可正常运行，部分功能尚未实现）；Linux 版本计划于 0.3 提供。</p></details>
         <details><summary>免费吗？</summary><p>免费。项目开源，采用 MIT 或 Apache-2.0 双许可。</p></details>
       </div>
