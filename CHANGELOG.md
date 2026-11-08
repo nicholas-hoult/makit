@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-10
+
+### Fixed
+- Relative paths that Claude Code prints (such as `supabase/schema.sql`) now open on Cmd+click even after the agent has changed into another folder. They used to resolve against the folder the shell last reported, so the file was not found and nothing happened (#300)
+
 ## [0.2.8] - 2026-11-10
 
 ### Added
