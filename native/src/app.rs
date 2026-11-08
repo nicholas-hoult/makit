@@ -399,7 +399,7 @@ pub fn run() {
         let state = AppState::init(prefs, saver, cx);
         crate::notify::Notifier::init(state.clone(), cx);
         // 本机会话接口（#299）：默认关，设置里开；开关即时生效
-        crate::link_switch::init(&state, cx);
+        let link_writes = crate::link_switch::init(&state, cx);
         wire_notify_settings(cx);
         actions::bind_all(cx);
 
@@ -450,6 +450,8 @@ pub fn run() {
             });
         }
         crate::notify::attach_window(handle, cx);
+        // 本机会话接口的写入（回话、批准）要回到主线程写终端（#299）
+        crate::link_switch::attach_window(handle, link_writes, cx);
 
         // 退出前把防抖中的状态写掉
         let quit_state = state.clone();

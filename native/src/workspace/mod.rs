@@ -1282,6 +1282,14 @@ impl WorkspaceView {
         self.terminals.get(tab_id).map(|t| t.view.clone())
     }
 
+    /// 往绑着这个会话的终端里写（本机会话接口，#299）。会话没有在 makit 的标签里开着就报错，不写到别处
+    pub fn write_to_session(&self, session_id: &str, bytes: Vec<u8>, cx: &mut Context<Self>) -> Result<(), String> {
+        let tab_id = self.state.read(cx).workspace.tab_of_session(session_id).ok_or("session not open in makit")?;
+        let view = self.terminals.get(&tab_id).map(|t| t.view.clone()).ok_or("session not open in makit")?;
+        view.update(cx, |v, _| v.write_remote(bytes));
+        Ok(())
+    }
+
     /// 当前 pane 上一帧的窗口坐标矩形
     pub fn active_pane_bounds(&self, cx: &App) -> Option<gpui::Bounds<Pixels>> {
         let cid = self.state.read(cx).workspace.state.active_container_id.clone();

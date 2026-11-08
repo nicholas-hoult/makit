@@ -826,6 +826,11 @@ impl TerminalView {
         }
     }
 
+    /// 本机会话接口（#299）写进来的内容：直接写 PTY，不算用户在本机键盘上输入（不发 `UserInput`）
+    pub fn write_remote(&mut self, bytes: Vec<u8>) {
+        self.write_pty(bytes);
+    }
+
     /// 用户输入（键盘 / 输入法 / 粘贴 / 拖入）：发 `UserInput`（节流 1 秒）后照常写
     fn write_user_cx(&mut self, bytes: Vec<u8>, cx: &mut Context<Self>) {
         let now = Instant::now();

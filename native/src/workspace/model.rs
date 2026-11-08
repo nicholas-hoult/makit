@@ -735,6 +735,16 @@ impl Workspace {
             .find_map(|c| c.tabs.iter().find(|t| t.id == tab_id).map(|t| (c, t)))
     }
 
+    /// 绑了这个会话的标签 id（本机会话接口按会话 id 找终端用，#299）；没有标签绑着它返回 None
+    pub fn tab_of_session(&self, session_id: &str) -> Option<String> {
+        if session_id.is_empty() {
+            return None;
+        }
+        collect_containers(&self.state.root)
+            .into_iter()
+            .find_map(|c| c.tabs.iter().find(|t| t.session_id.as_deref() == Some(session_id)).map(|t| t.id.clone()))
+    }
+
     /// 新 tab 的 cwd：container 当前 tab 的，没有就 "~"
     fn inherit_cwd(&self, container_id: &str) -> String {
         find_container(&self.state.root, container_id)
@@ -1491,6 +1501,19 @@ mod tests {
         assert!(matches!(again, Opened::Existing { tab_id: ref id, .. } if *id == tab_id));
         assert_eq!(w.active_tab().unwrap().id, tab_id);
         assert_eq!(collect_all_tab_ids(&w.state.root).len(), 2);
+    }
+
+    // 为什么单独测：本机会话接口（#299）按会话 id 找到要写入的那个终端。找错标签 = 把手机上的回复打进别的会话；
+    // 找不到（会话没在 makit 里开着）必须明确报出来，而不是悄悄写到当前标签。
+    #[test]
+    fn tab_of_session_finds_the_bound_tab_only() {
+        let mut w = Workspace::default();
+        let Opened::New { tab_id } = w.open_session(SID, "df178096", "/p", None, None) else { panic!() };
+        w.new_shell_in(&w.state.active_container_id.clone());
+        assert_eq!(w.tab_of_session(SID), Some(tab_id));
+        assert_eq!(w.tab_of_session("another-session"), None);
+        assert_eq!(w.tab_of_session(""), None);
+        assert_eq!(Workspace::default().tab_of_session(SID), None);
     }
 
     #[test]

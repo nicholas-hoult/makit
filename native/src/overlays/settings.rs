@@ -662,7 +662,9 @@ impl Render for SettingsView {
                                 section()
                                     .child(label(&tr!("settings.link.title")))
                                     .child(toggle("link-enabled", prefs.link_enabled, tr!("settings.link.toggle")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.link_enabled = !p.link_enabled)))))
-                                    .child(hint(&tr!("settings.link.hint"))),
+                                    .child(hint(&tr!("settings.link.hint")))
+                                    .child(toggle("link-write-enabled", prefs.link_write_enabled, tr!("settings.link.write_toggle")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.link_write_enabled = !p.link_write_enabled)))))
+                                    .child(hint(&tr!("settings.link.write_hint"))),
                             )
                             // Hover 详情卡片
                             .child(

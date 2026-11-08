@@ -3,7 +3,8 @@
 //! Protocol v1: unix socket `~/.makit/link.sock` (directory 0700, socket 0600), one JSON line in, one JSON line out, then the
 //! connection closes. Stateless, so polling is enough and a restart of either side needs no reconnect logic.
 //! `transcript` takes `after` (items after that index) or `tail` (only the last N, for a first look at a long conversation).
-//! Read-only in this version (`hello` / `sessions` / `transcript`).
+//! Ops: `hello` / `sessions` / `transcript` (read-only) and `input` (writes into the session's terminal: reply text,
+//! approve, deny). `input` is a separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
 //!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
 //! backend on top of `sessions` / `transcript`; [`start`] / [`start_at`] put it on a socket.
@@ -82,6 +83,79 @@ pub enum Cursor {
 pub trait Backend: Send + Sync {
     fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String>;
     fn transcript(&self, session_id: &str, cursor: Cursor) -> Result<TranscriptPage, String>;
+    /// Whether the user allowed writing into sessions (a switch of its own, off by default).
+    fn write_enabled(&self) -> bool {
+        false
+    }
+    /// The live `(state, waiting_for)` of a running session, `None` if there is no such session.
+    fn session_state(&self, _session_id: &str) -> Option<(String, String)> {
+        None
+    }
+    /// Put bytes into the terminal of the session. Only called after [`plan_input`] accepted the request.
+    fn write(&self, _session_id: &str, _bytes: Vec<u8>) -> Result<(), String> {
+        Err("write not supported".into())
+    }
+}
+
+/// What the other side wants to put into a session.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputKind {
+    /// Reply text, submitted with Enter
+    Text(String),
+    /// Accept the permission prompt that is showing (Enter: its default choice is "Yes")
+    Approve,
+    /// Refuse it (Esc)
+    Deny,
+}
+
+/// Longest reply text accepted, in characters.
+pub const MAX_INPUT_CHARS: usize = 4000;
+
+/// Decide whether `kind` may be written to a session in `state` / `waiting_for`, and which bytes that is.
+/// Errors are short fixed messages the other side may show as they are.
+///
+/// Why this is a pure function of its own: it is the safety gate for typing into someone's terminal. Replying to a
+/// session that is busy garbles its work, Esc sent to a session that is not at a prompt interrupts a running turn, and
+/// a stray control character in the text could drive the terminal itself instead of the program in it.
+pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Vec<u8>, String> {
+    if state == "ended" {
+        return Err("session ended".into());
+    }
+    let at_approval = state == "waiting" && waiting_for != "user";
+    match kind {
+        InputKind::Approve if at_approval => Ok(b"\r".to_vec()),
+        InputKind::Deny if at_approval => Ok(vec![0x1b]),
+        InputKind::Approve | InputKind::Deny => Err("not waiting for approval".into()),
+        InputKind::Text(text) => {
+            // A reply goes to a session at its prompt (idle) or waiting for the user's answer; not while it works and
+            // not while it asks for approval (typing there would answer the dialog)
+            let at_prompt = state == "idle" || (state == "waiting" && waiting_for == "user");
+            if !at_prompt {
+                return Err(if at_approval { "waiting for approval".into() } else { "session busy".into() });
+            }
+            let text = text.replace("\r\n", "\n");
+            if text.trim().is_empty() {
+                return Err("empty text".into());
+            }
+            if text.chars().count() > MAX_INPUT_CHARS {
+                return Err("text too long".into());
+            }
+            if text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+                return Err("control characters".into());
+            }
+            let mut out = Vec::new();
+            if text.contains('\n') {
+                // Several lines go in as one paste, otherwise every newline would submit a message on its own
+                out.extend_from_slice(b"\x1b[200~");
+                out.extend_from_slice(text.as_bytes());
+                out.extend_from_slice(b"\x1b[201~");
+            } else {
+                out.extend_from_slice(text.as_bytes());
+            }
+            out.push(b'\r');
+            Ok(out)
+        }
+    }
 }
 
 /// The session state the other side sees. A process that is gone is `ended` whatever the file last said.
@@ -144,7 +218,7 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
     };
     match req.get("op").and_then(Value::as_str) {
         Some("hello") => json!({
-            "ok": true, "app": "makit", "proto": PROTO, "version": env!("CARGO_PKG_VERSION"), "write": false,
+            "ok": true, "app": "makit", "proto": PROTO, "version": env!("CARGO_PKG_VERSION"), "write": backend.write_enabled(),
         })
         .to_string(),
         Some("sessions") => {
@@ -164,6 +238,28 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             };
             match backend.transcript(id, cursor) {
                 Ok(p) => json!({"ok": true, "total": p.total, "from": p.from, "items": p.items}).to_string(),
+                Err(e) => fail(e),
+            }
+        }
+        Some("input") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            let kind = match req.get("kind").and_then(Value::as_str) {
+                Some("text") => InputKind::Text(req.get("text").and_then(Value::as_str).unwrap_or_default().to_string()),
+                Some("approve") => InputKind::Approve,
+                Some("deny") => InputKind::Deny,
+                _ => return fail("kind must be text, approve or deny"),
+            };
+            // Checked against the live state right before writing, not against what the other side saw earlier
+            let Some((state, waiting_for)) = backend.session_state(id) else {
+                return fail("session not found");
+            };
+            match plan_input(&state, &waiting_for, &kind).and_then(|bytes| backend.write(id, bytes)) {
+                Ok(()) => json!({"ok": true}).to_string(),
                 Err(e) => fail(e),
             }
         }
@@ -216,6 +312,13 @@ impl Backend for CoreBackend {
                 last_user_msg: s.last_user_msg,
             })
             .collect())
+    }
+
+    fn session_state(&self, session_id: &str) -> Option<(String, String)> {
+        // `load_running_info` only lists sessions whose process is alive
+        let info = crate::running::load_running_info();
+        let r = info.get(session_id)?;
+        Some((state_of(true, &r.status).to_string(), r.waiting_for.clone()))
     }
 
     fn transcript(&self, session_id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
@@ -332,6 +435,9 @@ mod tests {
     struct Fake {
         sessions: Vec<SessionInfo>,
         total: usize,
+        write_on: bool,
+        /// What `write` received: (session id, bytes)
+        written: Mutex<Vec<(String, Vec<u8>)>>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -354,6 +460,16 @@ mod tests {
         fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String> {
             Ok(self.sessions.iter().take(limit).cloned().collect())
         }
+        fn write_enabled(&self) -> bool {
+            self.write_on
+        }
+        fn session_state(&self, id: &str) -> Option<(String, String)> {
+            self.sessions.iter().find(|s| s.session_id == id && s.running).map(|s| (s.state.clone(), s.waiting_for.clone()))
+        }
+        fn write(&self, id: &str, bytes: Vec<u8>) -> Result<(), String> {
+            self.written.lock().unwrap().push((id.to_string(), bytes));
+            Ok(())
+        }
         fn transcript(&self, id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
             if id != "s1" {
                 return Err("session not found".into());
@@ -364,7 +480,7 @@ mod tests {
     }
 
     fn fake() -> Fake {
-        Fake { sessions: vec![info("s1", "busy"), info("s2", "waiting"), info("s3", "ended")], total: 3 }
+        Fake { sessions: vec![info("s1", "busy"), info("s2", "waiting"), info("s3", "ended")], total: 3, write_on: false, written: Mutex::new(Vec::new()) }
     }
 
     fn ask(b: &dyn Backend, line: &str) -> Value {
@@ -426,7 +542,7 @@ mod tests {
 
     #[test]
     fn tail_returns_only_the_last_items_and_never_more_than_a_page() {
-        let b = Fake { sessions: vec![], total: 10 };
+        let b = Fake { sessions: vec![], total: 10, ..fake() };
         let r = ask(&b, r#"{"op":"transcript","session_id":"s1","tail":4}"#);
         assert_eq!((r["total"].as_u64(), r["from"].as_u64()), (Some(10), Some(6)));
         assert_eq!(r["items"][0]["id"], "i6");
@@ -434,10 +550,93 @@ mod tests {
         let r = ask(&b, r#"{"op":"transcript","session_id":"s1","tail":99,"after":9}"#);
         assert_eq!(r["from"], 0);
         // A huge tail is capped at one page: 1000 items, 300 per page -> starts at 700
-        let big = Fake { sessions: vec![], total: 1000 };
+        let big = Fake { sessions: vec![], total: 1000, ..fake() };
         assert_eq!(ask(&big, r#"{"op":"transcript","session_id":"s1","tail":100000}"#)["from"], (1000 - PAGE_ITEMS));
         assert_eq!(cursor_start(5, Cursor::Tail(100_000)), 0);
         assert_eq!(cursor_start(5, Cursor::After(9)), 0);
+    }
+
+    fn text(s: &str) -> InputKind {
+        InputKind::Text(s.to_string())
+    }
+
+    #[test]
+    fn plan_text_goes_to_a_session_at_its_prompt_with_enter() {
+        assert_eq!(plan_input("idle", "", &text("继续")).unwrap(), "继续\r".as_bytes());
+        // Waiting for the user's answer is also a prompt
+        assert_eq!(plan_input("waiting", "user", &text("好")).unwrap(), "好\r".as_bytes());
+        // Several lines: one bracketed paste, then Enter
+        assert_eq!(plan_input("idle", "", &text("a\r\nb")).unwrap(), b"\x1b[200~a\nb\x1b[201~\r".to_vec());
+    }
+
+    #[test]
+    fn plan_text_is_refused_when_it_would_disturb_the_session() {
+        assert_eq!(plan_input("busy", "", &text("hi")).unwrap_err(), "session busy");
+        assert_eq!(plan_input("ended", "", &text("hi")).unwrap_err(), "session ended");
+        // Typing into an approval dialog would answer it: refuse
+        assert_eq!(plan_input("waiting", "approval", &text("hi")).unwrap_err(), "waiting for approval");
+        assert_eq!(plan_input("waiting", "", &text("hi")).unwrap_err(), "waiting for approval");
+    }
+
+    #[test]
+    fn plan_text_rejects_empty_long_and_control_characters() {
+        assert_eq!(plan_input("idle", "", &text("  \n ")).unwrap_err(), "empty text");
+        assert_eq!(plan_input("idle", "", &text(&"x".repeat(MAX_INPUT_CHARS + 1))).unwrap_err(), "text too long");
+        assert!(plan_input("idle", "", &text(&"x".repeat(MAX_INPUT_CHARS))).is_ok());
+        // Escape sequences and other control bytes could drive the terminal itself
+        for bad in ["a\x1bb", "a\x03", "a\x00b", "a\rb", "\x1b[200~"] {
+            assert_eq!(plan_input("idle", "", &text(bad)).unwrap_err(), "control characters", "{bad:?}");
+        }
+        // A tab inside the text is fine
+        assert!(plan_input("idle", "", &text("a\tb")).is_ok());
+    }
+
+    #[test]
+    fn plan_approve_and_deny_only_at_an_approval_prompt() {
+        assert_eq!(plan_input("waiting", "approval", &InputKind::Approve).unwrap(), b"\r".to_vec());
+        assert_eq!(plan_input("waiting", "", &InputKind::Approve).unwrap(), b"\r".to_vec());
+        assert_eq!(plan_input("waiting", "approval", &InputKind::Deny).unwrap(), vec![0x1b]);
+        // Esc at any other time would interrupt a running turn; Enter would submit an empty message
+        for (state, waiting_for) in [("idle", ""), ("busy", ""), ("waiting", "user")] {
+            assert_eq!(plan_input(state, waiting_for, &InputKind::Approve).unwrap_err(), "not waiting for approval", "{state}");
+            assert_eq!(plan_input(state, waiting_for, &InputKind::Deny).unwrap_err(), "not waiting for approval", "{state}");
+        }
+        assert_eq!(plan_input("ended", "", &InputKind::Deny).unwrap_err(), "session ended");
+    }
+
+    #[test]
+    fn input_is_refused_while_write_is_off_and_nothing_is_written() {
+        let b = fake();
+        let r = ask(&b, r#"{"op":"input","session_id":"s2","kind":"approve"}"#);
+        assert_eq!((r["ok"].clone(), r["error"].clone()), (json!(false), json!("write disabled")));
+        assert!(b.written.lock().unwrap().is_empty());
+        assert_eq!(ask(&b, r#"{"op":"hello"}"#)["write"], false);
+    }
+
+    #[test]
+    fn input_checks_the_live_state_then_writes_the_planned_bytes() {
+        let b = Fake { write_on: true, ..fake() };
+        assert_eq!(ask(&b, r#"{"op":"hello"}"#)["write"], true);
+        // s2 is waiting for approval: approve writes Enter into s2 and nowhere else
+        let r = ask(&b, r#"{"op":"input","session_id":"s2","kind":"approve"}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(*b.written.lock().unwrap(), vec![("s2".to_string(), b"\r".to_vec())]);
+        // s1 is busy: a reply is refused and nothing more is written
+        let r = ask(&b, r#"{"op":"input","session_id":"s1","kind":"text","text":"hi"}"#);
+        assert_eq!(r["error"], "session busy");
+        // s3 has ended (not running): the same as no such session
+        assert_eq!(ask(&b, r#"{"op":"input","session_id":"s3","kind":"deny"}"#)["error"], "session not found");
+        assert_eq!(ask(&b, r#"{"op":"input","session_id":"nope","kind":"deny"}"#)["error"], "session not found");
+        assert_eq!(b.written.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn input_rejects_malformed_requests() {
+        let b = Fake { write_on: true, ..fake() };
+        for bad in [r#"{"op":"input","kind":"approve"}"#, r#"{"op":"input","session_id":"","kind":"approve"}"#, r#"{"op":"input","session_id":"s2"}"#, r#"{"op":"input","session_id":"s2","kind":"rm -rf"}"#] {
+            assert_eq!(ask(&b, bad)["ok"], false, "{bad}");
+        }
+        assert!(b.written.lock().unwrap().is_empty());
     }
 
     #[test]

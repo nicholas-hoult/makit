@@ -58,6 +58,8 @@
   "settings.link.title": "Local session link",
   "settings.link.toggle": "Let other programs on this Mac read my sessions (read-only)",
   "settings.link.hint": "Opens ~/.makit/link.sock (only your own user can connect). Other programs on this machine can then list your sessions and read their conversations, but cannot type into them. Off by default; turning it off closes the socket immediately.",
+  "settings.link.write_toggle": "Also let them reply to and approve sessions",
+  "settings.link.write_hint": "Needs the switch above. Lets those programs type a reply into a session that is waiting for you, or approve / refuse a permission prompt — only into sessions open in a makit tab, and only when the session is at a prompt (never while it is working). Off by default.",
   "settings.hover.title": "Hover detail card",
   "settings.hover.hint": "On hover, a detail card (ID, path, branch, topic, etc.) pops up next to the session; click to copy.",
   "settings.shortcuts.title": "Keyboard shortcuts",

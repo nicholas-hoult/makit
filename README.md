@@ -330,6 +330,7 @@ An app that reads `~/.claude` — you have the right to know exactly what it doe
 **Local session link (off by default)**
 
 - Only after you turn on "Let other programs on this Mac read my sessions" in settings: makit listens on `~/.makit/link.sock` (the directory is 0700 and the socket 0600, so only your own user can connect). Other programs on this machine can then list your sessions and read their conversations, **read-only**; nothing can be typed into a session through it. Turning the setting off closes the socket and removes the file at once.
+- A second, separate setting "Also let them reply to and approve sessions" (off by default, needs the first one) lets those programs type a reply into a session that is waiting for you, or approve / refuse a permission prompt. It only writes into sessions that are open in a makit tab, and only while the session is at a prompt, never while it is working.
 
 **Network**
 

@@ -31,6 +31,8 @@ pub struct NativeState {
     pub reflow_view: bool,
     /// 本机会话接口（#299）：让本机别的程序能看会话和对话。**默认关**，设置里开。旧状态文件没有这一项时按关处理
     pub link_enabled: bool,
+    /// 本机会话接口允许写入（回话、批准、拒绝，#299 二期）。**默认关**，和只读开关分开；只读开关关着时不起作用
+    pub link_write_enabled: bool,
     /// Whole-interface scale (#277): one of `ui_scale::STEPS`, 1.0 = design size. The terminal font zoom is separate
     pub ui_scale: f32,
     /// UI language (#71): `en` (default) / `zh` / `system` (follows the system language)
@@ -71,6 +73,7 @@ impl Default for NativeState {
             pane_icons: "beasts".into(),
             reflow_view: false,
             link_enabled: false,
+            link_write_enabled: false,
             ui_scale: 1.0,
             language: crate::i18n::PREF_EN.into(),
             palette: PalettePrefs::default(),
