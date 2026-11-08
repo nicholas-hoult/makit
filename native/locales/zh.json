@@ -58,8 +58,8 @@
   "settings.link.title": "本机会话接口",
   "settings.link.toggle": "允许本机其他程序读取我的会话（只读）",
   "settings.link.hint": "会打开 ~/.makit/link.sock（只有你自己的用户能连）。开启后，本机其他程序可以列出你的会话、读取对话内容，但不能往里输入。默认关闭；关掉后立刻关闭接口。",
-  "settings.link.write_toggle": "同时允许它们回话、批准或拒绝",
-  "settings.link.write_hint": "需要先打开上面的开关。允许这些程序往正在等你的会话里输入回复，或批准 / 拒绝权限请求——只写进 makit 标签里开着的会话，并且只在会话停在提示处时才写（运行中不会写）。默认关闭。",
+  "settings.link.write_toggle": "同时允许它们操作会话（回话、批准、停止、新开）",
+  "settings.link.write_hint": "需要先打开上面的开关。允许这些程序往会话里输入：回复、批准 / 拒绝权限请求、停止正在运行的回合、按菜单键（只限回车、Esc、方向键等少数按键），以及在指定目录新开或续接 Claude Code / Codex 会话。只写进 makit 标签里开着的会话；回复只在会话停在提示处时才写。外部输入会在 makit 里弹出提示。默认关闭。",
   "settings.hover.title": "Hover 详情卡片",
   "settings.hover.hint": "Hover 时在 session 旁弹出详细信息卡片（ID、路径、分支、话题等），点击可复制。",
   "settings.shortcuts.title": "快捷键",
@@ -442,5 +442,6 @@
   "settings.doctor.running": "检查中…",
   "settings.doctor.copy": "复制检查结果",
   "settings.doctor.copied": "检查结果已复制",
-  "settings.doctor.hint": "只读：检查工具、PATH、代理变量、hook、数据目录和会话目录，告诉你哪里要手动处理，不会改任何东西。复制的结果可以贴进 issue，家目录已替换成 ~。"
+  "settings.doctor.hint": "只读：检查工具、PATH、代理变量、hook、数据目录和会话目录，告诉你哪里要手动处理，不会改任何东西。复制的结果可以贴进 issue，家目录已替换成 ~。",
+  "link.toast.remote_input": "收到本机其他程序的输入"
 }

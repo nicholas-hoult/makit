@@ -18,3 +18,5 @@ pub const ARCHIVE_FAIL: u64 = 2000;
 pub const REVEAL_FAIL: u64 = 2000;
 /// batch archive / unarchive done (#294): long enough to read the count and the pinned-skipped note
 pub const BATCH_ARCHIVED: u64 = 3000;
+/// 本机会话接口写进了终端（#299）：提示这次输入来自外部程序
+pub const REMOTE_INPUT: u64 = 2000;

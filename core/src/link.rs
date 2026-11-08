@@ -3,8 +3,10 @@
 //! Protocol v1: unix socket `~/.makit/link.sock` (directory 0700, socket 0600), one JSON line in, one JSON line out, then the
 //! connection closes. Stateless, so polling is enough and a restart of either side needs no reconnect logic.
 //! `transcript` takes `after` (items after that index) or `tail` (only the last N, for a first look at a long conversation).
-//! Ops: `hello` / `sessions` / `transcript` (read-only) and `input` (writes into the session's terminal: reply text,
-//! approve, deny). `input` is a separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
+//! Ops: `hello` / `sessions` / `transcript` / `screen` (read-only) and `input` (reply text, approve, deny, interrupt),
+//! `keys` (whitelisted keys), `open` (new session of a known tool in a directory), `resume` (an ended session). The
+//! writing ops are a separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
+//! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
 //!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
 //! backend on top of `sessions` / `transcript`; [`start`] / [`start_at`] put it on a socket.
@@ -95,6 +97,18 @@ pub trait Backend: Send + Sync {
     fn write(&self, _session_id: &str, _bytes: Vec<u8>) -> Result<(), String> {
         Err("write not supported".into())
     }
+    /// Snapshot of the terminal the session runs in (only sessions open in a makit tab have one).
+    fn screen(&self, _session_id: &str) -> Result<Screen, String> {
+        Err("screen not supported".into())
+    }
+    /// Start `tool` in a new tab in `cwd`. Only called after [`plan_open`] accepted it and the directory exists.
+    fn open(&self, _cwd: &str, _tool: &str) -> Result<(), String> {
+        Err("open not supported".into())
+    }
+    /// Resume an ended session in a tab, in its own directory.
+    fn resume(&self, _session_id: &str) -> Result<(), String> {
+        Err("resume not supported".into())
+    }
 }
 
 /// What the other side wants to put into a session.
@@ -106,6 +120,189 @@ pub enum InputKind {
     Approve,
     /// Refuse it (Esc)
     Deny,
+    /// Stop the turn that is running (Esc), like ACP `session/cancel`
+    Interrupt,
+}
+
+/// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
+pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe"];
+
+/// Most keys one `keys` request may carry.
+pub const MAX_KEYS: usize = 16;
+
+/// Tools `open` may start. Never a command line from the request.
+pub const KNOWN_TOOLS: &[&str] = &["claude", "codex"];
+
+/// Bytes for one whitelisted key name; `None` for anything else.
+pub fn key_bytes(name: &str) -> Option<&'static [u8]> {
+    Some(match name {
+        "enter" => b"\r",
+        "esc" => b"\x1b",
+        "tab" => b"\t",
+        "shift_tab" => b"\x1b[Z",
+        "up" => b"\x1b[A",
+        "down" => b"\x1b[B",
+        "right" => b"\x1b[C",
+        "left" => b"\x1b[D",
+        "backspace" => b"\x7f",
+        "space" => b" ",
+        "ctrl_c" => b"\x03",
+        "1" => b"1",
+        "2" => b"2",
+        "3" => b"3",
+        "4" => b"4",
+        "5" => b"5",
+        "6" => b"6",
+        "7" => b"7",
+        "8" => b"8",
+        "9" => b"9",
+        _ => return None,
+    })
+}
+
+/// The bytes for a `keys` request: a running session, a short list, every key whitelisted (else nothing is sent).
+/// Why a whitelist and not "any text": this is the escape hatch of the terminal view, for menus and dialogs the
+/// conversation view does not understand; free text goes through `input` with its own checks.
+pub fn plan_keys(state: &str, keys: &[String]) -> Result<Vec<u8>, String> {
+    if state == "ended" {
+        return Err("session ended".into());
+    }
+    if keys.is_empty() {
+        return Err("no keys".into());
+    }
+    if keys.len() > MAX_KEYS {
+        return Err("too many keys".into());
+    }
+    let mut out = Vec::new();
+    for k in keys {
+        out.extend_from_slice(key_bytes(k).ok_or_else(|| format!("unknown key: {k}"))?);
+    }
+    Ok(out)
+}
+
+/// Check an `open` request before anything is started. The directory's existence is checked by the caller.
+pub fn plan_open(tool: &str, cwd: &str) -> Result<(), String> {
+    if !KNOWN_TOOLS.contains(&tool) {
+        return Err("unknown tool".into());
+    }
+    if cwd.chars().any(char::is_control) {
+        return Err("control characters".into());
+    }
+    if !cwd.starts_with('/') {
+        return Err("cwd must be absolute".into());
+    }
+    Ok(())
+}
+
+/// Ids of sessions that are new, changed (state, waiting_for, content time, name, running) or gone, in `next` order
+/// then the gone ones. Drives `subscribe`.
+pub fn changed_sessions(prev: &[SessionInfo], next: &[SessionInfo]) -> Vec<String> {
+    let old: HashMap<&str, &SessionInfo> = prev.iter().map(|s| (s.session_id.as_str(), s)).collect();
+    let mut out: Vec<String> = next
+        .iter()
+        .filter(|n| match old.get(n.session_id.as_str()) {
+            None => true,
+            Some(o) => o.state != n.state || o.waiting_for != n.waiting_for || o.mtime != n.mtime || o.name != n.name || o.running != n.running,
+        })
+        .map(|n| n.session_id.clone())
+        .collect();
+    let now: std::collections::HashSet<&str> = next.iter().map(|s| s.session_id.as_str()).collect();
+    out.extend(prev.iter().filter(|p| !now.contains(p.session_id.as_str())).map(|p| p.session_id.clone()));
+    out
+}
+
+/// A terminal colour as the screen snapshot carries it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ScreenColor {
+    #[default]
+    Default,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
+}
+
+/// One cell of the terminal grid, independent of the terminal library (makit's native side fills it from alacritty).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScreenCell {
+    pub ch: char,
+    pub fg: ScreenColor,
+    pub bg: ScreenColor,
+    pub bold: bool,
+    pub dim: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub inverse: bool,
+}
+
+impl Default for ScreenCell {
+    fn default() -> Self {
+        Self { ch: ' ', fg: ScreenColor::Default, bg: ScreenColor::Default, bold: false, dim: false, italic: false, underline: false, inverse: false }
+    }
+}
+
+impl ScreenCell {
+    fn style(&self) -> (ScreenColor, ScreenColor, bool, bool, bool, bool, bool) {
+        (self.fg, self.bg, self.bold, self.dim, self.italic, self.underline, self.inverse)
+    }
+
+    fn plain(&self) -> bool {
+        self.style() == ScreenCell::default().style()
+    }
+
+    fn sgr(&self) -> String {
+        let mut codes = vec!["0".to_string()];
+        for (on, code) in [(self.bold, "1"), (self.dim, "2"), (self.italic, "3"), (self.underline, "4"), (self.inverse, "7")] {
+            if on {
+                codes.push(code.into());
+            }
+        }
+        for (c, base) in [(self.fg, 38), (self.bg, 48)] {
+            match c {
+                ScreenColor::Default => {}
+                ScreenColor::Indexed(i) => codes.push(format!("{base};5;{i}")),
+                ScreenColor::Rgb(r, g, b) => codes.push(format!("{base};2;{r};{g};{b}")),
+            }
+        }
+        format!("\x1b[{}m", codes.join(";"))
+    }
+}
+
+/// One screen row as text with SGR codes: a code only where the style changes, a reset after the last styled run,
+/// plain trailing blanks dropped. The other side writes the rows into a terminal emulator (xterm) as they are.
+pub fn render_ansi_line(cells: &[ScreenCell]) -> String {
+    let end = cells.iter().rposition(|c| !(c.plain() && (c.ch == ' ' || c.ch == '\0'))).map_or(0, |i| i + 1);
+    let mut out = String::new();
+    let mut styled = false;
+    let mut last: Option<(ScreenColor, ScreenColor, bool, bool, bool, bool, bool)> = None;
+    for c in &cells[..end] {
+        if last != Some(c.style()) {
+            if c.plain() {
+                if styled {
+                    out.push_str("\x1b[0m");
+                }
+                styled = false;
+            } else {
+                out.push_str(&c.sgr());
+                styled = true;
+            }
+            last = Some(c.style());
+        }
+        out.push(if c.ch == '\0' { ' ' } else { c.ch });
+    }
+    if styled {
+        out.push_str("\x1b[0m");
+    }
+    out
+}
+
+/// A snapshot of the terminal a session runs in.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Screen {
+    pub cols: usize,
+    pub rows: usize,
+    pub cursor_x: usize,
+    pub cursor_y: usize,
+    /// One string per row, see [`render_ansi_line`]
+    pub lines: Vec<String>,
 }
 
 /// Longest reply text accepted, in characters.
@@ -123,6 +320,9 @@ pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Ve
     }
     let at_approval = state == "waiting" && waiting_for != "user";
     match kind {
+        // Esc while a turn runs stops it; at a prompt it would do nothing useful, in a dialog it would answer it
+        InputKind::Interrupt if state == "busy" => Ok(vec![0x1b]),
+        InputKind::Interrupt => Err("not busy".into()),
         InputKind::Approve if at_approval => Ok(b"\r".to_vec()),
         InputKind::Deny if at_approval => Ok(vec![0x1b]),
         InputKind::Approve | InputKind::Deny => Err("not waiting for approval".into()),
@@ -218,9 +418,82 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
     };
     match req.get("op").and_then(Value::as_str) {
         Some("hello") => json!({
-            "ok": true, "app": "makit", "proto": PROTO, "version": env!("CARGO_PKG_VERSION"), "write": backend.write_enabled(),
+            "ok": true, "app": "makit", "proto": PROTO, "version": env!("CARGO_PKG_VERSION"), "write": backend.write_enabled(), "ops": OPS,
         })
         .to_string(),
+        Some("screen") => {
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            match backend.screen(id) {
+                Ok(s) => {
+                    let mut v = json!(s);
+                    v.as_object_mut().expect("object").insert("ok".into(), json!(true));
+                    v.to_string()
+                }
+                Err(e) => fail(e),
+            }
+        }
+        Some("keys") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            let Some(keys) = req.get("keys").and_then(Value::as_array) else {
+                return fail("keys must be a list");
+            };
+            let keys: Vec<String> = keys.iter().map(|k| k.as_str().unwrap_or("").to_string()).collect();
+            let Some((state, _)) = backend.session_state(id) else {
+                return fail("session not found");
+            };
+            match plan_keys(&state, &keys).and_then(|bytes| backend.write(id, bytes)) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(e) => fail(e),
+            }
+        }
+        Some("open") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let tool = req.get("tool").and_then(Value::as_str).unwrap_or_default();
+            let cwd = req.get("cwd").and_then(Value::as_str).unwrap_or_default();
+            if let Err(e) = plan_open(tool, cwd) {
+                return fail(e);
+            }
+            if !Path::new(cwd).is_dir() {
+                return fail("no such directory");
+            }
+            // The new session's id is only known once the tool writes its first record: the other side picks the
+            // newest session of this tool in this directory that started at or after `started_at`
+            let started_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+            match backend.open(cwd, tool) {
+                Ok(()) => json!({"ok": true, "started_at": started_at}).to_string(),
+                Err(e) => fail(e),
+            }
+        }
+        Some("resume") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            if backend.session_state(id).is_some() {
+                return fail("session running");
+            }
+            match backend.sessions(MAX_LIMIT) {
+                Ok(list) if list.iter().any(|s| s.session_id == id) => {}
+                Ok(_) => return fail("session not found"),
+                Err(e) => return fail(e),
+            }
+            match backend.resume(id) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(e) => fail(e),
+            }
+        }
+        Some("subscribe") => fail("subscribe keeps the connection open, send it as the only request on a connection"),
         Some("sessions") => {
             let limit = req.get("limit").and_then(Value::as_u64).map_or(DEFAULT_LIMIT, |n| (n as usize).clamp(1, MAX_LIMIT));
             match backend.sessions(limit) {
@@ -252,7 +525,8 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
                 Some("text") => InputKind::Text(req.get("text").and_then(Value::as_str).unwrap_or_default().to_string()),
                 Some("approve") => InputKind::Approve,
                 Some("deny") => InputKind::Deny,
-                _ => return fail("kind must be text, approve or deny"),
+                Some("interrupt") => InputKind::Interrupt,
+                _ => return fail("kind must be text, approve, deny or interrupt"),
             };
             // Checked against the live state right before writing, not against what the other side saw earlier
             let Some((state, waiting_for)) = backend.session_state(id) else {
@@ -344,7 +618,45 @@ impl Backend for CoreBackend {
     }
 }
 
-fn handle_conn(stream: UnixStream, backend: &dyn Backend) {
+/// How often `subscribe` looks for changes, and every how many looks it sends a ping (so a dead peer is noticed).
+const SUBSCRIBE_TICK: std::time::Duration = std::time::Duration::from_secs(1);
+const SUBSCRIBE_PING_EVERY: u32 = 15;
+
+/// The `subscribe` connection: `{"event":"ready"}`, then `{"event":"changed","sessions":[ids]}` whenever sessions
+/// change (state, content, new, gone) and `{"event":"ping"}` now and then, until the reader goes away or `stop` is set.
+/// The other side re-reads what changed with the normal ops; events carry ids only, never content.
+/// `on_tick` runs before every look (tests use it to change the backend; the real loop passes a no-op).
+pub fn subscribe_loop(
+    backend: &dyn Backend,
+    out: &mut dyn Write,
+    stop: &AtomicBool,
+    tick: std::time::Duration,
+    ping_every: u32,
+    mut on_tick: impl FnMut(u32),
+) {
+    let send = |out: &mut dyn Write, v: Value| out.write_all(format!("{v}\n").as_bytes()).and_then(|_| out.flush());
+    if send(out, json!({"event": "ready"})).is_err() {
+        return;
+    }
+    let mut prev = backend.sessions(DEFAULT_LIMIT).unwrap_or_default();
+    let mut n: u32 = 0;
+    while !stop.load(Ordering::SeqCst) {
+        std::thread::sleep(tick);
+        n += 1;
+        on_tick(n);
+        let Ok(next) = backend.sessions(DEFAULT_LIMIT) else { continue };
+        let changed = changed_sessions(&prev, &next);
+        if !changed.is_empty() && send(out, json!({"event": "changed", "sessions": changed})).is_err() {
+            return;
+        }
+        prev = next;
+        if ping_every > 0 && n % ping_every == 0 && send(out, json!({"event": "ping"})).is_err() {
+            return;
+        }
+    }
+}
+
+fn handle_conn(stream: UnixStream, backend: &dyn Backend, stop: &AtomicBool) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
     let mut line = String::new();
@@ -352,6 +664,11 @@ fn handle_conn(stream: UnixStream, backend: &dyn Backend) {
     let n = BufReader::new((&stream).take(MAX_REQUEST as u64 + 1)).read_line(&mut line);
     let reply = match n {
         Ok(0) | Err(_) => return,
+        Ok(_) if serde_json::from_str::<Value>(line.trim()).ok().and_then(|v| v.get("op").and_then(Value::as_str).map(str::to_string)).as_deref() == Some("subscribe") => {
+            let mut w = &stream;
+            subscribe_loop(backend, &mut w, stop, SUBSCRIBE_TICK, SUBSCRIBE_PING_EVERY, |_| {});
+            return;
+        }
         Ok(_) => handle_line(backend, line.trim()),
     };
     let mut w = &stream;
@@ -409,7 +726,8 @@ pub fn start_at(path: &Path, backend: Arc<dyn Backend>) -> std::io::Result<Handl
             match conn {
                 Ok(stream) => {
                     let b = backend.clone();
-                    std::thread::spawn(move || handle_conn(stream, &*b));
+                    let f = flag.clone();
+                    std::thread::spawn(move || handle_conn(stream, &*b, &f));
                 }
                 Err(e) => log::warn!(target: "link", "accept error: {e}"),
             }
@@ -438,6 +756,9 @@ mod tests {
         write_on: bool,
         /// What `write` received: (session id, bytes)
         written: Mutex<Vec<(String, Vec<u8>)>>,
+        /// What `open` received: (cwd, tool)
+        opened: Mutex<Vec<(String, String)>>,
+        resumed: Mutex<Vec<String>>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -470,6 +791,14 @@ mod tests {
             self.written.lock().unwrap().push((id.to_string(), bytes));
             Ok(())
         }
+        fn open(&self, cwd: &str, tool: &str) -> Result<(), String> {
+            self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string()));
+            Ok(())
+        }
+        fn resume(&self, id: &str) -> Result<(), String> {
+            self.resumed.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
         fn transcript(&self, id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
             if id != "s1" {
                 return Err("session not found".into());
@@ -480,7 +809,7 @@ mod tests {
     }
 
     fn fake() -> Fake {
-        Fake { sessions: vec![info("s1", "busy"), info("s2", "waiting"), info("s3", "ended")], total: 3, write_on: false, written: Mutex::new(Vec::new()) }
+        Fake { sessions: vec![info("s1", "busy"), info("s2", "waiting"), info("s3", "ended")], total: 3, write_on: false, written: Mutex::new(Vec::new()), opened: Mutex::new(Vec::new()), resumed: Mutex::new(Vec::new()) }
     }
 
     fn ask(b: &dyn Backend, line: &str) -> Value {
@@ -679,6 +1008,183 @@ mod tests {
         assert!(pending["result"].is_null());
     }
 
+    // ---------- external-agent additions (#299 phase 3): interrupt, keys, screen, open, resume, subscribe ----------
+    // Why they are tested on their own: they are what lets another program drive a terminal it cannot see. A key outside
+    // the whitelist could type anything into the user's shell, an interrupt sent at the wrong time throws away a reply,
+    // and a missed change in `subscribe` leaves the phone showing "working" for a session that waits for approval.
+
+    #[test]
+    fn plan_interrupt_only_while_a_turn_runs() {
+        assert_eq!(plan_input("busy", "", &InputKind::Interrupt).unwrap(), vec![0x1b]);
+        for (state, waiting_for) in [("idle", ""), ("waiting", "user"), ("waiting", "approval")] {
+            assert_eq!(plan_input(state, waiting_for, &InputKind::Interrupt).unwrap_err(), "not busy", "{state}");
+        }
+        assert_eq!(plan_input("ended", "", &InputKind::Interrupt).unwrap_err(), "session ended");
+    }
+
+    #[test]
+    fn keys_are_a_short_whitelist() {
+        let k = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(plan_keys("waiting", &k(&["down", "enter"])).unwrap(), b"\x1b[B\r".to_vec());
+        assert_eq!(plan_keys("busy", &k(&["esc"])).unwrap(), vec![0x1b]);
+        assert_eq!(plan_keys("idle", &k(&["ctrl_c", "tab", "shift_tab", "up", "left", "right", "backspace", "space"])).unwrap(), b"\x03\t\x1b[Z\x1b[A\x1b[D\x1b[C\x7f ".to_vec());
+        // Menu choices in permission dialogs are digits
+        assert_eq!(plan_keys("waiting", &k(&["2"])).unwrap(), b"2".to_vec());
+        assert_eq!(plan_keys("ended", &k(&["enter"])).unwrap_err(), "session ended");
+        assert_eq!(plan_keys("idle", &k(&[])).unwrap_err(), "no keys");
+        assert_eq!(plan_keys("idle", &k(&["enter"; MAX_KEYS + 1])).unwrap_err(), "too many keys");
+        // Anything else is refused as a whole, nothing is half-sent
+        for bad in ["a", "0", "10", "rm", "\x1b", "ctrl_d", "Enter", ""] {
+            assert_eq!(plan_keys("idle", &k(&["enter", bad])).unwrap_err(), format!("unknown key: {bad}"), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn open_takes_a_known_tool_and_an_absolute_directory() {
+        assert_eq!(plan_open("claude", "/Users/me/p"), Ok(()));
+        assert_eq!(plan_open("codex", "/"), Ok(()));
+        assert_eq!(plan_open("bash", "/Users/me/p").unwrap_err(), "unknown tool");
+        assert_eq!(plan_open("claude; rm -rf ~", "/Users/me/p").unwrap_err(), "unknown tool");
+        assert_eq!(plan_open("claude", "relative/dir").unwrap_err(), "cwd must be absolute");
+        assert_eq!(plan_open("claude", "").unwrap_err(), "cwd must be absolute");
+        assert_eq!(plan_open("claude", "/a\nb").unwrap_err(), "control characters");
+    }
+
+    #[test]
+    fn changed_sessions_reports_new_changed_and_gone_ones() {
+        let a = info("a", "busy");
+        let b = info("b", "idle");
+        assert!(changed_sessions(&[a.clone(), b.clone()], &[a.clone(), b.clone()]).is_empty());
+        // New, changed state, new content (mtime), gone
+        let c = info("c", "idle");
+        let b2 = SessionInfo { state: "waiting".into(), waiting_for: "approval".into(), ..b.clone() };
+        assert_eq!(changed_sessions(&[a.clone(), b.clone()], &[a.clone(), b2.clone(), c.clone()]), vec!["b", "c"]);
+        let a2 = SessionInfo { mtime: 101, ..a.clone() };
+        assert_eq!(changed_sessions(&[a.clone()], &[a2]), vec!["a"]);
+        assert_eq!(changed_sessions(&[a.clone(), b.clone()], &[b.clone()]), vec!["a"]);
+    }
+
+    fn cell(ch: char) -> ScreenCell {
+        ScreenCell { ch, ..ScreenCell::default() }
+    }
+
+    #[test]
+    fn screen_lines_become_ansi_with_as_few_codes_as_possible() {
+        // Plain text: no codes, trailing blanks trimmed
+        assert_eq!(render_ansi_line(&[cell('h'), cell('i'), cell(' '), cell(' ')]), "hi");
+        assert_eq!(render_ansi_line(&[]), "");
+        // A styled run opens once and is reset at its end
+        let red = |ch| ScreenCell { ch, fg: ScreenColor::Indexed(1), bold: true, ..ScreenCell::default() };
+        assert_eq!(render_ansi_line(&[red('o'), red('k'), cell('!')]), "\x1b[0;1;38;5;1mok\x1b[0m!");
+        // Truecolor background, inverse; a styled blank at the end is kept (it is visible)
+        let bg = ScreenCell { ch: ' ', bg: ScreenColor::Rgb(1, 2, 3), inverse: true, ..ScreenCell::default() };
+        assert_eq!(render_ansi_line(&[cell('x'), bg.clone()]), "x\x1b[0;7;48;2;1;2;3m \x1b[0m");
+        // dim / italic / underline
+        let s = ScreenCell { ch: 'y', dim: true, italic: true, underline: true, ..ScreenCell::default() };
+        assert_eq!(render_ansi_line(&[s]), "\x1b[0;2;3;4my\x1b[0m");
+        // Wide characters are one cell in the input (the spacer is dropped by the caller)
+        assert_eq!(render_ansi_line(&[cell('中'), cell('文')]), "中文");
+    }
+
+    #[test]
+    fn screen_and_writes_go_through_the_switches() {
+        let b = fake();
+        // screen is read-only: allowed while write is off; the fake has no terminal
+        assert_eq!(ask(&b, r#"{"op":"screen","session_id":"s1"}"#)["error"], "screen not supported");
+        assert_eq!(ask(&b, r#"{"op":"screen"}"#)["error"], "session_id required");
+        // keys / open / resume / interrupt are writes
+        for req in [
+            r#"{"op":"keys","session_id":"s1","keys":["enter"]}"#,
+            r#"{"op":"open","cwd":"/","tool":"claude"}"#,
+            r#"{"op":"resume","session_id":"s3"}"#,
+            r#"{"op":"input","session_id":"s1","kind":"interrupt"}"#,
+        ] {
+            assert_eq!(ask(&b, req)["error"], "write disabled", "{req}");
+        }
+        assert!(b.written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn keys_interrupt_open_and_resume_with_write_on() {
+        let b = Fake { write_on: true, ..fake() };
+        assert_eq!(ask(&b, r#"{"op":"keys","session_id":"s2","keys":["down","enter"]}"#)["ok"], true);
+        assert_eq!(ask(&b, r#"{"op":"input","session_id":"s1","kind":"interrupt"}"#)["ok"], true);
+        assert_eq!(*b.written.lock().unwrap(), vec![("s2".to_string(), b"\x1b[B\r".to_vec()), ("s1".to_string(), vec![0x1b])]);
+        assert_eq!(ask(&b, r#"{"op":"keys","session_id":"s3","keys":["enter"]}"#)["error"], "session not found");
+        assert_eq!(ask(&b, r#"{"op":"keys","session_id":"s2","keys":"enter"}"#)["error"], "keys must be a list");
+        // open: the directory must exist
+        let dir = std::env::temp_dir();
+        let r = ask(&b, &json!({"op": "open", "cwd": dir, "tool": "codex"}).to_string());
+        assert_eq!(r["ok"], true, "{r}");
+        assert!(r["started_at"].as_i64().is_some_and(|t| t > 0));
+        assert_eq!(*b.opened.lock().unwrap(), vec![(dir.to_string_lossy().to_string(), "codex".to_string())]);
+        assert_eq!(ask(&b, r#"{"op":"open","cwd":"/no/such/dir/here","tool":"claude"}"#)["error"], "no such directory");
+        assert_eq!(ask(&b, r#"{"op":"open","cwd":"/","tool":"zsh"}"#)["error"], "unknown tool");
+        // resume: only an ended session
+        assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s3"}"#)["ok"], true);
+        assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s1"}"#)["error"], "session running");
+        assert_eq!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#)["error"], "session not found");
+        assert_eq!(*b.resumed.lock().unwrap(), vec!["s3".to_string()]);
+    }
+
+    #[test]
+    fn hello_lists_the_ops_so_the_other_side_can_tell_old_versions() {
+        let ops = ask(&fake(), r#"{"op":"hello"}"#)["ops"].clone();
+        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe"] {
+            assert!(ops.as_array().unwrap().iter().any(|o| o == op), "{op}");
+        }
+    }
+
+    /// A backend whose session list can change while a subscriber is connected.
+    struct Moving(Mutex<Vec<SessionInfo>>);
+    impl Backend for Moving {
+        fn sessions(&self, _limit: usize) -> Result<Vec<SessionInfo>, String> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        fn transcript(&self, _: &str, _: Cursor) -> Result<TranscriptPage, String> {
+            Err("n/a".into())
+        }
+    }
+
+    #[test]
+    fn subscribe_pushes_changes_and_pings_until_the_reader_goes_away() {
+        let b = Moving(Mutex::new(vec![info("a", "busy")]));
+        let stop = AtomicBool::new(false);
+        let mut out = Vec::new();
+        let mut ticks = 0;
+        subscribe_loop(&b, &mut out, &stop, std::time::Duration::from_millis(1), 3, |_| {
+            ticks += 1;
+            match ticks {
+                2 => b.0.lock().unwrap()[0].state = "waiting".into(),
+                5 => b.0.lock().unwrap().push(info("n", "idle")),
+                7 => stop.store(true, Ordering::SeqCst),
+                _ => {}
+            }
+        });
+        let lines: Vec<Value> = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(lines[0]["event"], "ready");
+        let changed: Vec<&Value> = lines.iter().filter(|l| l["event"] == "changed").collect();
+        assert_eq!(changed.len(), 2, "{lines:?}");
+        assert_eq!(changed[0]["sessions"], json!(["a"]));
+        assert_eq!(changed[1]["sessions"], json!(["n"]));
+        assert!(lines.iter().any(|l| l["event"] == "ping"), "a quiet connection still pings: {lines:?}");
+    }
+
+    #[test]
+    fn subscribe_ends_when_the_reader_is_gone() {
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::ErrorKind::BrokenPipe.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        // Returns instead of looping forever on a closed connection
+        subscribe_loop(&fake(), &mut Broken, &AtomicBool::new(false), std::time::Duration::from_millis(1), 3, |_| {});
+    }
+
     #[cfg(unix)]
     fn tmp_sock(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("makit-link-{tag}-{}", std::process::id()));
@@ -730,6 +1236,27 @@ mod tests {
         h2.stop();
         // Stopping twice is harmless
         h2.stop();
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn subscribe_over_the_socket_says_ready_and_stops_with_the_link() {
+        let path = tmp_sock("sub");
+        let h = start_at(&path, Arc::new(fake())).unwrap();
+        let mut s = UnixStream::connect(&path).unwrap();
+        s.write_all(b"{\"op\":\"subscribe\"}\n").unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        let mut r = BufReader::new(s);
+        let mut line = String::new();
+        r.read_line(&mut line).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(line.trim()).unwrap()["event"], "ready");
+        // Normal requests still work beside an open subscription
+        assert_eq!(roundtrip(&path, r#"{"op":"hello"}"#)["ok"], true);
+        // Switching the link off ends the subscription: the reader sees the connection close
+        h.stop();
+        let mut rest = String::new();
+        let _ = r.read_to_string(&mut rest);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

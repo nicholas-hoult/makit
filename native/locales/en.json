@@ -58,8 +58,8 @@
   "settings.link.title": "Local session link",
   "settings.link.toggle": "Let other programs on this Mac read my sessions (read-only)",
   "settings.link.hint": "Opens ~/.makit/link.sock (only your own user can connect). Other programs on this machine can then list your sessions and read their conversations, but cannot type into them. Off by default; turning it off closes the socket immediately.",
-  "settings.link.write_toggle": "Also let them reply to and approve sessions",
-  "settings.link.write_hint": "Needs the switch above. Lets those programs type a reply into a session that is waiting for you, or approve / refuse a permission prompt — only into sessions open in a makit tab, and only when the session is at a prompt (never while it is working). Off by default.",
+  "settings.link.write_toggle": "Also let them act in sessions (reply, approve, stop, open)",
+  "settings.link.write_hint": "Needs the switch above. Lets those programs type into sessions: a reply, approve / refuse a permission prompt, stop a running turn, press menu keys (only Enter, Esc, arrows and a few others), and open or resume a Claude Code / Codex session in a given folder. Only into sessions open in a makit tab; a reply only when the session is at a prompt. makit shows a notice for input from outside. Off by default.",
   "settings.hover.title": "Hover detail card",
   "settings.hover.hint": "On hover, a detail card (ID, path, branch, topic, etc.) pops up next to the session; click to copy.",
   "settings.shortcuts.title": "Keyboard shortcuts",
@@ -442,5 +442,6 @@
   "settings.doctor.running": "Checking…",
   "settings.doctor.copy": "Copy results",
   "settings.doctor.copied": "Check results copied",
-  "settings.doctor.hint": "Read-only: looks at the tools, PATH, proxy variables, hook, data folders and session folders, and tells you what to fix by hand. Nothing is changed. Paste the copied result into an issue; your home folder is replaced with ~."
+  "settings.doctor.hint": "Read-only: looks at the tools, PATH, proxy variables, hook, data folders and session folders, and tells you what to fix by hand. Nothing is changed. Paste the copied result into an issue; your home folder is replaced with ~.",
+  "link.toast.remote_input": "Input from another program on this Mac"
 }

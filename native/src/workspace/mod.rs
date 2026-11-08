@@ -1287,7 +1287,16 @@ impl WorkspaceView {
         let tab_id = self.state.read(cx).workspace.tab_of_session(session_id).ok_or("session not open in makit")?;
         let view = self.terminals.get(&tab_id).map(|t| t.view.clone()).ok_or("session not open in makit")?;
         view.update(cx, |v, _| v.write_remote(bytes));
+        // 看得出哪次输入不是自己在键盘上敲的
+        crate::overlays::show_toast(ts!("link.toast.remote_input"), crate::overlays::toast::REMOTE_INPUT, cx);
         Ok(())
+    }
+
+    /// 绑着这个会话的终端的屏幕快照（本机会话接口，#299）
+    pub fn screen_of_session(&self, session_id: &str, cx: &mut Context<Self>) -> Result<makit_core::link::Screen, String> {
+        let tab_id = self.state.read(cx).workspace.tab_of_session(session_id).ok_or("session not open in makit")?;
+        let view = self.terminals.get(&tab_id).map(|t| t.view.clone()).ok_or("session not open in makit")?;
+        Ok(view.read(cx).screen_snapshot())
     }
 
     /// 当前 pane 上一帧的窗口坐标矩形

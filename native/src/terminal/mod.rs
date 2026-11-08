@@ -53,6 +53,7 @@ pub mod links;
 pub mod osc;
 pub mod palette;
 pub mod pty;
+pub mod screen;
 pub mod scrollbar;
 pub mod segment;
 pub mod size;
@@ -829,6 +830,11 @@ impl TerminalView {
     /// 本机会话接口（#299）写进来的内容：直接写 PTY，不算用户在本机键盘上输入（不发 `UserInput`）
     pub fn write_remote(&mut self, bytes: Vec<u8>) {
         self.write_pty(bytes);
+    }
+
+    /// 本机会话接口（#299）要的屏幕快照：当前屏的文字和颜色，见 `screen::snapshot`
+    pub fn screen_snapshot(&self) -> makit_core::link::Screen {
+        screen::snapshot(&self.term.lock())
     }
 
     /// 用户输入（键盘 / 输入法 / 粘贴 / 拖入）：发 `UserInput`（节流 1 秒）后照常写
