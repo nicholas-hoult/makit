@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Changelog — makit</title>
+<link rel="canonical" href="https://makit.unitysight.com/en/changelog/">
+<link rel="alternate" hreflang="zh-CN" href="https://makit.unitysight.com/changelog/">
+<link rel="alternate" hreflang="en" href="https://makit.unitysight.com/en/changelog/">
+<link rel="alternate" hreflang="x-default" href="https://makit.unitysight.com/changelog/">
+<meta property="og:image" content="https://makit.unitysight.com/assets/dark.jpg">
+<link rel="icon" href="../../assets/favicon.png">
+<link rel="apple-touch-icon" href="../../assets/favicon.png">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">makit</a>
+  <nav>
+    <a href="../../changelog/">简体中文</a>
+    <a href="https://github.com/nicholas-hoult/makit">GitHub</a>
+  </nav>
+</header>
+<div class="layout">
+  <aside class="side"><h3>Changelog</h3>
+    <a href="#v0.2.6">v0.2.6 — 2026-11-07</a>
+    <a href="#v0.2.5">v0.2.5 — 2026-11-02</a>
+    <a href="#v0.2.4">v0.2.4 — 2026-11-01</a>
+    <a href="#v0.2.3">v0.2.3 — 2026-10-28</a>
+    <a href="#v0.2.2">v0.2.2 — 2026-10-25</a>
+    <a href="#v0.2.1">v0.2.1 — 2026-10-25</a>
+    <a href="#v0.2.0">v0.2.0 — 2026-10-25</a>
+    <a href="#v0.1.7">v0.1.7 — 2026-10-17</a>
+    <a href="#v0.1.6">v0.1.6 — 2026-10-15</a>
+    <a href="#v0.1.5">v0.1.5 — 2026-10-11</a>
+    <a href="#v0.1.4">v0.1.4 — 2026-10-10</a>
+    <a href="#v0.1.3">v0.1.3 — 2026-10-10</a>
+    <a href="#v0.1.1">v0.1.1 — 2026-10-10</a>
+    <a href="#v0.1.2">v0.1.2 — 2026-10-10</a>
+  </aside>
+  <main>
+    <section id="top">
+      <h1>Changelog</h1>
+      <p class="fine">The text is the published GitHub Release body. Drafts, prereleases, and unreleased notes are omitted. If GitHub cannot be read, the build fails and does not substitute the repository changelog.</p>
+    </section>
+    <section id="v0.2.6"><h2>v0.2.6 — 2026-11-07</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.6">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.6</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>A long path or URL that a program wrapped itself (real line break plus an indent, as Claude Code does in its replies) is now one link in the terminal, so ⌘-click opens the whole path instead of just one half</li><li>File paths whose names contain full-width brackets (such as <code>88-【status】title.md</code>) are now one link in the terminal; they used to be cut short at the bracket, so ⌘-click did nothing or opened the wrong path</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>程序自己折行的长路径或网址（真换行加缩进，Claude Code 的回复正文就是这样）在终端里现在是完整的一个链接，⌘ 点击打开整条路径，不再只认一半</li><li>文件名里带全角括号（如 <code>88-【状态】标题.md</code>）的路径，在终端里现在是完整的一个链接；以前在括号处被截断，⌘ 点击没反应或打开错的路径</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.2.5"><h2>v0.2.5 — 2026-11-02</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.5">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.5</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Stop a session without closing its tab: right-click a tab for &quot;Stop session&quot; / &quot;Stop other tabs&quot;, or a session in the sidebar for &quot;Stop&quot;. The process ends and frees its memory; the tab keeps its place (also across restarts) and shows &quot;Session stopped&quot;. Click &quot;Resume&quot; or press Enter to run it again. Stopping a session that is working or waiting on you asks first (#287)</li><li>A tab whose process exited by itself can be run again in place: press Enter in it, or right-click &gt; &quot;Resume session&quot; (#287)</li><li>Pin a tab: right-click &gt; &quot;Pin tab&quot; keeps it at the front of its pane, marked with a pin, also across restarts. Unpinning puts it first among the other tabs. &quot;Close others&quot; and &quot;Close to the right&quot; leave pinned tabs open (#295)</li><li>Batch archive in the sidebar: ⌘-click adds or removes a session from a multi-selection, ⇧-click selects a range, and right-clicking a selected row offers &quot;Archive selected (N)&quot; (or &quot;Unarchive selected (N)&quot; when all of them are archived). Pinned sessions are left alone; if any selected session is running or open in a tab, makit asks once before closing them. Esc clears the selection (#294)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>停止会话但不关标签：标签右键「停止会话」「停止其他标签」，或侧栏会话右键「停止」。进程结束、释放内存，标签留在原位（重启后也一样），显示「会话已停止」，点「恢复」或按回车重新运行。会话正在工作或在等你回复时，停止前会先确认（#287）</li><li>进程自己退出的标签可以原地重新运行：在里面按回车，或右键「恢复会话」（#287）</li><li>标签置顶：右键「置顶标签」，它会固定在所在分屏的最前面，带图钉标记，重启后保持；取消置顶后排到其他标签的第一个。「关闭其他」「关闭右侧」不会关掉置顶标签（#295）</li><li>侧栏批量归档：⌘点击把会话加入 / 移出多选，⇧点击选中一段，在选中的行上右键可「归档所选（N）」（全部已归档时是「取消归档所选（N）」）。置顶的会话不动；所选里有正在运行或开在标签里的，会先确认一次再关掉它们。Esc 清空多选（#294）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.2.4"><h2>v0.2.4 — 2026-11-01</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.4">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.4</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>Clicking a session in the sidebar no longer opens a second tab for a session that is already open; the sidebar now decides exactly like ⌘K (#291)</li><li>Opening makit while it is already running now switches to the running window at once, instead of a few seconds of nothing. The shipped app and a dev build (a different app name) can run side by side; two of the same name cannot (#291)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>在侧栏点一个已经打开的会话，不会再开出第二个标签；侧栏的判定改成和 ⌘K 一样（#291）</li><li>makit 已经在运行时再打开它，会立刻切到正在运行的那个窗口，不再空等几秒。线上版和开发版（应用名不同）可以同时开，同名的不能（#291）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.2.3"><h2>v0.2.3 — 2026-10-28</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.3">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.3</a></p>
+<h3>Added</h3>
+<ul class="list"><li>opencode sessions: they now show up in the sidebar next to Claude Code and Codex, and can be resumed (<code>opencode -s &lt;id&gt;</code>), started from the &quot;+&quot; menu, shown as running / busy, and opened in the conversation view. makit reads opencode&#x27;s SQLite database read-only (#284)</li><li>Environment check: Settings &gt; Diagnostics &gt; &quot;Check environment&quot; looks at the tools and their versions, PATH, proxy variables, the notification hook, data and session folders and the opencode database, and tells you what to fix by hand. Results can be copied with your home folder redacted (#283)</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>The macOS binary grows by about 180 KB (opencode support; it uses the system SQLite library)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>opencode 会话：侧栏里和 Claude Code、Codex 并列显示，可以恢复（<code>opencode -s &lt;id&gt;</code>）、从「+」菜单新建、显示运行中 / 执行中，也能在查看对话面板里打开。makit 只读地读取 opencode 的 SQLite 数据库（#284）</li><li>环境检查：设置 → 诊断 →「环境检查」，检查工具及版本、PATH、代理变量、通知 hook、数据目录和会话目录、opencode 数据库，并告诉你哪里要手动处理；结果可复制，家目录已脱敏（#283）</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>macOS 二进制增大约 180 KB（opencode 支持，用的是系统自带的 SQLite 库）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.2.2"><h2>v0.2.2 — 2026-10-25</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.2">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.2</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>Only one makit can run at a time now. Starting a second one brings the running one to the front and exits, instead of two instances fighting over the hook socket and overwriting each other&#x27;s saved state. Dev instances with a different data folder are not affected (#291)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>现在同一时间只能运行一个 makit：再启动一个会把已经在跑的那个带到前面，然后自己退出；以前两个实例会抢 hook 接收、互相覆盖保存的状态。用别的数据目录的开发实例不受影响（#291）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.2.1"><h2>v0.2.1 — 2026-10-25</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.1">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.1</a></p>
+<h3>Changed</h3>
+<ul class="list"><li>The update check now runs after every launch and then every hour, instead of about once a day, so a new release shows up the same hour it is published</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>变更</h3>
+<ul class="list"><li>检查更新改为每次启动后查一次、之后每小时查一次（原来大约每天一次），新版本发布后一小时内就能看到提示</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.2.0"><h2>v0.2.0 — 2026-10-25</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.0">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.0</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Windows build: the release now ships a Windows <code>.zip</code> (preview) next to the macOS installers, and it starts (#250, #251, #285)</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>Session state is shown by shape, not only by colour: a disc with three dots (waiting for you), a ring with an arc (busy), a ring with a tick (idle) and a dashed ring (stopped), in the sidebar and on the tabs. Nothing animates any more (#290, #278)</li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>makit no longer repaints the whole window five times a second while a session is busy or waiting. Before this change the installed app used about 28% of a core with a few running sessions (#290)</li><li>Codex sessions now show as running in the sidebar while a codex process has them open (they were always listed as stopped). Codex has no status file, so they show as idle, not waiting / busy (#288)</li><li>When a tab&#x27;s process ends, the terminal now says how: the exit code for a failure, or the signal if it was killed, instead of always &quot;process exited&quot; (#288)</li><li>Windows: <code>makit.exe</code> no longer fails at launch with &quot;entry point TaskDialogIndirect not found&quot;. The exe now embeds the application manifest that selects comctl32 v6 (and per-monitor DPI awareness), and the release build checks for it (#285)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>Windows 版：发布页现在除了 macOS 安装包，还带一个 Windows <code>.zip</code>（预览版），并且能启动了（#250、#251、#285）</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>会话状态不再只靠颜色区分，改成各自的形状：实心圆里三个点（等你确认）、带亮弧的圆环（运行中）、圆环加对勾（空闲）、虚线圈（已停止），侧栏和标签里一致。图标不再有任何动画（#290、#278）</li></ul>
+<h3>修复</h3>
+<ul class="list"><li>有会话在忙或等你时，makit 不再每秒把整个窗口重画 5 次。改之前，装好的版本在有几个会话运行时会占约 28% 个核（#290）</li><li>Codex 会话在有 codex 进程开着它时，侧栏里显示为运行中（以前一直是已停止）。Codex 没有状态文件，只能显示为空闲，区分不出等你确认 / 忙碌（#288）</li><li>标签里的进程结束时，终端里会写明是怎么结束的：失败时显示退出码，被杀时显示信号，不再一律是「进程已退出」（#288）</li><li>Windows：<code>makit.exe</code> 启动时不再报「无法定位程序输入点 TaskDialogIndirect」。exe 现在内嵌了应用清单（选用 comctl32 v6，并声明按显示器 DPI 感知），发布构建会检查它是否存在（#285）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.7"><h2>v0.1.7 — 2026-10-17</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.7">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.7</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>Quitting with many tabs open is much faster: the sweep for escaped child processes now runs once instead of once per tab. This was why the in-app updater could leave the screen empty for ~15 s before the new version appeared</li><li>The updater&#x27;s restart helper retries <code>open</code>, writes a log to <code>~/.claude/makit/update-helper.log</code> and cleans up its temp folder</li><li>Failures to read or save the archive list, and codex tab binding failures, are now written to the log instead of passing silently (#254)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>打开很多标签时退出明显更快：清理「逃逸子进程」从每个标签扫一遍改成整体扫一遍。这是应用内更新时屏幕会空十几秒、看起来像没重启的原因</li><li>更新的重启助手会重试 <code>open</code>，过程写入 <code>~/.claude/makit/update-helper.log</code>，并清理临时目录</li><li>归档列表读取 / 保存失败、Codex 标签绑定失败现在会写进日志，不再静默吞掉（#254）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.6"><h2>v0.1.6 — 2026-10-15</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.6">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.6</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Interface scale for the sidebar and tab bar: <code>alt-cmd-=</code> / <code>alt-cmd--</code> / <code>alt-cmd-0</code> (zoom in / out / reset). <code>cmd-+</code> / <code>cmd--</code> still zoom only the terminal font</li><li>Each release now also attaches the universal installer as <code>makit-&lt;version&gt;.dmg</code>, so 0.1.4 clients can find and update to it</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>Tighter sidebar: shorter session rows, 2px between rows, smaller gaps between groups, larger group and project titles with the count on the right</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>侧栏和标签栏的界面缩放：<code>alt-cmd-=</code> / <code>alt-cmd--</code> / <code>alt-cmd-0</code>（放大 / 缩小 / 还原）。<code>cmd-+</code> / <code>cmd--</code> 仍然只缩放终端字号</li><li>每个版本额外附一份 <code>makit-&lt;版本&gt;.dmg</code>（内容同 universal 安装包），0.1.4 的客户端也能找到并更新</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>侧栏更紧凑：会话行更矮、行与行之间留 2px、组与组间距更小，组标题和项目名字号放大，计数放到右侧</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.5"><h2>v0.1.5 — 2026-10-11</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.5">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.5</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Windows preview: a <code>makit-&lt;version&gt;-windows-x64.zip</code> with <code>makit.exe</code> is attached to the release. It is unsigned (SmartScreen asks once: More info, Run anyway) and some features are still placeholders: notifications, the hook channel and the Windows shortcut layout (#251)</li><li>Three macOS installers per release: <code>-universal</code> (Intel + Apple Silicon, what the in-app updater and Homebrew use), and <code>-arm64</code> / <code>-x64</code> at about half the size</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>The installer is now named <code>makit-&lt;version&gt;-universal.dmg</code>. The in-app updater and Homebrew pick it up automatically; <strong>0.1.4 cannot find the new name, so update 0.1.4 by downloading from the Releases page or <code>brew upgrade --cask makit</code></strong></li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>The active tab is scrolled back into view when its title changes, so it no longer ends up half hidden behind the pane buttons</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>Windows 预览版：发布里附带 <code>makit-&lt;版本&gt;-windows-x64.zip</code>（内含 <code>makit.exe</code>）。未签名（SmartScreen 会拦一次：更多信息，仍要运行），部分功能还是占位：通知、hook 通道、Windows 快捷键布局（#251）</li><li>macOS 每个版本三个安装包：<code>-universal</code>（Intel + Apple 芯片，应用内更新和 Homebrew 用它）、<code>-arm64</code> / <code>-x64</code>（体积约一半）</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>安装包改名为 <code>makit-&lt;版本&gt;-universal.dmg</code>。应用内更新和 Homebrew 会自动识别；<strong>0.1.4 认不出新名字，0.1.4 请到 Releases 页下载，或用 <code>brew upgrade --cask makit</code></strong></li></ul>
+<h3>修复</h3>
+<ul class="list"><li>活动标签的标题变化后会重新滚入可见区域，不再有一半被窗格按钮挡住</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.4"><h2>v0.1.4 — 2026-10-10</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.4</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Update notifications: makit checks for a new release in the background (about once a day) and shows an <strong>Update x.y.z</strong> pill in the titlebar. Its menu offers <strong>Update and restart</strong>, <strong>Release notes</strong> and <strong>Skip this version</strong>; Settings has a <strong>Check for updates</strong> button. Only the version information is requested (#200)</li><li>In-place update: downloads the release installer, verifies its SHA-256 against the published digest, swaps the app bundle after exit and relaunches, rolling back if the swap fails. Homebrew installs are pointed to <code>brew upgrade --cask makit</code>; anything that cannot be replaced safely opens the release page</li><li>Homebrew: <code>brew install --cask nicholas-hoult/tap/makit</code> (#268)</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>Internal: platform-specific dependencies and code are split per platform, groundwork for Linux and Windows builds (no change in behaviour on macOS) (#184)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>更新提示：makit 在后台检查新版本（约每天一次），有新版时标题栏出现 <strong>Update x.y.z</strong> 药丸；菜单里有 <strong>更新并重启</strong>、<strong>查看更新说明</strong>、<strong>跳过这个版本</strong>；设置里有 <strong>检查更新</strong> 按钮。只请求版本信息（#200）</li><li>应用内更新：下载发布的安装包，用公布的 SHA-256 校验，退出后替换 App 并重启，替换失败会回滚；Homebrew 装的提示用 <code>brew upgrade --cask makit</code>；任何不能安全替换的情况会打开发布页</li><li>Homebrew：<code>brew install --cask nicholas-hoult/tap/makit</code>（#268）</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>内部：按平台拆分平台相关的依赖和代码，为 Linux / Windows 构建打基础（macOS 上行为不变）（#184）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.3"><h2>v0.1.3 — 2026-10-10</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.3</a></p>
+<h3>Performance</h3>
+<ul class="list"><li>Appending to a long conversation no longer re-walks the whole conversation: the cost of each new record in the conversation view is now constant (about 0.04 ms at 5 MB, 50 MB and 200 MB, previously about 1.4 ms, 13 ms and 110 ms) (#269)</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>性能</h3>
+<ul class="list"><li>往长对话里追加记录时不再把整段对话重走一遍：对话视图里每新增一条记录的耗时变成常数（5 MB、50 MB、200 MB 都约 0.04 ms，之前分别约 1.4 ms、13 ms、110 ms）（#269）</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.1"><h2>v0.1.1 — 2026-10-10</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.1</a></p>
+<h3>Changed</h3>
+<ul class="list"><li>Session status dots look the same in the sidebar and on pane tabs: shape tells alive from stopped, colour and breathing tell the state (waiting amber and fast, busy blue and slow, idle soft green)</li><li>Pane dividers, the sidebar edge and its titlebar continuation are a darker shade of the background (brightness x0.92 on light themes, x0.6 on dark ones) instead of a grey overlay, so they read thinner and cleaner</li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>The titlebar segment above the sidebar edge now lights up together with the lower part when hovering or dragging the sidebar resizer</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+<section id="v0.1.2"><h2>v0.1.2 — 2026-10-10</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2">https://github.com/nicholas-hoult/makit/releases/tag/v0.1.2</a></p>
+<h3>Changed</h3>
+<ul class="list"><li>Session status dots look the same in the sidebar and on pane tabs: shape tells alive from stopped, colour and breathing tell the state (waiting amber and fast, busy blue and slow, idle soft green)</li><li>Pane dividers, the sidebar edge and its titlebar continuation are a darker shade of the background (brightness x0.92 on light themes, x0.6 on dark ones) instead of a grey overlay, so they read thinner and cleaner</li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>The titlebar segment above the sidebar edge now lights up together with the lower part when hovering or dragging the sidebar resizer</li></ul>
+<p><strong>Unsigned build</strong>: on first launch macOS asks you to allow the app manually, see the <a href="https://github.com/nicholas-hoult/makit#first-launch-unsigned-this-step-is-required">README</a>.</p>
+</section>
+  </main>
+</div>
+</body>
+</html>
