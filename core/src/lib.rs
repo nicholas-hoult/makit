@@ -13,6 +13,7 @@
 //! | `paths` | Opening paths, batch existence checks, tool logos |
 //! | `watcher` | Session directory watching, calls back with `WatchEvent` |
 //! | `hook` | Claude Code Notification hook: script installation + unix socket server, calls back for each line |
+//! | `link` | Local session link `~/.makit/link.sock` (#299): other programs on this machine can list sessions and read conversations (read-only) |
 //! | `pty_prep` | Pure logic before PTY launch: cwd correction / cwd gate / resume id / shell integration files |
 //! | `pty_batch` | PTY output coalescing cadence |
 //! | `perf` | perf.log instrumentation |
@@ -28,6 +29,7 @@ pub mod doctor;
 pub mod environment;
 pub mod fsid;
 pub mod hook;
+pub mod link;
 pub mod instance;
 pub mod opencode;
 pub mod paths;

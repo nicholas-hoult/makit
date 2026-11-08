@@ -327,6 +327,10 @@ An app that reads `~/.claude` — you have the right to know exactly what it doe
 - `~/.claude/projects/` — **only when you click resume on a Claude Code session whose launch directory was deleted / renamed** does makit create a symbolic link here, so that Claude Code can find the conversation at its original location; it does not write here otherwise
 - `~/.claude/settings.json` — **only written when you click the "Install hook" button**. If you don't install the hook, makit changes not a single character of it
 
+**Local session link (off by default)**
+
+- Only after you turn on "Let other programs on this Mac read my sessions" in settings: makit listens on `~/.makit/link.sock` (the directory is 0700 and the socket 0600, so only your own user can connect). Other programs on this machine can then list your sessions and read their conversations, **read-only**; nothing can be typed into a session through it. Turning the setting off closes the socket and removes the file at once.
+
 **Network**
 
 - Just one request: the first time a tool icon is shown, it downloads the favicon from `anthropic.com` / `openai.com`, stores it locally, and never requests it again

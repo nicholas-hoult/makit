@@ -398,6 +398,8 @@ pub fn run() {
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
         crate::notify::Notifier::init(state.clone(), cx);
+        // 本机会话接口（#299）：默认关，设置里开；开关即时生效
+        crate::link_switch::init(&state, cx);
         wire_notify_settings(cx);
         actions::bind_all(cx);
 

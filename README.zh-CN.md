@@ -326,6 +326,10 @@ Codex 和 opencode 这两条路在真机上测得比 Claude Code 少，它们的
 - `~/.claude/projects/` — **只有你对「启动目录已被删除 / 改名」的 Claude Code 会话点了恢复**，makit 才会在这里建一个符号链接，让 Claude Code 在原来的位置找到那段对话；其余时候不写
 - `~/.claude/settings.json` — **只有你点了「安装 hook」按钮才会写**。不装 hook，makit 一个字都不会改它
 
+**本机会话接口（默认关闭）**
+
+- 只有你在设置里打开「允许本机其他程序读取我的会话」之后，makit 才会监听 `~/.makit/link.sock`（目录权限 0700、socket 权限 0600，只有你自己的用户能连）。开启后，本机其他程序可以列出你的会话、读取对话内容，**只读**，不能通过它往会话里输入。关掉这个设置会立刻关闭 socket 并删除文件。
+
 **网络**
 
 - 只有一个请求：第一次显示工具图标时下载 `anthropic.com` / `openai.com` 的 favicon，存在本地，以后不再请求

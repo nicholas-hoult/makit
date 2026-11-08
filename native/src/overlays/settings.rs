@@ -657,6 +657,13 @@ impl Render for SettingsView {
                                     .child(toggle("reflow-view", prefs.reflow_view, tr!("settings.reflow.toggle")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.reflow_view = !p.reflow_view)))))
                                     .child(hint(&tr!("settings.reflow.hint"))),
                             )
+                            // 本机会话接口（#299）
+                            .child(
+                                section()
+                                    .child(label(&tr!("settings.link.title")))
+                                    .child(toggle("link-enabled", prefs.link_enabled, tr!("settings.link.toggle")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.link_enabled = !p.link_enabled)))))
+                                    .child(hint(&tr!("settings.link.hint"))),
+                            )
                             // Hover 详情卡片
                             .child(
                                 section()

@@ -24,6 +24,7 @@ pub mod actions;
 pub mod app;
 pub mod assets;
 pub mod i18n;
+pub mod link_switch;
 pub mod logging;
 pub mod notify;
 pub mod overlays;
