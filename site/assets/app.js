@@ -1,3 +1,23 @@
+// Page behaviour: sidebar highlight and the mobile menu. Nothing here is required for reading the page.
+(function () {
+  var btn = document.querySelector(".menu-btn");
+  if (btn) btn.addEventListener("click", function () { document.body.classList.toggle("menu-open"); });
+  document.querySelectorAll(".side a").forEach(function (a) {
+    a.addEventListener("click", function () { document.body.classList.remove("menu-open"); });
+  });
+
+  // highlight the sidebar entry of the section being read
+  var links = {};
+  document.querySelectorAll(".side a[href^='#']").forEach(function (a) { links[a.getAttribute("href").slice(1)] = a; });
+  var secs = Array.prototype.slice.call(document.querySelectorAll("main > section[id]"));
+  function spy() {
+    var cur = secs[0];
+    secs.forEach(function (s) { if (s.getBoundingClientRect().top <= 120) cur = s; });
+    Object.keys(links).forEach(function (k) { links[k].classList.toggle("on", !!cur && k === cur.id); });
+  }
+  window.addEventListener("scroll", spy, { passive: true });
+  spy();
+})();
 // Fills the download button with the latest release (version, installer link, size). Without network or on an API
 // error the static links in the page (releases/latest) keep working, so nothing here is required.
 (function () {

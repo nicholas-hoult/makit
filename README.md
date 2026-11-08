@@ -1,12 +1,13 @@
 <h1 align="center">makit</h1>
 
-<p align="center"><b>A session manager for Claude Code and Codex.</b></p>
+<p align="center"><b>A high-performance terminal for AI sessions.</b></p>
 
-<h2 align="center">Stop losing your AI coding sessions.</h2>
+<h2 align="center">Claude Code, Codex and opencode in one terminal.</h2>
 
 <p align="center">
-  makit finds every session on your machine, shows which ones are waiting for you,<br>
-  and picks any of them back up in one click, even after the terminal is gone.
+  makit is a terminal built for AI coding sessions. It is native and light.<br>
+  Run sessions side by side in splits and tabs; every past session is in the sidebar,<br>
+  one click from where you left off, and the ones waiting for you are marked.
 </p>
 
 [简体中文](README.zh-CN.md) | English
@@ -26,7 +27,7 @@
   <a href="#build-from-source">Build from source</a>
 </p>
 
-**Native, light (7.7 MB installer), good-looking (21 themes).** Rust + GPUI, not an Electron wrapper. Local only, nothing uploaded. macOS is the main build; Windows is a preview (from 0.1.5), Linux is planned for 0.3. Supports **Claude Code** and **Codex**.
+**Native, light (7.7 MB installer), good-looking (21 themes).** Rust + GPUI, not a web page in disguise. Local only, nothing uploaded. macOS is the main build; Windows is a preview (from 0.1.5), Linux is planned for 0.3. Supports **Claude Code**, **Codex** and **opencode**.
 
 ⭐ **If you find it useful, a Star or a Fork is very welcome.** If something feels off or you want a feature, just open an [Issue](https://github.com/nicholas-hoult/makit/issues). PRs are welcome too.
 

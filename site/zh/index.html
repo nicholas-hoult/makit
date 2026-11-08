@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>makit — Claude Code 和 Codex 的会话管理器</title>
-<meta name="description" content="别再弄丢你的 AI 编程会话。makit 把你机器上的每个 Claude Code 和 Codex 会话都找出来，告诉你哪几个在等你，终端关了也能一键接着聊。">
-<meta property="og:title" content="makit — Claude Code 和 Codex 的会话管理器">
-<meta property="og:description" content="别再弄丢你的 AI 编程会话。makit 把你机器上的每个 Claude Code 和 Codex 会话都找出来，告诉你哪几个在等你，终端关了也能一键接着聊。">
+<title>makit — 跑 AI 会话的高性能终端</title>
+<meta name="description" content="makit 是专门跑 AI 编程会话的高性能终端：Claude Code、Codex、opencode 分屏多标签同时跑，以前开过的会话在侧栏里点一下接着聊，在等你的会标出来。原生 Rust，安装包 7.7 MB。">
+<meta property="og:title" content="makit — 跑 AI 会话的高性能终端">
+<meta property="og:description" content="makit 是专门跑 AI 编程会话的高性能终端：Claude Code、Codex、opencode 分屏多标签同时跑，以前开过的会话在侧栏里点一下接着聊，在等你的会标出来。原生 Rust，安装包 7.7 MB。">
 <meta property="og:image" content="https://nicholas-hoult.github.io/makit/assets/dark.jpg">
 <link rel="alternate" hreflang="en" href="https://nicholas-hoult.github.io/makit/">
 <link rel="alternate" hreflang="zh-CN" href="https://nicholas-hoult.github.io/makit/zh/">
@@ -14,131 +14,246 @@
 <link rel="stylesheet" href="../assets/style.css">
 </head>
 <body>
-<div class="wrap">
-  <header class="nav">
-    <a class="brand" href="./">makit</a>
-    <nav>
-      <a class="hide-sm" href="#solves">为什么做它</a>
-      <a class="hide-sm" href="#install">安装</a>
-      <a class="hide-sm" href="#faq">常见问题</a>
-      <a class="hide-sm" href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.zh-CN.md">更新日志</a>
-      <a href="https://github.com/nicholas-hoult/makit">GitHub<span class="stars" data-stars hidden></span></a>
-      <a class="lang" href="../">English</a>
-    </nav>
-  </header>
+<header class="top">
+  <button class="menu-btn" type="button" aria-label="目录">目录</button>
+  <a class="brand" href="./">makit</a>
+  <nav>
+    <a class="hide-sm" href="#quickstart">使用指南</a>
+    <a class="hide-sm" href="#install">下载</a>
+    <a class="hide-sm" href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.zh-CN.md">更新日志</a>
+    <a href="https://github.com/nicholas-hoult/makit">GitHub<span class="stars" data-stars hidden></span></a>
+    <a href="../">English</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="side" aria-label="目录">
+    <h3>开始</h3>
+    <a href="#intro">简介</a>
+    <a href="#why">会话是对象，不是窗口</a>
+    <a href="#quickstart">快速上手</a>
+    <a href="#install">下载与安装</a>
+    <h3>会话</h3>
+    <a href="#sessions">找到所有会话</a>
+    <a href="#search">搜索与恢复</a>
+    <a href="#status">等待操作的会话</a>
+    <a href="#archive">批量归档</a>
+    <h3>终端</h3>
+    <a href="#fast">够快的终端</a>
+    <a href="#panes">分屏与标签</a>
+    <a href="#keys">快捷键</a>
+    <a href="#links">链接与路径</a>
+    <a href="#reflow">对话重排阅读</a>
+    <h3>个性化</h3>
+    <a href="#themes">主题与语言</a>
+    <a href="#update">更新</a>
+    <h3>更多</h3>
+    <a href="#privacy">隐私与数据</a>
+    <a href="#trouble">问题排查</a>
+    <a href="#faq">常见问题</a>
+  </aside>
 
   <main>
-    <section class="hero">
-      <p class="kicker">Claude Code 和 Codex 的会话管理器</p>
-      <h1>别再弄丢你的<br>AI 编程会话。</h1>
-      <p class="lead">makit 把你机器上的每个会话都找出来，告诉你哪几个在等你，终端关了也能一键接着聊。</p>
+    <section id="intro">
+      <p class="kicker">Claude Code · Codex · opencode</p>
+      <h1>跑 AI 会话的<br>高性能终端。</h1>
+      <p class="lead">makit 是专为 AI 编程会话设计的终端，采用原生实现，体积小、响应快。Claude Code、Codex、opencode 可在其中分屏、多标签并行运行。makit 同时记录全部历史会话：无论会话最初在哪个终端中启动，都能在侧栏中找到，并一键继续对话；正在等待您操作的会话会被明确标出。</p>
       <div class="cta">
         <a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a>
         <a class="btn" href="https://github.com/nicholas-hoult/makit">在 GitHub 查看</a>
       </div>
-      <p class="fine">通用包（Intel + Apple Silicon），约 <span data-size>15 MB</span> · 当前版本 <span data-version>v0.1</span> · 未签名，首次打开需手动放行</p>
-      <p class="traits">原生、轻量（安装包 7.7 MB）、好看（21 套主题）。本地运行，不上传。</p>
+      <p class="fine">通用安装包（Intel + Apple Silicon），约 <span data-size>15 MB</span> · 当前版本 <span data-version>v0.2</span> · 暂未签名，首次打开需手动允许</p>
       <div class="shot">
-        <img class="only-dark" src="../assets/dark.jpg" alt="makit 界面：左侧按时间分组的会话列表，右侧分屏终端" width="2000" height="1285">
-        <img class="only-light" src="../assets/light.jpg" alt="makit 界面：左侧按时间分组的会话列表，右侧分屏终端" width="2000" height="1285">
+        <img src="../assets/dayfox.jpg" alt="makit 界面：左侧按时间分组的会话列表，右侧分屏终端" width="2000" height="1285">
       </div>
-    </section>
-
-    <section id="demo">
-      <h2>看看效果</h2>
-      <div class="demos">
-        <figure><video src="../assets/demo/search.mp4" autoplay loop muted playsinline preload="metadata" aria-label="搜索所有会话，一键恢复"></video><figcaption><b>搜索所有会话，一键恢复</b><span>按 <code>⌘K</code>，输几个字，回车。会话在新标签里打开，回到原来的目录。</span></figcaption></figure>
-        <figure><video src="../assets/demo/wait.mp4" autoplay loop muted playsinline preload="metadata" aria-label="知道谁在等你"></video><figcaption><b>知道谁在等你</b><span>会话从运行中变成等待审批：状态点变色、铃铛亮起，通知中心留着这一条。</span></figcaption></figure>
-        <figure><video src="../assets/demo/switch.mp4" autoplay loop muted playsinline preload="metadata" aria-label="在会话之间切换"></video><figcaption><b>在会话之间切换</b><span><code>⌥⌘1…9</code> 切窗格，<code>⌘1…9</code> 切标签，<code>⌘K</code> 再打开更多会话。</span></figcaption></figure>
+      <div class="entry">
+        <a href="#install"><b>下载</b><span>macOS、Homebrew、Windows 预览版</span></a>
+        <a href="#quickstart"><b>快速上手</b><span>从安装到恢复第一个会话</span></a>
+        <a href="#faq"><b>常见问题</b><span>隐私、签名、支持的 agent</span></a>
       </div>
+      <p class="small" style="margin-top:18px">基于原生 Rust + GPUI 构建，并非网页套壳：安装包 7.7 MB，内存占用约 55–75 MB，内置 21 套主题。仅在本地运行，不上传任何数据。</p>
     </section>
 
-    <section id="solves">
-      <h2>为什么做它</h2>
-      <p class="sub">一个 AI 编程会话，是活在终端窗口里的一段对话。关了窗口、改了目录名、重启了电脑，对话其实还在磁盘上，只是没有东西再指向它了。makit 换了一个单位：<b>会话本身是对象，不是窗口。</b>它读 Claude Code 和 Codex 本来就写在磁盘上的会话文件，所以不管会话是在哪个终端里起的，都列在这里。</p>
-      <table><thead><tr><th>Unix 作业控制</th><th>makit</th></tr></thead><tbody><tr><td><code>jobs</code>：列出作业和状态</td><td>会话列表：运行中 / 等你 / 空闲 / 已停止 / 已归档</td></tr><tr><td><code>Stopped (tty input)</code>：卡在等你输入</td><td><b>等待审批 / 等待回答</b>，并通知</td></tr><tr><td><code>fg %n</code>：拉回前台</td><td>一键恢复，回到原来的目录</td></tr><tr><td>终端一关，作业就没了</td><td>记录在磁盘上：窗口关了、重启了、目录改名了都还在</td></tr></tbody></table>
+    <section id="why">
+      <h2>会话是对象，不是窗口</h2>
+      <p>AI 编程会话本质上是一段保存在终端窗口里的对话。窗口关闭、目录改名或电脑重启之后，对话记录仍保存在磁盘上，但已没有入口可以找到它。makit 改变了管理的单位：<b>以会话本身为对象，而不是以窗口为对象。</b>它直接读取 Claude Code、Codex、opencode 写在磁盘上的会话记录，因此无论会话最初在哪个终端中启动，都会列在这里。</p>
+      <table><thead><tr><th>Unix 作业控制</th><th>makit</th></tr></thead><tbody>
+        <tr><td><code>jobs</code>：列出作业和状态</td><td>会话列表：运行中 / 等待操作 / 空闲 / 已停止 / 已归档</td></tr>
+        <tr><td><code>Stopped (tty input)</code>：停在那里等待输入</td><td><b>等待审批 / 等待回答</b>，并通知</td></tr>
+        <tr><td><code>fg %n</code>：调回前台</td><td>一键恢复，回到原工作目录</td></tr>
+        <tr><td>终端关闭后，作业随之消失</td><td>记录保存在磁盘上：窗口关闭、系统重启、目录改名之后依然存在</td></tr>
+      </tbody></table>
+      <h3>与「持久会话终端」的区别</h3>
+      <p>带后台服务的终端，会在窗口关闭后让<i>进程</i>继续运行，前提是该服务仍在运行。makit 保留的是<i>对话</i>：记录保存在磁盘上，系统重启、后台服务停止、目录改名之后依然存在。相应的代价是：关闭标签即结束其进程，恢复操作是继续之前的对话，而不是重新接入一个仍在运行的程序。</p>
     </section>
 
-    <section id="features">
-      <h2>它能做什么</h2>
-      <ul class="points">
-        <li><b>不再弄丢会话</b><span>扫描 <code>~/.claude</code> 和 <code>~/.codex</code>，按项目或状态分组，跨全部会话搜索。任何终端里起的会话都会出现。</span></li>
-        <li><b>知道谁在等你</b><span>每个会话一个状态点；等审批或等你回答时弹桌面通知（Claude Code，在设置里安装 hook）。</span></li>
-        <li><b>接着上次聊</b><span>在原来的工作目录里恢复。目录被删或搬走了，makit 会重建链接，Claude Code 的会话不会丢。</span></li>
-        <li><b>把对话重排着读</b><span>实验功能，默认关。历史从会话文件按当前窗口宽度重新排版，活动的那一段仍是真终端。</span></li>
-        <li><b>分屏终端</b><span>树形分屏，拖动调大小，一个屏幕盯住多个会话。</span></li>
-        <li><b>本地、不上传</b><span>只读你本机的会话文件。没有账号，没有遥测，不上传任何内容。</span></li>
-        <li><b>原生、轻</b><span>Rust + GPUI，不是套壳网页。内存约 55–75 MB，5,000 个会话不到一秒就绪。</span></li>
-        <li><b>21 套主题，中文 / English</b><span>主题跟随系统明暗；可以导入 iTerm2 配色。</span></li>
-        <li><b>自带更新</b><span>检查新版本并原地替换；用 Homebrew 装的就 <code>brew upgrade</code>。</span></li>
-      </ul>
-    </section>
-
-    <section id="themes">
-      <h2>主题</h2>
-      <p class="sub"></p>
-      <div class="themes">
-        <figure><img src="../assets/catppuccin.jpg" alt="Catppuccin Mocha" loading="lazy"><figcaption>Catppuccin Mocha</figcaption></figure>
-        <figure><img src="../assets/light.jpg" alt="GitHub Light" loading="lazy"><figcaption>GitHub Light</figcaption></figure>
-        <figure><img src="../assets/dayfox.jpg" alt="Dayfox" loading="lazy"><figcaption>Dayfox</figcaption></figure>
-      </div>
+    <section id="quickstart">
+      <h2>快速上手</h2>
+      <ol class="steps">
+        <li><b>安装并打开 makit。</b>下载 <code>.dmg</code>，将 makit 拖入「应用程序」文件夹。首次打开时需在系统设置中手动选择一次「仍要打开」（详见<a href="#install">下载与安装</a>）。</li>
+        <li><b>查看侧栏。</b>您已有的 Claude Code、Codex、opencode 会话会自动列出，并按时间分组。选择任一会话，即可在原工作目录中继续对话。</li>
+        <li><b>按 <kbd>⌘K</kbd>。</b>输入项目名或任务关键字，按回车，会话将在新标签中打开。</li>
+        <li><b>开启通知</b>（Claude Code）：在设置中安装 hook。此后会话需要审批或等待回答时，系统会弹出桌面通知。</li>
+      </ol>
     </section>
 
     <section id="install">
-      <h2>安装</h2>
-      <p class="sub">主要是 macOS 版；Windows 是预览版，Linux 计划 0.3。</p>
+      <h2>下载与安装</h2>
+      <p>macOS 为主要支持平台；Windows 目前为预览版；Linux 版本计划于 0.3 提供。</p>
       <div class="install">
-        <div class="card"><h3>macOS</h3><p>下载 <code>.dmg</code>，打开后把 makit 拖进「应用程序」。</p>
+        <div class="card"><h3>macOS</h3><p>下载 <code>.dmg</code> 安装包，打开后将 makit 拖入「应用程序」文件夹。</p>
           <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a></p>
-          <p class="small"><code>-universal</code> 通用包所有 Mac 都能用；<a data-arm href="https://github.com/nicholas-hoult/makit/releases/latest">Apple 芯片</a>和 <a data-x64 href="https://github.com/nicholas-hoult/makit/releases/latest">Intel</a> 单架构包体积约一半。</p></div>
+          <p class="small"><code>-universal</code> 通用安装包适用于所有 Mac；<a data-arm href="https://github.com/nicholas-hoult/makit/releases/latest">Apple 芯片</a>和 <a data-x64 href="https://github.com/nicholas-hoult/makit/releases/latest">Intel</a> 单架构安装包的体积约为其一半。</p></div>
         <div class="card"><h3>Homebrew</h3><pre><code>brew install --cask nicholas-hoult/tap/makit</code></pre></div>
-        <div class="card"><h3>Windows（预览版）</h3><p>一个带 <code>makit.exe</code> 的 <code>.zip</code>，未签名，部分功能还是占位。Windows SmartScreen 会拦一次：<b>更多信息 → 仍要运行</b>。</p>
+        <div class="card"><h3>Windows（预览版）</h3><p>包含 <code>makit.exe</code> 的 <code>.zip</code> 压缩包，暂未签名，部分功能尚未实现。首次运行时 Windows SmartScreen 会给出提示，请依次选择：<b>更多信息 → 仍要运行</b>。</p>
           <p style="margin-top:14px"><a class="btn" data-win href="https://github.com/nicholas-hoult/makit/releases/latest">下载 Windows 版</a></p></div>
       </div>
-      <div class="note">第一次打开：这个包还没有 Apple 签名，macOS 会拦一下。到 <b>系统设置 → 隐私与安全性</b> 点 <b>仍要打开</b>；如果提示「已损坏」，在终端运行 <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>。应用内更新下载的文件不会再被拦。</div>
+      <div class="note"><b>macOS 首次打开。</b>该安装包暂未经过 Apple 签名，首次打开时 macOS 会予以拦截。请前往 <b>系统设置 → 隐私与安全性</b>，点击 <b>仍要打开</b>；如提示「已损坏」，请在终端执行 <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>。通过应用内更新下载的版本不会再被拦截。</div>
     </section>
 
-    <section id="perf">
-      <h2>性能</h2>
-      <p class="sub">合成会话，Intel Core i7-1068NG7，release 构建，单架构。完整数据、方法和限制见 README。</p>
-      <table>
-        <thead><tr><th>指标</th><th>数值</th></tr></thead>
-        <tbody><tr><td>安装包（.dmg，单架构）</td><td>7.7 MB</td></tr><tr><td>5,000 个会话，会话列表就绪</td><td>0.6–0.9 s</td></tr><tr><td>运行内存</td><td>55–75 MB</td></tr><tr><td>长对话每新增一条记录（5–200 MB）</td><td>≈ 0.04 ms</td></tr></tbody>
-      </table>
-      <div class="note">只读你本机的会话文件。检查更新时只请求版本信息，不会上传任何会话内容、路径或项目名。</div>
+    <section id="sessions">
+      <h2>找到所有会话</h2>
+      <p>makit 扫描 <code>~/.claude</code> 和 <code>~/.codex</code>（以及 opencode 的数据库），并列出找到的全部会话，不论其最初在哪个终端中启动。侧栏支持按时间、项目或状态分组，会话增减时列表会自动更新。</p>
+      <ul class="list">
+        <li>点击会话即可恢复。若该会话已处于打开状态，makit 会切换到对应标签，不会重复打开。</li>
+        <li>会话在原工作目录中恢复。若该目录已被删除或移动，makit 会重建关联，Claude Code 的会话不会丢失。</li>
+        <li>Claude Code、Codex、opencode 的会话以相同方式列出和恢复。三者均可显示运行状态；「忙碌」状态支持 Claude Code 和 opencode（Codex 显示为空闲）；「等待操作」状态及对应通知目前仅支持 Claude Code。</li>
+      </ul>
     </section>
+
+    <section id="search">
+      <h2>搜索与恢复</h2>
+      <p>按 <kbd>⌘K</kbd> 打开命令面板。可跨全部项目和任务搜索，并按项目、时间、状态筛选，按回车打开。</p>
+      <figure class="demo"><video src="../assets/demo/search.mp4" autoplay loop muted playsinline preload="metadata" aria-label="搜索所有会话，一键恢复"></video><figcaption>按 ⌘K，输入关键字，按回车。会话在新标签中打开，并回到原工作目录。</figcaption></figure>
+    </section>
+
+    <section id="status">
+      <h2>等待操作的会话</h2>
+      <p>每个会话在侧栏和标签上都有状态标记。标记以形状区分含义，不依赖颜色也能辨认：</p>
+      <table><thead><tr><th>标记</th><th>状态</th></tr></thead><tbody>
+        <tr><td>带三个点的实心圆</td><td><b>等待操作</b>：需要审批或回答</td></tr>
+        <tr><td>带弧线的圆环</td><td>忙碌</td></tr>
+        <tr><td>带对勾的圆环</td><td>空闲</td></tr>
+        <tr><td>虚线圆环</td><td>已停止</td></tr>
+      </tbody></table>
+      <p>会话进入等待状态时，makit 还会弹出桌面通知，并在通知中心（铃铛图标）保留该条记录。此功能依赖通知 hook：请在设置中点击<b>安装 hook</b>。这也是 makit 唯一会修改 <code>~/.claude/settings.json</code> 的操作。</p>
+      <figure class="demo"><video src="../assets/demo/wait.mp4" autoplay loop muted playsinline preload="metadata" aria-label="知道谁在等你"></video><figcaption>会话由运行中转为等待审批：状态标记变化，铃铛亮起，通知中心保留该条记录。</figcaption></figure>
+    </section>
+
+    <section id="archive">
+      <h2>批量归档</h2>
+      <p>归档会将已完成的会话收起，但不会删除；会话文件仍保留在 Claude Code、Codex 原本写入的位置。</p>
+      <ul class="list">
+        <li>按住 <kbd>⌘</kbd> 点击，可将会话加入或移出选择；按住 <kbd>⇧</kbd> 点击，可选择连续范围。</li>
+        <li>在选中的行上右键：选择<b>归档所选 (N)</b>；若所选会话均已归档，则显示为<b>取消归档所选 (N)</b>。</li>
+      </ul>
+    </section>
+
+    <section id="fast">
+      <h2>够快的终端</h2>
+      <p>终端是产品的另一半。它以原生 Rust + GPUI 实现，并非网页套壳，因此即使磁盘上有数千个会话，依然保持小巧、快速。</p>
+      <p class="small">合成会话，Intel Core i7-1068NG7，release 构建，单架构。完整数据、方法和限制见 README。</p>
+      <table><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>
+        <tr><td>安装包（.dmg，单架构）</td><td>7.7 MB</td></tr>
+        <tr><td>5,000 个会话，会话列表就绪</td><td>0.6–0.9 s</td></tr>
+        <tr><td>运行内存</td><td>55–75 MB</td></tr>
+        <tr><td>长对话每新增一条记录（5–200 MB）</td><td>≈ 0.04 ms</td></tr>
+      </tbody></table>
+      <ul class="list">
+        <li>树形分屏与可拖动的标签；标签支持固定，也支持仅停止会话而不关闭。</li>
+        <li>双击选词、字号缩放，以及可通过 <kbd>⌘</kbd> 加点击打开的链接和路径。</li>
+        <li>内置 21 套主题，支持导入 iTerm2 配色。</li>
+      </ul>
+    </section>
+
+    <section id="panes">
+      <h2>分屏与标签</h2>
+      <p>终端采用树形分屏：可继续拆分窗格，拖动分割线调整大小，并将标签拖到其他窗格。在同一屏幕上即可同时查看多个会话。</p>
+      <ul class="list">
+        <li>右键标签 → <b>停止会话</b>：结束进程并释放内存，标签保留在原位（重启后依然存在）；<b>停止其他标签</b>会对其余标签执行同样操作。</li>
+        <li>进程已结束的标签可原地重新运行：在其中按 <kbd>Enter</kbd>，或右键 → <b>恢复会话</b>。</li>
+        <li>右键 → <b>固定标签</b>，使其始终位于窗格最前。「关闭其他」和「关闭右侧」不会关闭已固定的标签。</li>
+      </ul>
+    </section>
+
+    <section id="keys">
+      <h2>快捷键</h2>
+      <table><thead><tr><th>按键</th><th>作用</th></tr></thead><tbody>
+        <tr><td><kbd>⌘K</kbd></td><td>命令面板：搜索并打开会话</td></tr>
+        <tr><td><kbd>⌘1</kbd>…<kbd>9</kbd></td><td>切换标签</td></tr>
+        <tr><td><kbd>⌥⌘1</kbd>…<kbd>9</kbd></td><td>切换窗格</td></tr>
+        <tr><td><kbd>⌘</kbd> 加点击</td><td>打开光标下的链接或路径</td></tr>
+      </tbody></table>
+      <figure class="demo"><video src="../assets/demo/switch.mp4" autoplay loop muted playsinline preload="metadata" aria-label="在会话之间切换"></video><figcaption>⌥⌘1…9 切换窗格，⌘1…9 切换标签，⌘K 打开更多会话。</figcaption></figure>
+    </section>
+
+    <section id="links">
+      <h2>链接与路径</h2>
+      <p>按住 <kbd>⌘</kbd> 时，终端输出中的网址和文件路径会变为链接，<kbd>⌘</kbd> 加点击即可打开。文件名含全角括号的路径，以及被程序自行换行截断的长路径或长网址（例如 Claude Code 的回复内容），同样会被识别为完整链接。</p>
+    </section>
+
+    <section id="reflow">
+      <h2>对话重排阅读</h2>
+      <p>实验性功能，默认关闭。开启后，会话历史会根据当前窗口宽度，从会话文件重新排版，并随窗口大小变化；底部处于活动状态的部分仍是真实终端。可在设置中开启。</p>
+    </section>
+
+    <section id="themes">
+      <h2>主题与语言</h2>
+      <p>内置 21 套主题，跟随系统明暗，也可以导入 iTerm2 的 <code>.itermcolors</code>。界面语言支持 English 和中文，默认为英文，可在设置中切换或跟随系统。</p>
+      <p>其中三套在应用里的样子：</p>
+      <div class="themes">
+        <figure><img src="../assets/catppuccin.jpg" alt="" loading="lazy"><figcaption>Catppuccin Mocha</figcaption></figure>
+        <figure><img src="../assets/light.jpg" alt="" loading="lazy"><figcaption>GitHub Light</figcaption></figure>
+        <figure><img src="../assets/dayfox.jpg" alt="" loading="lazy"><figcaption>Dayfox</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="update">
+      <h2>更新</h2>
+      <p>makit 在启动后检查新版本，此后每小时检查一次。发现新版本时，标题栏会出现 <b>Update x.y.z</b> 标记，其菜单提供<b>更新并重启</b>、<b>发布说明</b>和<b>跳过此版本</b>三个选项。替换应用前，会使用发布页公布的 SHA-256 校验安装包；替换失败时自动回滚。通过 Homebrew 安装的，请运行 <code>brew upgrade --cask makit</code>。检查更新时仅请求版本信息。</p>
+    </section>
+
+    <section id="privacy">
+      <h2>隐私与数据</h2>
+      <p>makit 仅读取本机的会话文件。无需账号，无遥测，不会上传任何会话内容、路径或项目名称。</p>
+      <ul class="list">
+        <li>读取：<code>~/.claude/projects</code>、<code>~/.claude/sessions</code>、<code>~/.codex/sessions</code>，以及 opencode 的 SQLite 数据库（只读）。</li>
+        <li>自身数据写入 <code>~/.claude/makit</code>（设置、归档标记、日志）。</li>
+        <li>仅当您点击<b>安装 hook</b> 时，才会修改 <code>~/.claude/settings.json</code>。</li>
+        <li>卸载 makit 不会删除会话；会话归 Claude Code、Codex、opencode 所有。</li>
+      </ul>
+    </section>
+
+    <section id="trouble">
+      <h2>问题排查</h2>
+      <p>打开 设置 → 诊断。<b>检查环境</b>会检测工具及其版本、PATH、代理变量、通知 hook、数据目录和会话目录，并给出修复建议。提交 issue 时，可使用<b>复制诊断信息</b>和<b>打开日志目录</b>；日志保留最近 7 天。</p>
+    </section>
+
     <section id="faq">
       <h2>常见问题</h2>
       <div class="faq">
-        <details><summary>和终端、终端复用器有什么不同？</summary><p>makit 也有分屏终端，但它是围绕会话组织的，不是围绕窗口：不管会话在哪里起的都会列出来，保留它们的历史，告诉你哪一个在等你。和你喜欢的终端搭配着用就行。</p></details>
-        <details><summary>支持哪些 agent？</summary><p>Claude Code 和 Codex。状态和通知目前只有 Claude Code；Codex 的会话可以列出和恢复。</p></details>
-        <details><summary>会上传我的会话吗？</summary><p>不会。它只读本地文件。检查更新只请求版本信息，不会发送任何会话内容、路径或项目名。</p></details>
-        <details><summary>它会读写我机器上的哪些东西？</summary><p>读 <code>~/.claude/projects</code>、<code>~/.claude/sessions</code> 和 <code>~/.codex/sessions</code>；自己的数据在 <code>~/.claude/makit</code>；只有你点「安装 hook」时才会碰 <code>~/.claude/settings.json</code>。README 里有完整清单。</p></details>
-        <details><summary>删掉 makit，会话会丢吗？</summary><p>不会。会话属于 Claude Code 和 Codex，原地不动。删 <code>~/.claude/makit</code> 只会清掉 makit 自己的设置和归档标记。</p></details>
-        <details><summary>为什么没有签名？</summary><p>还没有 Apple 开发者账号。第一次打开的放行步骤见「安装」。应用内更新下载的文件不会再被拦。</p></details>
-        <details><summary>Windows 和 Linux 呢？</summary><p>Windows 从 0.1.5 起有预览版（能运行，部分功能还是占位）；Linux 计划 0.3。</p></details>
-        <details><summary>免费吗？</summary><p>免费。开源，MIT 或 Apache-2.0 双许可。</p></details>
+        <details><summary>和终端、终端复用器有什么不同？</summary><p>makit 自带分屏终端，但它围绕会话而非窗口来组织：无论会话在哪里启动都会列出，保留其历史，并标明哪一个在等待操作。也可以与您习惯的终端搭配使用。</p></details>
+        <details><summary>支持哪些 agent？</summary><p>Claude Code、Codex 和 opencode。三者的会话均可列出和恢复；「等待操作」状态及通知目前仅支持 Claude Code。</p></details>
+        <details><summary>会上传我的会话吗？</summary><p>不会。它仅读取本地文件。检查更新时只请求版本信息，不会发送任何会话内容、路径或项目名称。</p></details>
+        <details><summary>删掉 makit，会话会丢吗？</summary><p>不会。会话归 Claude Code、Codex 所有，保留在原位置。删除 <code>~/.claude/makit</code> 只会清除 makit 自身的设置和归档标记。</p></details>
+        <details><summary>为什么没有签名？</summary><p>目前尚未签名。首次打开的放行步骤见「下载与安装」。通过应用内更新下载的版本不会再被拦截。</p></details>
+        <details><summary>Windows 和 Linux 呢？</summary><p>Windows 提供预览版（可正常运行，部分功能尚未实现）；Linux 版本计划于 0.3 提供。</p></details>
+        <details><summary>免费吗？</summary><p>免费。项目开源，采用 MIT 或 Apache-2.0 双许可。</p></details>
       </div>
     </section>
-
-    <section class="final">
-      <h2>试试 makit</h2>
-      <p class="sub">免费、开源。</p>
-      <p><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">下载 macOS 版</a></p>
-    </section>
   </main>
-
-  <footer>
-    <div class="row">
-      <span>makit · MIT 或 Apache-2.0 双许可</span>
-      <span>
-        <a href="https://github.com/nicholas-hoult/makit/releases">Releases</a> ·
-        <a href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.zh-CN.md">Changelog</a> ·
-        <a href="https://github.com/nicholas-hoult/makit/issues">Issues</a>
-      </span>
-    </div>
-  </footer>
 </div>
+
+<footer>
+  <div class="row">
+    <span>makit · MIT 或 Apache-2.0 双许可</span>
+    <span>
+      <a href="https://github.com/nicholas-hoult/makit/releases">Releases</a> ·
+      <a href="https://github.com/nicholas-hoult/makit/blob/main/CHANGELOG.zh-CN.md">Changelog</a> ·
+      <a href="https://github.com/nicholas-hoult/makit/issues">Issues</a>
+    </span>
+  </div>
+</footer>
 <script src="../assets/app.js" defer></script>
 </body>
 </html>

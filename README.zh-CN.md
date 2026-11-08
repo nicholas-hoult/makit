@@ -1,12 +1,12 @@
 <h1 align="center">makit</h1>
 
-<p align="center"><b>Claude Code 和 Codex 的会话管理器。</b></p>
+<p align="center"><b>跑 AI 会话的高性能终端。</b></p>
 
-<h2 align="center">别再弄丢你的 AI 编程会话。</h2>
+<h2 align="center">Claude Code、Codex、opencode，一个终端全搞定。</h2>
 
 <p align="center">
-  makit 把你机器上的每个会话都找出来，告诉你哪几个在等你，<br>
-  终端关了也能一键接着聊。
+  makit 是专门跑 AI 编程会话的终端，原生写的，轻、快。<br>
+  分屏、多标签同时跑；以前开过的会话在侧栏里点一下接着聊，在等你的会标出来。
 </p>
 
 简体中文 | [English](README.md)
@@ -26,7 +26,7 @@
   <a href="#从源码构建">从源码构建</a>
 </p>
 
-**原生、轻量（安装包 7.7 MB）、好看（21 套主题）。** Rust + GPUI，不是 Electron 套壳。本地运行，不上传。macOS 是主要版本，Windows 从 0.1.5 起有预览版，Linux 计划 0.3。支持 **Claude Code** 和 **Codex**。
+**原生、轻量（安装包 7.7 MB）、好看（21 套主题）。** Rust + GPUI，不是套壳网页。本地运行，不上传。macOS 是主要版本，Windows 有预览版，Linux 计划 0.3。支持 **Claude Code**、**Codex** 和 **opencode**。
 
 ⭐ **觉得有用的话，欢迎 Star 和 Fork。** 用着不顺、想要什么功能，直接提 [Issue](https://github.com/nicholas-hoult/makit/issues) 就行；也欢迎 PR。
 
