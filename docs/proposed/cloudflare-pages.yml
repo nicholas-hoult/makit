@@ -1,0 +1,63 @@
+# NOT INSTALLED.
+# GitHub Actions does not run files outside .github/workflows.
+# Do not copy this into .github/workflows until publication is approved.
+# This proposal was not executed. Cloudflare was not accessed.
+# The reported project name "makit-app" was not verified. Set it only after
+# someone with Pages access confirms the project.
+#
+# Preferred path, no repo secret: Cloudflare Pages Git integration
+#   Production branch: main
+#   Build command: bash scripts/build-site.sh
+#   Build output directory: site
+#   Root directory: /
+#   Preview: every branch except main. Do not attach makit.unitysight.com to previews.
+# That integration builds on a push to main. It does not build when only a tag is pushed.
+#
+# This workflow is the additional trigger for a published GitHub Release.
+# Production is updated only when the event is a push to main, or a published
+# release whose commit is contained in origin/main. A tag from any other
+# commit fails the ancestor check and does not deploy.
+
+name: Deploy marketing site to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Do not deploy a release tag that is not on main
+        if: github.event_name == 'release'
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag $GITHUB_SHA is not on main; refusing production deploy"
+            exit 1
+          fi
+
+      - name: Build
+        run: bash scripts/build-site.sh
+
+      - name: Deploy production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ secrets.CLOUDFLARE_PAGES_PROJECT }}
+        run: |
+          npx --yes wrangler@3 pages deploy site --project-name="$CLOUDFLARE_PAGES_PROJECT" --branch=main
+# Required secrets, not created here:
+#   CLOUDFLARE_API_TOKEN       Cloudflare API token with Account → Cloudflare Pages → Edit
+#   CLOUDFLARE_ACCOUNT_ID      Cloudflare account id
+#   CLOUDFLARE_PAGES_PROJECT   Pages project name, only after it is confirmed
+# Wrangler uses those three. No token value belongs in this file.

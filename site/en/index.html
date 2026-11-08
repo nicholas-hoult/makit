@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>makit — A high-performance terminal for AI sessions</title>
+<meta name="description" content="makit is a high-performance terminal built for AI coding sessions: Claude Code, Codex and opencode side by side in splits and tabs, every past session one click away, the ones waiting for you marked. Native Rust, 7.7 MB installer.">
+<meta property="og:title" content="makit — A high-performance terminal for AI sessions">
+<meta property="og:description" content="makit is a high-performance terminal built for AI coding sessions: Claude Code, Codex and opencode side by side in splits and tabs, every past session one click away, the ones waiting for you marked. Native Rust, 7.7 MB installer.">
+<meta property="og:image" content="https://makit.unitysight.com/assets/dark.jpg">
+<link rel="canonical" href="https://makit.unitysight.com/en/">
+<link rel="alternate" hreflang="zh-CN" href="https://makit.unitysight.com/">
+<link rel="alternate" hreflang="en" href="https://makit.unitysight.com/en/">
+<link rel="alternate" hreflang="x-default" href="https://makit.unitysight.com/">
+<link rel="icon" href="../assets/favicon.png">
+<link rel="apple-touch-icon" href="../assets/favicon.png">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+<header class="top">
+  <button class="menu-btn" type="button" aria-label="Contents">Contents</button>
+  <a class="brand" href="./">makit</a>
+  <nav>
+    <a class="hide-sm" href="#quickstart">Guide</a>
+    <a class="hide-sm" href="#install">Download</a>
+    <a class="hide-sm" href="changelog/">Changelog</a>
+    <a href="https://github.com/nicholas-hoult/makit">GitHub<span class="stars" data-stars hidden></span></a>
+    <a href="../">简体中文</a>
+  </nav>
+</header>
+
+<div class="layout">
+  <aside class="side" aria-label="Contents">
+    <h3>Start</h3>
+    <a href="#intro">Overview</a>
+    <a href="#why">A session, not a window</a>
+    <a href="#quickstart">Quick start</a>
+    <a href="#install">Download and install</a>
+    <h3>Sessions</h3>
+    <a href="#sessions">Find every session</a>
+    <a href="#search">Search and resume</a>
+    <a href="#status">Who is waiting</a>
+    <a href="#archive">Archive in bulk</a>
+    <h3>Terminals</h3>
+    <a href="#fast">A terminal that keeps up</a>
+    <a href="#panes">Splits and tabs</a>
+    <a href="#keys">Keyboard shortcuts</a>
+    <a href="#links">Links and paths</a>
+    <a href="#reflow">Read it back, reflowed</a>
+    <h3>Make it yours</h3>
+    <a href="#themes">Themes and language</a>
+    <a href="#update">Updates</a>
+    <h3>More</h3>
+    <a href="#privacy">Privacy and data</a>
+    <a href="#trouble">When something is off</a>
+    <a href="#faq">FAQ</a>
+  </aside>
+
+  <main>
+    <section id="intro">
+      <p class="kicker">Claude Code · Codex · opencode</p>
+      <h1>A high-performance<br>terminal for AI sessions.</h1>
+      <p class="lead">makit is a terminal built for AI coding sessions. It is native and light, and Claude Code, Codex and opencode run in it side by side, in splits and tabs. It also remembers every session for you: wherever you started one, it is in the sidebar, one click from where you left off, and the ones waiting for you are marked.</p>
+      <div class="cta">
+        <a class="btn primary" data-dmg data-hero-btn data-win-text="Download for Windows (preview)" data-linux-text="Linux is planned for 0.3" data-mobile-text="Download on a desktop" href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a>
+        <a class="btn" href="https://github.com/nicholas-hoult/makit">View on GitHub</a>
+      </div>
+      <p class="fine" data-hero-fine data-win-text="Preview build, unsigned, some features are still placeholders · latest <span data-version>v0.2</span>" data-linux-text="There is no Linux build yet. Follow the progress on GitHub." data-mobile-text="makit is a desktop app for macOS and Windows." >Universal package (Intel + Apple Silicon), about <span data-size>15 MB</span> · latest <span data-version>v0.2</span> · signed and notarized by Apple (0.2.7 and later)</p>
+      <div class="shot">
+        <img src="../assets/dayfox.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="2000" height="1285">
+      </div>
+      <div class="entry">
+        <a href="#install"><b>Download</b><span>macOS, Homebrew, Windows preview</span></a>
+        <a href="#quickstart"><b>Quick start</b><span>From install to your first resumed session</span></a>
+        <a href="#faq"><b>FAQ</b><span>Privacy, signing, supported agents</span></a>
+      </div>
+      <p class="small" style="margin-top:18px">Native Rust + GPUI, not a web page in disguise: 7.7 MB installer, 55–75 MB of memory. Multiple beautiful built-in themes, with support for importing iTerm2 themes. Local, nothing uploaded.</p>
+    </section>
+
+    <section id="why">
+      <h2>A session, not a window</h2>
+      <p>An AI coding session is a conversation that lives in a terminal window. Close the window, rename the folder, restart the Mac, and the conversation is still on disk, but nothing points at it any more. makit changes the unit: <b>the session is the object, not the window.</b> It reads the session files Claude Code and Codex already write, so every session is listed whichever terminal it was started in.</p>
+      <table><thead><tr><th>Unix job control</th><th>makit</th></tr></thead><tbody>
+        <tr><td><code>jobs</code>: list the jobs and their state</td><td>The session list: running / waiting for you / idle / stopped / archived</td></tr>
+        <tr><td><code>Stopped (tty input)</code>: stuck waiting for you</td><td><b>Waiting for approval / an answer</b>, with a notification</td></tr>
+        <tr><td><code>fg %n</code>: bring one back</td><td>One-click resume, in its original directory</td></tr>
+        <tr><td>Close the terminal and the job is gone</td><td>The record is on disk: it survives the window, a restart, a renamed folder</td></tr>
+      </tbody></table>
+      <h3>Not the same as a persistent-session terminal</h3>
+      <p>A terminal with a background server keeps the <i>process</i> alive after you close the window, for as long as that server runs. makit keeps the <i>conversation</i>: the record is on disk, so it is still there after a restart, after the server would have stopped, after a renamed folder. The trade-off is plain: closing a tab ends its process, and resuming continues the conversation, not the running program.</p>
+    </section>
+
+    <section id="quickstart">
+      <h2>Quick start</h2>
+      <ol class="steps">
+        <li><b>Install and open makit.</b> Download the <code>.dmg</code>, drag makit into Applications and open it. Versions before 0.2.7 are unsigned and need one extra step on the first launch (see <a href="#install">Download and install</a>).</li>
+        <li><b>Look at the sidebar.</b> Your Claude Code and Codex sessions are already there, grouped by time. Click one to pick it back up in its original directory.</li>
+        <li><b>Press <kbd>⌘K</kbd>.</b> Type a few letters of a project or task, press Enter. The session opens in a new tab.</li>
+        <li><b>Turn on notifications</b> (Claude Code): Settings → install the hook. From then on a desktop notification tells you when a session needs approval or an answer.</li>
+      </ol>
+    </section>
+
+    <section id="install">
+      <h2>Download and install</h2>
+      <p>macOS is the main build. Windows is a preview, Linux is planned for 0.3.</p>
+      <div class="install">
+        <div class="card"><h3>macOS</h3><p>Download the <code>.dmg</code>, open it and drag makit into Applications.</p>
+          <p style="margin-top:14px"><a class="btn primary" data-dmg href="https://github.com/nicholas-hoult/makit/releases/latest">Download for macOS</a></p>
+          <p class="small"><code>-universal</code> works on every Mac; <a data-arm href="https://github.com/nicholas-hoult/makit/releases/latest">Apple Silicon</a> and <a data-x64 href="https://github.com/nicholas-hoult/makit/releases/latest">Intel</a> builds are about half the size.</p></div>
+        <div class="card"><h3>Homebrew</h3><pre><code>brew install --cask nicholas-hoult/tap/makit</code></pre></div>
+        <div class="card"><h3>Windows (preview)</h3><p>A <code>.zip</code> with <code>makit.exe</code>, unsigned, and some features are still placeholders. Windows SmartScreen asks once: <b>More info → Run anyway</b>.</p>
+          <p style="margin-top:14px"><a class="btn" data-win href="https://github.com/nicholas-hoult/makit/releases/latest">Download for Windows</a></p></div>
+      </div>
+      <div class="note"><b>First launch on macOS.</b> From 0.2.7 the app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click. <b>Versions before 0.2.7 are unsigned</b>: macOS stops them once. Open <b>System Settings → Privacy &amp; Security</b> and click <b>Open Anyway</b>; if it says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/makit.app</code>.</div>
+    </section>
+
+    <section id="sessions">
+      <h2>Find every session</h2>
+      <p>makit scans <code>~/.claude</code> and <code>~/.codex</code> (and opencode’s database) and lists every session it finds, whichever terminal started it. The sidebar groups them by time, project or state; the list updates as sessions come and go.</p>
+      <ul class="list">
+        <li>Click a session to resume it. If it is already open, makit switches to that tab instead of opening a second one.</li>
+        <li>Resume happens in the original directory. If that directory was deleted or moved, makit rebuilds the link so a Claude Code session is not lost.</li>
+        <li>Claude Code, Codex and opencode sessions are listed and resumed the same way. The running state shows for all three; busy for Claude Code and opencode (Codex shows idle). “Waiting for you” and its notification are Claude Code only for now.</li>
+      </ul>
+    </section>
+
+    <section id="search">
+      <h2>Search and resume</h2>
+      <p>Press <kbd>⌘K</kbd> for the command palette. Search across all projects and tasks, narrow by project, time or status, press Enter to open.</p>
+      <figure class="demo"><video src="../assets/demo/search.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Search every session, resume in one keystroke"></video><figcaption>Press ⌘K, type a few letters, Enter. The session opens in a new tab, in its original directory.</figcaption></figure>
+    </section>
+
+    <section id="status">
+      <h2>Who is waiting</h2>
+      <p>Every session has a state mark in the sidebar and on its tab. The shape carries the meaning, so it also reads without colour:</p>
+      <table><thead><tr><th>Mark</th><th>State</th></tr></thead><tbody>
+        <tr><td>Disc with three dots</td><td><b>Waiting for you</b>: approval or an answer needed</td></tr>
+        <tr><td>Ring with an arc</td><td>Busy</td></tr>
+        <tr><td>Ring with a tick</td><td>Idle</td></tr>
+        <tr><td>Dashed ring</td><td>Stopped</td></tr>
+      </tbody></table>
+      <p>When a session starts waiting, makit also sends a desktop notification and keeps the entry in the notification centre (the bell). This needs the notification hook: open Settings and click <b>Install hook</b>. It is the only time makit touches <code>~/.claude/settings.json</code>.</p>
+      <figure class="demo"><video src="../assets/demo/wait.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Know who is waiting"></video><figcaption>A session goes from running to waiting for approval: the mark changes, the bell lights up, the notification centre keeps the entry.</figcaption></figure>
+    </section>
+
+    <section id="archive">
+      <h2>Archive in bulk</h2>
+      <p>Archiving hides finished sessions without deleting them; the files stay where Claude Code and Codex wrote them.</p>
+      <ul class="list">
+        <li><kbd>⌘</kbd>-click a session to add it to, or remove it from, a selection; <kbd>⇧</kbd>-click selects a range.</li>
+        <li>Right-click a selected row: <b>Archive selected (N)</b>, or <b>Unarchive selected (N)</b> when all of them are archived.</li>
+      </ul>
+    </section>
+
+    <section id="fast">
+      <h2>A terminal that keeps up</h2>
+      <p>The terminal is half of the product. It is a native Rust + GPUI app, not a web page in disguise, so it stays small and quick even with thousands of sessions on disk.</p>
+      <p class="small">Synthetic sessions, Intel Core i7-1068NG7, release build, single architecture. Full data, method and limits are in the README.</p>
+      <table><thead><tr><th>Metric</th><th>Measured</th></tr></thead><tbody>
+        <tr><td>Installer (.dmg, single architecture)</td><td>7.7 MB</td></tr>
+        <tr><td>Session list ready, 5,000 sessions</td><td>0.6–0.9 s</td></tr>
+        <tr><td>Memory in use</td><td>55–75 MB</td></tr>
+        <tr><td>Each new record in a long conversation (5–200 MB)</td><td>≈ 0.04 ms</td></tr>
+      </tbody></table>
+      <ul class="list">
+        <li>Tree splits and draggable tabs; tabs can be pinned or stopped without closing them.</li>
+        <li>Double-click word selection, font zoom, and links and paths you can <kbd>⌘</kbd>-click.</li>
+        <li>Multiple beautiful built-in themes, with support for importing iTerm2 themes.</li>
+      </ul>
+    </section>
+
+    <section id="panes">
+      <h2>Splits and tabs</h2>
+      <p>Terminals are tree-style splits: split a pane, drag the divider to resize, drag a tab to another pane. One screen can keep an eye on several sessions.</p>
+      <ul class="list">
+        <li>Right-click a tab → <b>Stop session</b> ends the process and frees its memory but keeps the tab in place (also across restarts). <b>Stop other tabs</b> does that for the rest.</li>
+        <li>A tab whose process ended can run again in place: press <kbd>Enter</kbd> in it, or right-click → <b>Resume session</b>.</li>
+        <li>Right-click → <b>Pin tab</b> keeps it at the front of its pane. <b>Close others</b> and <b>Close to the right</b> leave pinned tabs open.</li>
+      </ul>
+    </section>
+
+    <section id="keys">
+      <h2>Keyboard shortcuts</h2>
+      <table><thead><tr><th>Keys</th><th>Does</th></tr></thead><tbody>
+        <tr><td><kbd>⌘K</kbd></td><td>Command palette: search and open sessions</td></tr>
+        <tr><td><kbd>⌘1</kbd>…<kbd>9</kbd></td><td>Switch tab</td></tr>
+        <tr><td><kbd>⌥⌘1</kbd>…<kbd>9</kbd></td><td>Switch pane</td></tr>
+        <tr><td><kbd>⌘</kbd>-click</td><td>Open the link or path under the cursor</td></tr>
+      </tbody></table>
+      <figure class="demo"><video src="../assets/demo/switch.mp4" autoplay loop muted playsinline preload="metadata" aria-label="Move between sessions"></video><figcaption>Jump between panes with ⌥⌘1…9 and tabs with ⌘1…9; open more sessions with ⌘K.</figcaption></figure>
+    </section>
+
+    <section id="links">
+      <h2>Links and paths</h2>
+      <p>Hold <kbd>⌘</kbd> and the URLs and file paths in the terminal output turn into links: <kbd>⌘</kbd>-click opens them. This also works for paths whose names contain full-width brackets, and for a long path or URL that a program wrapped over several lines, such as in Claude Code’s replies.</p>
+    </section>
+
+    <section id="reflow">
+      <h2>Read it back, reflowed</h2>
+      <p>Experimental, off by default. When on, the history of a session is laid out again from the session file as you resize the window; the live part at the bottom stays a real terminal. Turn it on in Settings.</p>
+    </section>
+
+    <section id="themes">
+      <h2>Themes and language</h2>
+      <p>Multiple beautiful built-in themes, with support for importing iTerm2 themes. They follow the system light / dark setting. The interface is English or 中文: English by default, switch or follow the system in Settings.</p>
+      <p>Three of them, as they look in the app:</p>
+      <div class="themes">
+        <figure><img src="../assets/catppuccin.jpg" alt="" loading="lazy"><figcaption>Catppuccin Mocha</figcaption></figure>
+        <figure><img src="../assets/light.jpg" alt="" loading="lazy"><figcaption>GitHub Light</figcaption></figure>
+        <figure><img src="../assets/dayfox.jpg" alt="" loading="lazy"><figcaption>Dayfox</figcaption></figure>
+      </div>
+    </section>
+
+    <section id="update">
+      <h2>Updates</h2>
+      <p>makit checks for a new release after launch and then every hour, and shows an <b>Update x.y.z</b> pill in the titlebar. Its menu offers <b>Update and restart</b>, <b>Release notes</b> and <b>Skip this version</b>. The installer is verified against its published SHA-256 before the app is replaced, with a rollback if the swap fails. Installed with Homebrew? Use <code>brew upgrade --cask makit</code>. Only version information is requested.</p>
+    </section>
+
+    <section id="privacy">
+      <h2>Privacy and data</h2>
+      <p>makit reads the session files on your machine. No account, no telemetry, nothing about your sessions, paths or projects is uploaded.</p>
+      <ul class="list">
+        <li>Reads: <code>~/.claude/projects</code>, <code>~/.claude/sessions</code>, <code>~/.codex/sessions</code>, and opencode’s SQLite database (read-only).</li>
+        <li>Writes its own data to <code>~/.claude/makit</code> (settings, archive marks, logs).</li>
+        <li>Touches <code>~/.claude/settings.json</code> only when you click <b>Install hook</b>.</li>
+        <li>Deleting makit does not delete your sessions; they belong to Claude Code and Codex.</li>
+      </ul>
+    </section>
+
+    <section id="trouble">
+      <h2>When something is off</h2>
+      <p>Open Settings → Diagnostics. <b>Check environment</b> looks at the tools and their versions, PATH, proxy variables, the notification hook, and the data and session folders, and tells you what to fix. <b>Copy diagnostic information</b> and <b>Open log folder</b> help when you file an issue; logs are kept for the last 7 days.</p>
+    </section>
+
+    <section id="faq">
+      <h2>FAQ</h2>
+      <div class="faq">
+        <details><summary>How is this different from a terminal or a multiplexer?</summary><p>makit does include split terminals, but it is organised around sessions, not windows: it lists sessions started anywhere, keeps their history, and tells you which one is waiting. Use it alongside the terminal you like.</p></details>
+        <details><summary>Which agents are supported?</summary><p>Claude Code, Codex and opencode. Sessions of all three are listed and can be resumed. The “waiting for you” state and notifications are Claude Code only for now.</p></details>
+        <details><summary>Does it upload my sessions?</summary><p>No. It reads local files. The update check only requests version information; nothing about your sessions, paths or projects is sent.</p></details>
+        <details><summary>If I delete makit, do I lose my sessions?</summary><p>No. The sessions belong to Claude Code and Codex and stay where they are. Deleting <code>~/.claude/makit</code> only removes makit’s own settings and archive marks.</p></details>
+        <details><summary>Is it signed?</summary><p>Yes, from 0.2.7: signed with an Apple Developer ID and notarized by Apple. It is an individual developer account, so the certificate carries the author’s legal name. Versions before 0.2.7 are unsigned; the steps to open them are in “Download and install”.</p></details>
+        <details><summary>Windows and Linux?</summary><p>Windows has a preview build (it runs, but some features are placeholders). Linux is planned for 0.3.</p></details>
+        <details><summary>Is it free?</summary><p>Yes. It is open source, dual-licensed MIT or Apache-2.0.</p></details>
+      </div>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="row">
+    <span>makit · Dual-licensed MIT or Apache-2.0</span>
+    <span>
+      <a href="https://github.com/nicholas-hoult/makit/releases">Releases</a> ·
+      <a href="changelog/">Changelog</a> ·
+      <a href="https://github.com/nicholas-hoult/makit/issues">Issues</a>
+    </span>
+  </div>
+</footer>
+<script src="../assets/app.js" defer></script>
+</body>
+</html>
