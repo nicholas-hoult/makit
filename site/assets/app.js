@@ -18,6 +18,24 @@
   window.addEventListener("scroll", spy, { passive: true });
   spy();
 })();
+// Hero download button follows the visitor's system. The user agent is only a hint, so the install section lists every platform.
+(function () {
+  var btn = document.querySelector("[data-hero-btn]");
+  var fine = document.querySelector("[data-hero-fine]");
+  if (!btn) return;
+  var ua = navigator.userAgent || "";
+  var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  var os = "mac";
+  if (/Android|iPhone|iPad|iPod/i.test(ua) || (/Mac/i.test(plat) && navigator.maxTouchPoints > 1)) os = "mobile";
+  else if (/Win/i.test(plat) || /Windows/i.test(ua)) os = "win";
+  else if (/Linux|X11|CrOS/i.test(plat + " " + ua)) os = "linux";
+  if (os === "mac") return;
+  btn.textContent = btn.getAttribute("data-" + os + "-text");
+  if (fine) fine.innerHTML = fine.getAttribute("data-" + os + "-text");
+  btn.removeAttribute("data-dmg");
+  if (os === "win") btn.setAttribute("data-win", "");
+  else btn.setAttribute("href", os === "linux" ? "https://github.com/nicholas-hoult/makit" : "#install");
+})();
 // Fills the download button with the latest release (version, installer link, size). Without network or on an API
 // error the static links in the page (releases/latest) keep working, so nothing here is required.
 (function () {
