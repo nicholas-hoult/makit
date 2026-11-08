@@ -35,10 +35,10 @@
   <img src="screenshots/dark.jpg" alt="makit: a session list grouped by time on the left, split terminals on the right" width="900">
 </p>
 
-> **0.1: three things up front**
-> - macOS only (a universal package for Intel + Apple Silicon). Windows beta is planned for 0.2, Linux for 0.3.
-> - **Not signed.** You have to allow it manually the first time you open it (steps below). Signing and notarization will wait until there is a developer account.
-> - You need Claude Code or Codex already installed on your machine. makit does not replace them; it only manages their sessions.
+> **Three things up front**
+> - macOS is the main build (a universal package for Intel + Apple Silicon). Windows is a preview; Linux is planned for 0.3.
+> - **Signed and notarized** (from 0.2.7): it opens with a double-click. Versions before 0.2.7 are unsigned; see "First launch" below.
+> - You need Claude Code, Codex or opencode already installed on your machine. makit does not replace them; it only manages their sessions.
 
 ---
 
@@ -179,11 +179,13 @@ Download the `.dmg`, open it, and drag makit into Applications.
 brew install --cask nicholas-hoult/tap/makit
 ```
 
-The cask removes the quarantine flag after installing. If macOS still blocks the first launch, follow the steps below.
+Homebrew installs the same signed, notarized app.
 
-### First launch (unsigned, this step is required)
+### First launch
 
-Because the package is not signed, double-clicking it directly will be blocked by macOS. Pick either option:
+From 0.2.7 the app is signed with an Apple Developer ID and notarized by Apple: double-click `makit.app` and it opens. Nothing to allow.
+
+**Earlier versions (before 0.2.7) are not signed.** macOS blocks them on the first launch; pick either option:
 
 **Option 1: allow it in System Settings**
 
@@ -201,7 +203,7 @@ xattr -dr com.apple.quarantine /Applications/makit.app
 
 Then double-click to open it as usual.
 
-> Every unsigned app needs these steps; it is not specific to makit. If you're not comfortable with that, all the source is right here and you can build it yourself (see the end of this page).
+> These steps only apply to the unsigned versions. If you're not comfortable with that, all the source is right here and you can build it yourself (see the end of this page).
 
 ### Prerequisites
 
@@ -313,7 +315,7 @@ Other CLIs (Gemini, etc.) are not supported for now.
 
 ## What it touches on your machine
 
-An unsigned app that reads `~/.claude` — you have the right to know exactly what it does. Here is everything:
+An app that reads `~/.claude` — you have the right to know exactly what it does. Here is everything:
 
 **Reads**
 
@@ -347,8 +349,8 @@ Claude Code, Codex and opencode. Sessions of all three can be listed and resumed
 ### Does it upload my sessions?
 No. It reads local files. The update check only requests version information; nothing about your sessions, paths or projects is sent.
 
-### Why is it not signed?
-0.1 has no Apple developer account yet. The steps to allow it on first launch are in "Install".
+### Is it signed?
+Yes, from 0.2.7: signed with an Apple Developer ID and notarized by Apple. The certificate carries the author's legal name, because it is an individual developer account. Versions before 0.2.7 are unsigned; the steps to open them are in "First launch".
 
 ---
 
