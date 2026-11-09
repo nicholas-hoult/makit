@@ -122,10 +122,14 @@ pub enum InputKind {
     Deny,
     /// Stop the turn that is running (Esc), like ACP `session/cancel`
     Interrupt,
+    /// Type text without Enter, in any live state: the terminal view's keyboard, where the user sees the screen
+    /// (slash commands with a menu, answers to a tool's own dialog)
+    Type(String),
 }
 
 /// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
-pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe"];
+/// "type" is not an op of its own: it says `input` takes kind `type` and replies while the session works.
+pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe", "type"];
 
 /// Most keys one `keys` request may carry.
 pub const MAX_KEYS: usize = 16;
@@ -177,6 +181,25 @@ pub fn plan_keys(state: &str, keys: &[String]) -> Result<Vec<u8>, String> {
     for k in keys {
         out.extend_from_slice(key_bytes(k).ok_or_else(|| format!("unknown key: {k}"))?);
     }
+    Ok(out)
+}
+
+/// Text as terminal bytes: length and control-character checks, several lines as one bracketed paste (otherwise
+/// every newline would submit on its own). No Enter: the caller adds it.
+fn text_bytes(text: &str) -> Result<Vec<u8>, String> {
+    let text = text.replace("\r\n", "\n");
+    if text.chars().count() > MAX_INPUT_CHARS {
+        return Err("text too long".into());
+    }
+    if text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Err("control characters".into());
+    }
+    if !text.contains('\n') {
+        return Ok(text.into_bytes());
+    }
+    let mut out = b"\x1b[200~".to_vec();
+    out.extend_from_slice(text.as_bytes());
+    out.extend_from_slice(b"\x1b[201~");
     Ok(out)
 }
 
@@ -327,33 +350,24 @@ pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Ve
         InputKind::Deny if at_approval => Ok(vec![0x1b]),
         InputKind::Approve | InputKind::Deny => Err("not waiting for approval".into()),
         InputKind::Text(text) => {
-            // A reply goes to a session at its prompt (idle) or waiting for the user's answer; not while it works and
-            // not while it asks for approval (typing there would answer the dialog)
-            let at_prompt = state == "idle" || (state == "waiting" && waiting_for == "user");
-            if !at_prompt {
-                return Err(if at_approval { "waiting for approval".into() } else { "session busy".into() });
+            // A reply goes to a session at its prompt (idle), waiting for the user's answer, or working (the tool takes
+            // it into the running turn, as when typing in makit); not while it asks for approval (typing there would
+            // answer the dialog)
+            if at_approval {
+                return Err("waiting for approval".into());
             }
-            let text = text.replace("\r\n", "\n");
             if text.trim().is_empty() {
                 return Err("empty text".into());
             }
-            if text.chars().count() > MAX_INPUT_CHARS {
-                return Err("text too long".into());
-            }
-            if text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-                return Err("control characters".into());
-            }
-            let mut out = Vec::new();
-            if text.contains('\n') {
-                // Several lines go in as one paste, otherwise every newline would submit a message on its own
-                out.extend_from_slice(b"\x1b[200~");
-                out.extend_from_slice(text.as_bytes());
-                out.extend_from_slice(b"\x1b[201~");
-            } else {
-                out.extend_from_slice(text.as_bytes());
-            }
+            let mut out = text_bytes(text)?;
             out.push(b'\r');
             Ok(out)
+        }
+        InputKind::Type(text) => {
+            if text.is_empty() {
+                return Err("empty text".into());
+            }
+            text_bytes(text)
         }
     }
 }
@@ -526,7 +540,8 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
                 Some("approve") => InputKind::Approve,
                 Some("deny") => InputKind::Deny,
                 Some("interrupt") => InputKind::Interrupt,
-                _ => return fail("kind must be text, approve, deny or interrupt"),
+                Some("type") => InputKind::Type(req.get("text").and_then(Value::as_str).unwrap_or_default().to_string()),
+                _ => return fail("kind must be text, approve, deny, interrupt or type"),
             };
             // Checked against the live state right before writing, not against what the other side saw earlier
             let Some((state, waiting_for)) = backend.session_state(id) else {
@@ -894,13 +909,15 @@ mod tests {
         assert_eq!(plan_input("idle", "", &text("继续")).unwrap(), "继续\r".as_bytes());
         // Waiting for the user's answer is also a prompt
         assert_eq!(plan_input("waiting", "user", &text("好")).unwrap(), "好\r".as_bytes());
+        // While it works the tool takes the message into the running turn (claude queues what is typed meanwhile), like
+        // typing in makit itself (replying while the agent works, as when typing in makit)
+        assert_eq!(plan_input("busy", "", &text("顺便看下日志")).unwrap(), "顺便看下日志\r".as_bytes());
         // Several lines: one bracketed paste, then Enter
         assert_eq!(plan_input("idle", "", &text("a\r\nb")).unwrap(), b"\x1b[200~a\nb\x1b[201~\r".to_vec());
     }
 
     #[test]
     fn plan_text_is_refused_when_it_would_disturb_the_session() {
-        assert_eq!(plan_input("busy", "", &text("hi")).unwrap_err(), "session busy");
         assert_eq!(plan_input("ended", "", &text("hi")).unwrap_err(), "session ended");
         // Typing into an approval dialog would answer it: refuse
         assert_eq!(plan_input("waiting", "approval", &text("hi")).unwrap_err(), "waiting for approval");
@@ -918,6 +935,39 @@ mod tests {
         }
         // A tab inside the text is fine
         assert!(plan_input("idle", "", &text("a\tb")).is_ok());
+    }
+
+    fn typed(s: &str) -> InputKind {
+        InputKind::Type(s.to_string())
+    }
+
+    #[test]
+    fn plan_type_writes_text_without_enter_in_any_live_state() {
+        // The terminal view's keyboard: the user sees the screen and decides, so any live state is fine
+        for (state, waiting_for) in [("idle", ""), ("busy", ""), ("waiting", "approval"), ("waiting", "user")] {
+            assert_eq!(plan_input(state, waiting_for, &typed("/compact")).unwrap(), b"/compact".to_vec(), "{state}");
+        }
+        // Several lines go in as one paste, still without Enter
+        assert_eq!(plan_input("idle", "", &typed("a\nb")).unwrap(), b"\x1b[200~a\nb\x1b[201~".to_vec());
+        assert_eq!(plan_input("ended", "", &typed("x")).unwrap_err(), "session ended");
+    }
+
+    #[test]
+    fn plan_type_has_the_same_text_checks_as_a_reply() {
+        assert_eq!(plan_input("busy", "", &typed("")).unwrap_err(), "empty text");
+        assert_eq!(plan_input("busy", "", &typed(&"x".repeat(MAX_INPUT_CHARS + 1))).unwrap_err(), "text too long");
+        for bad in ["a\x1bb", "a\x03", "a\rb"] {
+            assert_eq!(plan_input("busy", "", &typed(bad)).unwrap_err(), "control characters", "{bad:?}");
+        }
+        // A lone space is a valid thing to type (it toggles options in some menus)
+        assert_eq!(plan_input("busy", "", &typed(" ")).unwrap(), b" ".to_vec());
+    }
+
+    #[test]
+    fn type_request_is_parsed() {
+        let b = Fake { write_on: true, ..fake() };
+        assert_eq!(ask(&b, r#"{"op":"input","session_id":"s1","kind":"type","text":"/model"}"#)["ok"], true);
+        assert_eq!(b.written.lock().unwrap().last().unwrap().1, b"/model".to_vec());
     }
 
     #[test]
@@ -950,9 +1000,9 @@ mod tests {
         let r = ask(&b, r#"{"op":"input","session_id":"s2","kind":"approve"}"#);
         assert_eq!(r["ok"], true, "{r}");
         assert_eq!(*b.written.lock().unwrap(), vec![("s2".to_string(), b"\r".to_vec())]);
-        // s1 is busy: a reply is refused and nothing more is written
-        let r = ask(&b, r#"{"op":"input","session_id":"s1","kind":"text","text":"hi"}"#);
-        assert_eq!(r["error"], "session busy");
+        // A reply to s2 while it waits for approval is refused and nothing more is written
+        let r = ask(&b, r#"{"op":"input","session_id":"s2","kind":"text","text":"hi"}"#);
+        assert_eq!(r["error"], "waiting for approval");
         // s3 has ended (not running): the same as no such session
         assert_eq!(ask(&b, r#"{"op":"input","session_id":"s3","kind":"deny"}"#)["error"], "session not found");
         assert_eq!(ask(&b, r#"{"op":"input","session_id":"nope","kind":"deny"}"#)["error"], "session not found");
@@ -1130,7 +1180,8 @@ mod tests {
     #[test]
     fn hello_lists_the_ops_so_the_other_side_can_tell_old_versions() {
         let ops = ask(&fake(), r#"{"op":"hello"}"#)["ops"].clone();
-        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe"] {
+        // "type": input kind `type` (terminal keyboard) and replies accepted while the session works
+        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe", "type"] {
             assert!(ops.as_array().unwrap().iter().any(|o| o == op), "{op}");
         }
     }

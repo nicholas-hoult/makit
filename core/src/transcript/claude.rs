@@ -66,7 +66,8 @@ pub(super) fn feed(st: &mut State, v: &Value) -> Vec<usize> {
         }
         "assistant" => assistant(&mut out, v),
         "system" => system(&mut out, v),
-        _ => {} // attachment / progress: not conversation content
+        "attachment" => queued_prompt(&mut out, v),
+        _ => {} // progress: not conversation content
     }
     out.updated
 }
@@ -89,7 +90,26 @@ impl Items<'_> {
 }
 
 fn user(o: &mut Items, v: &Value) {
-    let content = v.pointer("/message/content");
+    user_content(o, v.pointer("/message/content"));
+}
+
+/// A message the user typed while the agent was working: claude records it as a `queued_command` attachment, not as
+/// a `user` record. Only the user's own prompts; agent hand-backs (`peer`, isMeta) and background-task notifications
+/// arrive the same way but are not something the user said. Other attachments are not conversation content.
+fn queued_prompt(o: &mut Items, v: &Value) {
+    let Some(a) = v.get("attachment") else { return };
+    let str_of = |p: &str| a.pointer(p).and_then(Value::as_str);
+    let is_users = str_of("/type") == Some("queued_command")
+        && str_of("/commandMode") == Some("prompt")
+        && str_of("/origin/kind") == Some("human")
+        && a.get("isMeta").and_then(Value::as_bool) != Some(true);
+    if is_users {
+        user_content(o, a.get("prompt"));
+    }
+}
+
+/// A user message's content: a string, or blocks (text / image / tool results).
+fn user_content(o: &mut Items, content: Option<&Value>) {
     match content {
         Some(Value::String(s)) => user_text(o, s),
         Some(Value::Array(blocks)) => {

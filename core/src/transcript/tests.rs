@@ -927,3 +927,38 @@ fn append_only_growth_does_not_recompute_the_whole_visible_set() {
     assert_eq!(s.visible_len(), 400);
     assert_eq!(s.full_recomputes(), 1, "only the first call (no chain known yet) may walk everything");
 }
+
+// A message the user types while the agent is working is not a `user` record: claude stores it as a `queued_command`
+// attachment and hands it to the model mid-turn. Missing it means the user's own words vanish from the conversation
+// (in makit's view and in everything reading makit-link). Only the user's prompts count: agent hand-backs (`peer`,
+// isMeta) and background-task notifications are not something the user said.
+#[test]
+fn messages_typed_mid_turn_are_user_items() {
+    let mut s = State::new(Tool::Claude);
+    let queued = |uuid: &str, parent: &str, a: Value| with(base("attachment", uuid, Some(parent)), json!({"attachment": a}));
+    let lines = vec![
+        user_str("u1", None, "先干活"),
+        asst("a1", Some("u1"), "m1", tool_use("t1", "Bash", json!({"command": "ls"}))),
+        queued("q1", "a1", json!({"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": "顺便看看日志"})),
+        queued("q2", "q1", json!({"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "peer"}, "isMeta": true, "prompt": "<agent-message from=\"x\">子代理回报</agent-message>"})),
+        queued("q3", "q2", json!({"type": "queued_command", "commandMode": "task-notification", "origin": {"kind": "task-notification"}, "prompt": "<task-notification><summary>后台跑完了</summary></task-notification>"})),
+        queued("q4", "q3", json!({"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"}, "prompt": [text_block("看图"), {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"}}]})),
+        tool_result("r1", Some("q4"), "t1", json!("a.txt"), false),
+        asst("a2", Some("r1"), "m2", text_block("好的")),
+    ];
+    for l in &lines {
+        s.feed_line(l);
+    }
+    s.recompute_visible();
+    let got: Vec<_> = (0..s.visible_len()).map(|i| s.visible(i).kind.clone()).filter(|k| !matches!(k, ItemKind::ToolCall { .. })).collect();
+    assert_eq!(
+        got,
+        vec![
+            ItemKind::User("先干活".into()),
+            ItemKind::User("顺便看看日志".into()),
+            ItemKind::User("看图".into()),
+            ItemKind::Image { media_type: "image/png".into(), bytes: 3 },
+            ItemKind::Assistant("好的".into()),
+        ]
+    );
+}
