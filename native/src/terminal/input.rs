@@ -483,9 +483,16 @@ impl TerminalView {
             LinkKind::Url => LinkTarget::Url(l.text.clone()),
             LinkKind::Path => {
                 let (path, _, _) = links::parse_path_text(&l.text);
-                let abs = links::resolve_path(&path, &cwd);
+                // The agent writes relative paths against its own working directory, which the shell never hears about
+                // when it changes (#300): the shell's directory first, then the session's latest one
+                let session = self.session_cwd(now);
+                let bases: Vec<&str> = std::iter::once(cwd.as_str()).chain(session.as_deref()).collect();
+                let cache = &mut self.exist_cache;
+                let abs = links::resolve_with_bases(&path, &bases, |p| {
+                    cache.existing(&[p.to_string()], now, makit_core::paths::paths_exist).first().copied().unwrap_or(false)
+                });
                 if l.verify {
-                    let ok = self.exist_cache.existing(std::slice::from_ref(&abs), now, makit_core::paths::paths_exist);
+                    let ok = cache.existing(std::slice::from_ref(&abs), now, makit_core::paths::paths_exist);
                     if !ok.first().copied().unwrap_or(false) {
                         self.hover = None;
                         return;
@@ -514,6 +521,18 @@ impl TerminalView {
             }
         }
         self.hover = Some(HoverLink { segments, target });
+    }
+
+    /// The directory the session's agent works in now, from its session file; re-read at most every 5 seconds
+    fn session_cwd(&mut self, now: f64) -> Option<String> {
+        if let Some((at, v)) = &self.session_cwd {
+            if now - at <= links::EXIST_TTL_MS {
+                return v.clone();
+            }
+        }
+        let v = self.spec.session_id.as_deref().and_then(makit_core::pty_prep::session_last_cwd);
+        self.session_cwd = Some((now, v.clone()));
+        v
     }
 
     fn osc8_segments(&self, row: usize, h: &alacritty_terminal::term::cell::Hyperlink) -> Vec<(usize, usize, usize)> {

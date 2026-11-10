@@ -64,6 +64,36 @@ pub fn first_user_cwd(reader: impl std::io::BufRead) -> Option<String> {
     None
 }
 
+/// The directory the agent is working in *now*: the cwd of the last main-line record in `tail` (the end of a session file).
+///
+/// Relative paths in the agent's output are written against this directory, not against the one the shell last reported
+/// (the agent changes directory internally and never tells the terminal), see #300. A cut-off first line is skipped
+/// naturally because it fails to parse.
+pub fn last_cwd_in_tail(tail: &str) -> Option<String> {
+    tail.lines().rev().find_map(|line| {
+        let rec = serde_json::from_str::<serde_json::Value>(line).ok()?;
+        if rec.get("isSidechain").and_then(|v| v.as_bool()) == Some(true) {
+            return None;
+        }
+        rec.get("cwd").and_then(|v| v.as_str()).filter(|c| !c.is_empty()).map(String::from)
+    })
+}
+
+/// The latest working directory recorded in a claude session's file (reads only the last 128 KB).
+pub fn session_last_cwd(session_id: &str) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let (path, tool) = crate::sessions::locate_session_file(session_id)?;
+    if !matches!(tool, crate::transcript::Tool::Claude) {
+        return None;
+    }
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(128 * 1024))).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    last_cwd_in_tail(&String::from_utf8_lossy(&buf))
+}
+
 /// Whether a resume tab should be launched in the session's start directory instead: only when the start directory **still exists** and differs from the requested one.
 /// A start directory that is gone = the project was moved (the user may already have recovered with "point to new location"), so the new location recorded by the tab is the right one,
 /// and forcing it back would fight with the cwd-missing recovery flow.
@@ -211,6 +241,22 @@ mod resume_cwd_tests {
         // The id gets spliced into a file path: anything not uuid-shaped is rejected, ruling out ../ and the like
         assert_eq!(resume_session_id("claude -r ../../etc/passwd"), None);
         assert_eq!(resume_session_id("claude -r 73ec5479"), None);
+    }
+
+    #[test]
+    fn last_cwd_in_tail_takes_the_newest_main_line_record() {
+        // #300: relative paths in the agent's output are relative to where it works now, which moves during the session
+        let tail = concat!(
+            "{\"type\":\"user\",\"cwd\":\"/p\"}\n",
+            "{\"type\":\"assistant\",\"cwd\":\"/p/habit\"}\n",
+            "{\"type\":\"user\",\"isSidechain\":true,\"cwd\":\"/elsewhere\"}\n",
+            "{\"type\":\"summary\"}\n",
+        );
+        assert_eq!(super::last_cwd_in_tail(tail).as_deref(), Some("/p/habit"));
+        assert_eq!(super::last_cwd_in_tail(""), None);
+        // the first line of a tail read is usually cut in the middle: it must not be mistaken for a record
+        assert_eq!(super::last_cwd_in_tail("ssistant\",\"cwd\":\"/cut\"}\n{\"type\":\"user\",\"cwd\":\"/ok\"}").as_deref(), Some("/ok"));
+        assert_eq!(super::last_cwd_in_tail("ssistant\",\"cwd\":\"/cut\"}"), None);
     }
 
     #[test]

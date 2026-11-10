@@ -127,6 +127,21 @@ pub fn resolve_path(text: &str, cwd: &str) -> String {
     format!("{base}/{text}")
 }
 
+/// Resolves `text` against the first base directory in which it exists (#300). The agent writes relative paths against
+/// its own working directory, which can differ from the one the shell reported (the agent changes directory internally),
+/// so one base is not enough. When it exists nowhere, the answer is the first base's, as before.
+pub fn resolve_with_bases(text: &str, bases: &[&str], mut exists: impl FnMut(&str) -> bool) -> String {
+    let mut first: Option<String> = None;
+    for base in bases {
+        let abs = resolve_path(text, base);
+        if exists(&abs) {
+            return abs;
+        }
+        first.get_or_insert(abs);
+    }
+    first.unwrap_or_else(|| resolve_path(text, ""))
+}
+
 /// 去掉网址尾巴上的句读和不配对的右括号：「(见 https://x.com/a).」里的 `).` 不属于网址，维基那种配对的括号要留
 fn trim_url(u: &str) -> &str {
     let mut s = u;
@@ -591,6 +606,21 @@ mod tests {
 
     fn row(y: i32, s: &str) -> Row {
         Row { y, cells: format!("{s:<10}").chars().map(|ch| c(&ch.to_string(), 1)).collect() }
+    }
+
+    #[test]
+    fn a_relative_path_resolves_against_the_first_base_where_it_exists() {
+        // #300: the shell says /p, the agent works in /p/habit; the file is only under the second one
+        let there = |p: &str| p == "/p/habit/supabase/schema.sql";
+        assert_eq!(resolve_with_bases("supabase/schema.sql", &["/p", "/p/habit"], there), "/p/habit/supabase/schema.sql");
+        // both exist: the shell's directory wins, so nothing changes for people who never hit this
+        assert_eq!(resolve_with_bases("a.rs", &["/p", "/q"], |_| true), "/p/a.rs");
+        // exists nowhere: the first base, the behaviour before this change
+        assert_eq!(resolve_with_bases("a.rs", &["/p", "/q"], |_| false), "/p/a.rs");
+        // absolute and ~ paths do not depend on the base
+        assert_eq!(resolve_with_bases("~/x/a.rs", &["/p", "/q"], |_| false), "~/x/a.rs");
+        assert_eq!(resolve_with_bases("/x/a.rs", &["/p"], |_| true), "/x/a.rs");
+        assert_eq!(resolve_with_bases("a.rs", &[], |_| true), "/a.rs");
     }
 
     #[test]

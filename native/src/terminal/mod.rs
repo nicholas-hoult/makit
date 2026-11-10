@@ -286,6 +286,8 @@ pub struct TerminalView {
     // ── 链接 ──
     hover: Option<HoverLink>,
     exist_cache: ExistCache,
+    /// The session's latest working directory (read from its file, refreshed every few seconds), a second base for relative paths (#300)
+    session_cwd: Option<(f64, Option<String>)>,
     // ── 光标 ──
     blink_on: bool,
     blink_epoch: u64,
@@ -393,6 +395,7 @@ impl TerminalView {
             last_mouse: None,
             hover: None,
             exist_cache: ExistCache::default(),
+            session_cwd: None,
             blink_on: true,
             blink_epoch: 0,
             search: SearchState::default(),
