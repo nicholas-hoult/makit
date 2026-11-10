@@ -16,7 +16,9 @@ use crate::transcript::{Item, ItemKind, Level, Tool, TranscriptReader};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::io::{BufRead, BufReader, Read};
+use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -634,7 +636,9 @@ impl Backend for CoreBackend {
 }
 
 /// How often `subscribe` looks for changes, and every how many looks it sends a ping (so a dead peer is noticed).
+#[cfg(unix)]
 const SUBSCRIBE_TICK: std::time::Duration = std::time::Duration::from_secs(1);
+#[cfg(unix)]
 const SUBSCRIBE_PING_EVERY: u32 = 15;
 
 /// The `subscribe` connection: `{"event":"ready"}`, then `{"event":"changed","sessions":[ids]}` whenever sessions
@@ -671,6 +675,8 @@ pub fn subscribe_loop(
     }
 }
 
+// The socket is a unix socket: on other systems the link does not start (see the `not(unix)` `start_at`)
+#[cfg(unix)]
 fn handle_conn(stream: UnixStream, backend: &dyn Backend, stop: &AtomicBool) {
     let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(5)));
