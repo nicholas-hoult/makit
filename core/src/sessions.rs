@@ -820,42 +820,63 @@ mod git_head_tests {
         if s.is_empty() { None } else { Some(s) }
     }
 
-    /// Regression: the fast path reading .git/HEAD must match `git branch --show-current` byte for byte.
-    /// It uses session cwds that really exist locally as the corpus, covering ordinary repositories / linked worktrees /
-    /// non-repository directories / deleted paths.
+    /// Regression: the fast path reading .git/HEAD must match `git symbolic-ref` byte for byte.
+    ///
+    /// The corpus is built here (this repository, a throwaway repository on a branch with a slash in its name, a detached HEAD,
+    /// a plain directory, a deleted path). It used to include the cwds of the developer's real sessions, which made the test
+    /// depend on the machine: a directory under ~/Documents blocks `git` on a macOS privacy prompt and the test never returned (#301).
     #[test]
     fn head_read_matches_git_cli() {
+        let root = std::env::temp_dir().join(format!("makit-head-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        let detached = root.join("detached");
+        let plain = root.join("plain");
+        for d in [&repo, &detached, &plain] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let ok = Command::new("git").arg("-C").arg(dir).args(args).output().map(|o| o.status.success()).unwrap_or(false);
+            assert!(ok, "git {args:?} failed in {dir:?}");
+        };
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["symbolic-ref", "HEAD", "refs/heads/feat/x"]);
+        git(&detached, &["init", "-q"]);
+        // a raw commit id in HEAD = detached
+        std::fs::write(detached.join(".git").join("HEAD"), "0123456789abcdef0123456789abcdef01234567\n").unwrap();
+
+        let manifest = env!("CARGO_MANIFEST_DIR");
         let mut dirs: Vec<String> = vec![
-            env!("CARGO_MANIFEST_DIR").to_string(),
-            format!("{}/src", env!("CARGO_MANIFEST_DIR")),
-            format!("{}/..", env!("CARGO_MANIFEST_DIR")),
-            std::env::temp_dir().to_string_lossy().into_owned(),
+            manifest.to_string(),
+            format!("{manifest}/src"),
+            format!("{manifest}/.."),
+            repo.to_string_lossy().into_owned(),
+            repo.join("sub").to_string_lossy().into_owned(),
+            detached.to_string_lossy().into_owned(),
+            plain.to_string_lossy().into_owned(),
             "/definitely/not/a/path".to_string(),
         ];
         // An empty cwd is kept out of the comparison corpus: `git -C "" ...` degrades to "run in the current process directory",
         // so the old implementation would stick the branch of the repository makit itself lives in onto a session whose cwd is unknown.
         // The caller already filters out empty values; here the correct behaviour is pinned down directly.
         assert_eq!(super::current_branch_for(""), None);
-        // real corpus: the cwds of all sessions
-        if let Ok(sessions) = super::list_sessions(Some("smart".into())) {
-            for s in sessions.iter().take(80) {
-                if !s.cwd.is_empty() { dirs.push(s.cwd.clone()); }
-                if !s.last_cwd.is_empty() { dirs.push(s.last_cwd.clone()); }
-            }
-        }
         dirs.sort();
         dirs.dedup();
 
         let mut checked = 0;
         for d in &dirs {
-            if !d.is_empty() && !std::path::Path::new(d).is_dir() { continue; }
+            if !std::path::Path::new(d).is_dir() {
+                continue;
+            }
             let fast = super::current_branch_for(d);
             let slow = via_subprocess(d);
-            assert_eq!(fast, slow, "分支解析不一致 @ {d}");
+            assert_eq!(fast, slow, "branch mismatch @ {d}");
             checked += 1;
         }
-        eprintln!("对比通过：{checked} 个目录", );
-        assert!(checked > 3, "语料太少，测试没有意义（只比了 {checked} 个）");
+        assert_eq!(super::current_branch_for(&repo.to_string_lossy()).as_deref(), Some("feat/x"));
+        assert_eq!(super::current_branch_for(&detached.to_string_lossy()), None);
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(checked >= 5, "corpus too small to mean anything (only {checked} compared)");
     }
 }
 

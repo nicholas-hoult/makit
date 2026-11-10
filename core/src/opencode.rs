@@ -648,10 +648,15 @@ mod tests {
 
     #[test]
     fn data_dir_follows_xdg_and_ignores_relative_values() {
-        let home = Some(PathBuf::from("/Users/me"));
-        assert_eq!(data_dir_from(None, home.clone()), Some(PathBuf::from("/Users/me/.local/share/opencode")));
-        assert_eq!(data_dir_from(Some("/x/data".into()), home.clone()), Some(PathBuf::from("/x/data/opencode")));
-        assert_eq!(data_dir_from(Some("relative".into()), home), Some(PathBuf::from("/Users/me/.local/share/opencode")));
+        // Built from the temp directory so the paths are absolute on every platform: "/x/data" has no drive letter on
+        // Windows, so it is not absolute there and was (correctly) ignored, which failed the old assertions (#302)
+        let home_dir = std::env::temp_dir().join("me");
+        let xdg = std::env::temp_dir().join("data");
+        let home = Some(home_dir.clone());
+        let default = home_dir.join(".local").join("share").join("opencode");
+        assert_eq!(data_dir_from(None, home.clone()), Some(default.clone()));
+        assert_eq!(data_dir_from(Some(xdg.clone()), home.clone()), Some(xdg.join("opencode")));
+        assert_eq!(data_dir_from(Some("relative".into()), home), Some(default));
     }
 
     /// Why: the watcher must treat the database and its WAL / shm as "opencode changed" and nothing else in that directory.
