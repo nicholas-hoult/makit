@@ -17,17 +17,32 @@ auth=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUE
 
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
-# --wait blocks until Apple answers (usually a few minutes). A non-zero exit here can also just mean a network blip,
-# so read the verdict from the JSON instead of trusting the exit code alone
-xcrun notarytool submit "$dmg" "${auth[@]}" --wait --output-format json >"$out" || true
+json_field() { /usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$1" "$2" 2>/dev/null || true; }
+
+# Submit first without waiting, so the submission id is known even if the wait below is cut short
+xcrun notarytool submit "$dmg" "${auth[@]}" --no-wait --output-format json >"$out"
 cat "$out"
-status="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$out" 2>/dev/null || true)"
-id="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("id",""))' "$out" 2>/dev/null || true)"
-if [[ "$status" != "Accepted" ]]; then
-    echo "notarize.sh: notarization of $dmg ended as '${status:-unknown}'" >&2
-    [[ -n "$id" ]] && xcrun notarytool log "$id" "${auth[@]}" >&2 || true
-    exit 1
-fi
+id="$(json_field "$out" id)"
+[[ -n "$id" ]] || { echo "notarize.sh: submission failed, no id returned" >&2; exit 1; }
+
+# Apple usually answers within minutes, but a new account's first submissions can sit in the queue for many hours.
+# Give up waiting after NOTARY_TIMEOUT (the submission itself keeps processing at Apple), well before the CI job limit
+timeout="${NOTARY_TIMEOUT:-3h}"
+xcrun notarytool wait "$id" "${auth[@]}" --timeout "$timeout" >/dev/null || true
+xcrun notarytool info "$id" "${auth[@]}" --output-format json >"$out" || true
+status="$(json_field "$out" status)"
+
+case "$status" in
+    Accepted) ;;
+    "In Progress")
+        echo "notarize.sh: still 'In Progress' at Apple after $timeout. This is a queue delay, not a rejection." >&2
+        echo "notarize.sh: submission id $id. Check later with: xcrun notarytool info $id <auth>; once it is Accepted, re-run the workflow." >&2
+        exit 1 ;;
+    *)
+        echo "notarize.sh: notarization of $dmg ended as '${status:-unknown}' (submission $id)" >&2
+        xcrun notarytool log "$id" "${auth[@]}" >&2 || true
+        exit 1 ;;
+esac
 
 xcrun stapler staple "$dmg"
 xcrun stapler validate "$dmg"

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-10
+
+### Added
+- The macOS installers are now signed with an Apple Developer ID and notarized by Apple, so they open with a double-click: no more "Open Anyway" in System Settings and no `xattr` workaround (#262)
+- The app declares why it may ask for the microphone, camera, contacts, calendar, location, photos and Apple Events, so a program running in the terminal that needs one of them gets a proper system prompt instead of a silent denial
+
+### Changed
+- Homebrew: the cask no longer removes the quarantine flag after install, since the app is now notarized
+- Because the signing identity changes, macOS may ask again for folder or other permissions the first time you start the signed version after updating from an unsigned one
+
 ## [0.2.6] - 2026-11-07
 
 ### Fixed
