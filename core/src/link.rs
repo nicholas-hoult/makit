@@ -1160,6 +1160,9 @@ mod tests {
         assert!(b.written.lock().unwrap().is_empty());
     }
 
+    // The link only runs on unix (see the `not(unix)` `start_at`), and `open` takes unix paths: a real directory here
+    // is a unix-style absolute path
+    #[cfg(unix)]
     #[test]
     fn keys_interrupt_open_and_resume_with_write_on() {
         let b = Fake { write_on: true, ..fake() };
