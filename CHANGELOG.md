@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-10
+
+### Added
+- Local session link (opt-in, off by default): other programs on this Mac can read your sessions and conversations over `~/.makit/link.sock`, and get notified when they change. Turn it on in Settings; nothing leaves the machine (#299)
+- A second switch lets those programs act on sessions too: reply, approve or refuse a permission prompt, stop a running turn, press keys, type into the terminal, start a new Claude Code / Codex session in a folder, or resume an ended one. makit shows a toast whenever input arrives this way (#299)
+- They can also read a session's terminal screen, so a remote view works with any tool without adapting to it (#299)
+
+### Fixed
+- Messages you type while the agent is working (Claude Code takes them into the running turn) now show up in the conversation view; they used to be missing
+
 ## [0.2.7] - 2026-11-10
 
 ### Added
