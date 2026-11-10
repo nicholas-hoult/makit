@@ -104,6 +104,7 @@ jobs:
             spctl -a -t open --context context:primary-signature -vv "$dmg"
             mnt="$(mktemp -d)"
             hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mnt" "$dmg"
+            xcrun stapler validate "$mnt/makit.app"
             spctl -a -t exec -vv "$mnt/makit.app"
             codesign -dv --verbose=2 "$mnt/makit.app" 2>&1 | grep -E "Authority|TeamIdentifier|flags"
             hdiutil detach -quiet "$mnt"

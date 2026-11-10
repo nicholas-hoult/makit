@@ -116,6 +116,8 @@ codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Authority|flags' || tru
 
 echo "→ $app"
 if [[ "${DMG:-}" == "1" ]]; then
+    # Notarize and staple the .app before it goes into the .dmg, so the ticket travels with the app after it is dragged out
+    if [[ -n "${SIGN_IDENTITY:-}" && "${NOTARIZE:-}" == "1" ]]; then bash "$root/native/scripts/notarize.sh" "$app"; fi
     # 拖进「应用程序」的安装镜像；版本号进文件名，release 里一眼分得出
     dmg="$target/release/bundle/$APP_NAME-$version$dmg_suffix.dmg"
     rm -f "$dmg"

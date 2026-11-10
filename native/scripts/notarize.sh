@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Notarize a signed .dmg with Apple and staple the ticket to it, so Gatekeeper accepts it on a clean Mac, even offline.
+# Notarize a signed .dmg or .app with Apple and staple the ticket to it, so Gatekeeper accepts it on a clean Mac, even offline.
 #
 #   NOTARY_KEY_PATH=... NOTARY_KEY_ID=... NOTARY_ISSUER_ID=... bash native/scripts/notarize.sh makit-0.2.7-universal.dmg
+#   NOTARY_KEY_PATH=... NOTARY_KEY_ID=... NOTARY_ISSUER_ID=... bash native/scripts/notarize.sh makit.app
 #
 # Auth is an App Store Connect API key (a .p8 file): no Apple ID password, nothing interactive. The .dmg must already be
 # signed with a Developer ID Application certificate and the .app inside with the hardened runtime (bundle.sh does both
-# when SIGN_IDENTITY is set). Notarizing the .dmg covers the .app inside it.
+# when SIGN_IDENTITY is set). bundle.sh notarizes and staples the .app first, then builds the .dmg from it and notarizes
+# that too: a ticket stapled to the .dmg alone is gone once the .app is dragged out, and the first launch would need the network.
 set -euo pipefail
 
-dmg="${1:?usage: notarize.sh <file.dmg>}"
+file="${1:?usage: notarize.sh <file.dmg|dir.app>}"
 for v in NOTARY_KEY_PATH NOTARY_KEY_ID NOTARY_ISSUER_ID; do
     [[ -n "${!v:-}" ]] || { echo "notarize.sh: $v is not set" >&2; exit 1; }
 done
@@ -16,11 +18,18 @@ done
 auth=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
 
 out="$(mktemp)"
-trap 'rm -f "$out"' EXIT
+work="$(mktemp -d)"
+trap 'rm -rf "$out" "$work"' EXIT
+# notarytool takes a .dmg as is, but a .app has to be uploaded as a zip
+upload="$file"
+if [[ -d "$file" ]]; then
+    upload="$work/$(basename "$file").zip"
+    ditto -c -k --keepParent "$file" "$upload"
+fi
 json_field() { /usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$1" "$2" 2>/dev/null || true; }
 
 # Submit first without waiting, so the submission id is known even if the wait below is cut short
-xcrun notarytool submit "$dmg" "${auth[@]}" --no-wait --output-format json >"$out"
+xcrun notarytool submit "$upload" "${auth[@]}" --no-wait --output-format json >"$out"
 cat "$out"
 id="$(json_field "$out" id)"
 [[ -n "$id" ]] || { echo "notarize.sh: submission failed, no id returned" >&2; exit 1; }
@@ -39,11 +48,11 @@ case "$status" in
         echo "notarize.sh: submission id $id. Check later with: xcrun notarytool info $id <auth>; once it is Accepted, re-run the workflow." >&2
         exit 1 ;;
     *)
-        echo "notarize.sh: notarization of $dmg ended as '${status:-unknown}' (submission $id)" >&2
+        echo "notarize.sh: notarization of $file ended as '${status:-unknown}' (submission $id)" >&2
         xcrun notarytool log "$id" "${auth[@]}" >&2 || true
         exit 1 ;;
 esac
 
-xcrun stapler staple "$dmg"
-xcrun stapler validate "$dmg"
-echo "notarized and stapled: $dmg"
+xcrun stapler staple "$file"
+xcrun stapler validate "$file"
+echo "notarized and stapled: $file"
