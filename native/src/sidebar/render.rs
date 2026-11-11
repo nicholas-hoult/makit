@@ -219,7 +219,7 @@ impl SidebarView {
         let (show_id, show_branch) = (p.row_short_id, p.row_branch);
         let (show_logo, show_project, show_time) = (p.row_logo, p.row_project, p.row_time);
         // 第二行一项都不显示：不画第二行，行高收紧（和 tree 里的 Item 高度同一个来源）
-        let compact = tree::compact_rows(show_logo, show_project, show_id, show_branch);
+        let compact = tree::compact_rows(show_project, show_id, show_branch);
         let row_h = if compact { SESSION_H_COMPACT } else { SESSION_H };
         let focused = s.workspace.active_tab().and_then(|t| t.session_id.as_deref()) == Some(m.session_id.as_str());
         // 同一条会话在项目视图里出现两次时，选中框只亮导航那份（#259）
@@ -238,20 +238,31 @@ impl SidebarView {
         let (sid_click, sid_menu, sid_hover) = (sid.clone(), sid.clone(), sid.clone());
         let logo = crate::assets::tool_logo(&m.tool);
 
-        let status = show_status.then(|| {
-            // one silhouette per state (#290): shape says which state, colour and motion back it up
-            let icon = div()
-                .id(SharedString::from(format!("st-{uid}")))
-                .w(px(12.))
-                .h(px(16.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .tooltip(tip(rs.title()))
-                .child(status_icon::render(rs, 12., t));
-            icon.into_any_element()
-        });
+        // Identity first (#303): the tool logo says who the session is, a corner badge says whether to look.
+        // With the logo option off, fall back to the plain state icon (only drawn for waiting / busy)
+        let status = if show_logo {
+            let logo_el = match (&logo, m.tool.as_str()) {
+                (Some(src), _) => img(src.clone()).size(px(14.)).flex_none().rounded(px(3.)).into_any_element(),
+                (None, "opencode") => tool_text_badge("OC", t.fg_muted, mix(t.fg_muted, 0.18)),
+                (None, "codex") => tool_text_badge("CX", brand_codex(), mix(brand_codex(), 0.18)),
+                _ => div().size(px(14.)).into_any_element(),
+            };
+            Some(div().id(SharedString::from(format!("st-{uid}"))).tooltip(tip(rs.title())).child(status_icon::identity(rs, logo_el, t)).into_any_element())
+        } else {
+            show_status.then(|| {
+                div()
+                    .id(SharedString::from(format!("st-{uid}")))
+                    .w(px(12.))
+                    .h(px(16.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .tooltip(tip(rs.title()))
+                    .child(status_icon::render(rs, 12., t))
+                    .into_any_element()
+            })
+        };
 
         let row1 = div()
             .h(px(16.))
@@ -298,36 +309,6 @@ impl SidebarView {
             .text_size(px(10.))
             .line_height(px(13.))
             .text_color(t.fg_muted)
-            .map(|d| match (&logo, m.tool.as_str()) {
-                _ if !show_logo => d,
-                (Some(src), _) => d.child(img(src.clone()).size(px(10.)).flex_none().rounded(px(2.)).opacity(0.75)),
-                (None, "codex") => d.child(
-                    div()
-                        .flex_none()
-                        .px(px(4.))
-                        .rounded(px(3.))
-                        .bg(mix(brand_codex(), 0.18))
-                        .text_color(brand_codex())
-                        .text_size(px(8.))
-                        .line_height(px(11.))
-                        .font_weight(FontWeight::BOLD)
-                        .child("CX"),
-                ),
-                // opencode has no bundled logo (no official favicon we may embed): a neutral text badge
-                (None, "opencode") => d.child(
-                    div()
-                        .flex_none()
-                        .px(px(4.))
-                        .rounded(px(3.))
-                        .bg(mix(t.fg_muted, 0.18))
-                        .text_color(t.fg_muted)
-                        .text_size(px(8.))
-                        .line_height(px(11.))
-                        .font_weight(FontWeight::BOLD)
-                        .child("OC"),
-                ),
-                _ => d,
-            })
             .when(m.status == "busy", |d| d.child(div().flex_none().text_color(t.info).child(status_label::busy())))
             .when(show_project, |d| d.child(div().min_w_0().truncate().opacity(0.7).child(project)))
             // 「·」只在前面已经有文字段的时候才画（项目名被隐藏时，第一段前面不该有点）
@@ -629,4 +610,22 @@ impl Render for SidebarView {
             .child(aside)
             .child(resizer)
     }
+}
+
+/// Tool without a bundled logo: a small text badge in the same 14px box as a logo
+fn tool_text_badge(text: &'static str, fg: Hsla, bg: Hsla) -> AnyElement {
+    div()
+        .size(px(14.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(3.))
+        .bg(bg)
+        .text_color(fg)
+        .text_size(px(8.))
+        .line_height(px(11.))
+        .font_weight(FontWeight::BOLD)
+        .child(text)
+        .into_any_element()
 }

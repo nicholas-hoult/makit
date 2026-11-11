@@ -24,9 +24,9 @@ pub const SECTION_GAP: f32 = 4.0;
 pub const SESSION_H: f32 = 44.0;
 /// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
 pub const SESSION_H_COMPACT: f32 = 30.0;
-/// 第二行的四项（图标 / 项目名 / 短 ID / 分支）全关了 → 行高收紧
-pub fn compact_rows(logo: bool, project: bool, short_id: bool, branch: bool) -> bool {
-    !(logo || project || short_id || branch)
+/// 第二行的三项（项目名 / 短 ID / 分支）全关了 → 行高收紧。工具图标已经挪到行首（#303），不再算第二行的内容
+pub fn compact_rows(project: bool, short_id: bool, branch: bool) -> bool {
+    !(project || short_id || branch)
 }
 
 /// 组标签：和线上同款，字号放大到 12px（#277）
@@ -477,11 +477,11 @@ mod tests {
 
     #[test]
     fn rows_compact_only_when_every_second_line_item_is_off() {
-        assert!(compact_rows(false, false, false, false));
-        for i in 0..4 {
-            let mut f = [false; 4];
+        assert!(compact_rows(false, false, false));
+        for i in 0..3 {
+            let mut f = [false; 3];
             f[i] = true;
-            assert!(!compact_rows(f[0], f[1], f[2], f[3]), "开着第 {i} 项就不能收紧");
+            assert!(!compact_rows(f[0], f[1], f[2]), "开着第 {i} 项就不能收紧");
         }
     }
 

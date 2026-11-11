@@ -54,6 +54,48 @@ pub fn shown(rs: RunState) -> bool {
     matches!(rs, RunState::Waiting | RunState::Busy)
 }
 
+/// The corner badge on a tool logo (#303). A dot means "look at me", a ring means "working".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Badge {
+    Dot,
+    Ring,
+}
+
+pub fn badge(rs: RunState) -> Option<Badge> {
+    match rs {
+        RunState::Waiting => Some(Badge::Dot),
+        RunState::Busy => Some(Badge::Ring),
+        RunState::Idle | RunState::Stopped => None,
+    }
+}
+
+/// A stopped session keeps its logo (it still says who it is) but recedes
+pub fn identity_opacity(rs: RunState) -> f32 {
+    if rs == RunState::Stopped { 0.45 } else { 1.0 }
+}
+
+/// Tool logo (or text badge) in a fixed 18x16 slot with the state badge on its lower-right corner.
+/// The slot has a fixed width in every state, so titles stay aligned when a session changes state.
+pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
+    use gpui::{div, ParentElement};
+    use gpui::prelude::FluentBuilder;
+    div()
+        .relative()
+        .w(px(18.))
+        .h(px(16.))
+        .flex_none()
+        .child(div().opacity(identity_opacity(rs)).child(logo))
+        .when_some(badge(rs), |d, b| {
+            let (size, c) = (6.0, color(rs, t));
+            let dot = div().absolute().right(px(0.)).bottom(px(0.)).size(px(size)).rounded_full();
+            d.child(match b {
+                Badge::Dot => dot.bg(c),
+                Badge::Ring => dot.border_1().border_color(c),
+            })
+        })
+        .into_any_element()
+}
+
 /// The icon itself, `size` px square. Sidebar rows use 12, tabs 11. A state that is not `shown` is an empty box of the
 /// same size, so titles stay aligned and do not jump when a session changes state.
 pub fn render(rs: RunState, size: f32, t: &Theme) -> AnyElement {
@@ -96,6 +138,23 @@ mod tests {
         // Quiet variant (#303): a session that is idle or stopped has nothing to say, so no icon; waiting and busy are drawn
         assert!(shown(RunState::Waiting) && shown(RunState::Busy));
         assert!(!shown(RunState::Idle) && !shown(RunState::Stopped));
+    }
+
+    #[test]
+    fn badge_only_for_states_that_ask_for_attention() {
+        // Identity-first row (#303): the tool logo says who it is, a small badge on its corner says whether to look
+        assert_eq!(badge(RunState::Waiting), Some(Badge::Dot));
+        assert_eq!(badge(RunState::Busy), Some(Badge::Ring));
+        assert_eq!(badge(RunState::Idle), None);
+        assert_eq!(badge(RunState::Stopped), None);
+    }
+
+    #[test]
+    fn only_a_stopped_session_dims_its_logo() {
+        assert!(identity_opacity(RunState::Stopped) < 1.0);
+        for rs in [RunState::Waiting, RunState::Busy, RunState::Idle] {
+            assert_eq!(identity_opacity(rs), 1.0);
+        }
     }
 
     #[test]
