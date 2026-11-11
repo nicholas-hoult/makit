@@ -242,7 +242,7 @@ impl SidebarView {
             // one silhouette per state (#290): shape says which state, colour and motion back it up
             let icon = div()
                 .id(SharedString::from(format!("st-{uid}")))
-                .w(px(16.))
+                .w(px(12.))
                 .h(px(16.))
                 .flex_none()
                 .flex()
