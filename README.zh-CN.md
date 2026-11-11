@@ -79,7 +79,7 @@ agent 的输出是按写入时的宽度硬换行的。在设置里打开可重�
 - **快**：5000 个会话时列表约 0.6–0.9 秒就绪；很长的对话里每新增一条记录约 0.04 ms（数据和方法见下面的「性能」）。
 - **中文 / English**：默认英文，设置里可切换或跟随系统。
 - **好看**：内置多套精美主题，支持 iTerm2 主题导入。自动跟随系统深 / 浅色。
-- **跨平台**：目标是 macOS / Linux / Windows 三端。**0.1 先发 macOS**，Windows 计划 0.2、Linux 计划 0.3。
+- **跨平台**：目标是 macOS / Linux / Windows 三端。macOS 是主力；每个版本都附 Windows 预览版（`windows-x64.zip`）；Linux 计划 0.3。
 
 <p align="center"><img src="screenshots/demo-search.gif" alt="⌘K 搜索所有会话，一键恢复" width="720"><br><sub>⌘K 搜索所有会话，一键恢复</sub></p>
 
@@ -166,7 +166,7 @@ AI 工具是围绕**会话**组织的，而开发者想的是**任务**——"�
 
 ### 下载
 
-0.1 只有 macOS 通用包，Intel 和 Apple Silicon 共用同一个文件。
+macOS 有通用包，Intel 和 Apple Silicon 共用同一个文件；每个版本也附一个 Windows 预览版 zip。
 
 **[→ 前往 Releases 下载最新版](https://github.com/nicholas-hoult/makit/releases/latest)**（`makit-<版本号>-universal.dmg`，约 15 MB；知道自己芯片的话，`-arm64` / `-x64` 体积约一半）
 
@@ -372,7 +372,7 @@ Claude Code、Codex 和 opencode。三者的会话都能列出、恢复；「在
 - [x] 关掉标签页彻底清理会话进程
 - [ ] 首次启动引导
 - [ ] 版本更新提示
-- [ ] Windows beta（0.2）
+- [x] Windows 预览版（每个版本附 zip）
 - [ ] Linux（0.3）
 
 ---

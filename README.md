@@ -80,7 +80,7 @@ Tree-style splits you resize by dragging, so one screen keeps an eye on several 
 - **Fast**: the session list is ready in about 0.6–0.9 s with up to 5,000 sessions; each new record in a very long conversation costs about 0.04 ms (data and method in "Performance" below).
 - **Chinese / English**: English by default; switch in Settings or follow the system.
 - **Beautiful**: Multiple beautiful built-in themes, with support for importing iTerm2 themes. They follow the system light / dark setting.
-- **Cross-platform**: the goal is macOS / Linux / Windows. **0.1 ships on macOS only**; Windows is planned for 0.2 and Linux for 0.3.
+- **Cross-platform**: the goal is macOS / Linux / Windows. macOS is the main build; a Windows preview (`windows-x64.zip`) ships with each release; Linux is planned for 0.3.
 
 <p align="center"><img src="screenshots/demo-search.gif" alt="⌘K: search every session and resume it" width="720"><br><sub>⌘K: search every session and resume it</sub></p>
 
@@ -167,7 +167,7 @@ AI tools are organized around **sessions**, while developers think in **tasks**:
 
 ### Download
 
-0.1 only has a universal macOS package; Intel and Apple Silicon share the same file.
+macOS has a universal package; Intel and Apple Silicon share the same file. A Windows preview zip is attached to each release too.
 
 **[→ Download the latest version from Releases](https://github.com/nicholas-hoult/makit/releases/latest)** (`makit-<version>-universal.dmg`, about 15 MB; `-arm64` and `-x64` are about half the size, if you know your Mac's chip)
 
@@ -373,7 +373,7 @@ There are currently no confirmed blocking issues. If you run into a problem, ple
 - [x] Closing a tab fully cleans up the session process
 - [ ] First-launch onboarding
 - [ ] Update notifications
-- [ ] Windows beta (0.2)
+- [x] Windows preview (zip attached to each release)
 - [ ] Linux (0.3)
 
 ---
