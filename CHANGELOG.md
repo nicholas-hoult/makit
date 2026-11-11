@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-11
+
+### Changed
+- Sidebar rows look calmer: rounder corners, a little more room, semibold titles, and the open session is marked by a soft fill alone.
+- The tool logo (Claude Code, Codex, opencode) now sits at the start of each row at title size, and the session state is a small badge on its corner: a dot when it waits for you, a ring while it works. Idle sessions have no badge, and a stopped session's logo is dimmed. With "show icon" turned off, the row keeps a plain state icon, drawn only for waiting and busy.
+- Status icons in the tabs are quieter too: only waiting and busy are drawn, and they are a bit smaller.
+- The app inside the installer now carries its own notarization ticket, so the first launch after dragging it out of the disk image no longer needs the network.
+
 ## [0.2.9] - 2026-11-10
 
 ### Fixed
