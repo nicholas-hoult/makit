@@ -355,7 +355,7 @@ impl SidebarView {
             .text_size(px(12.))
             .line_height(px(16.))
             .cursor_pointer()
-            .when(focused, |d| d.bg(mix(t.accent, 0.15)).child(div().absolute().left(px(3.)).top(px(5.)).bottom(px(5.)).w(px(3.)).rounded_full().bg(t.accent)))
+            .when(focused, |d| d.bg(mix(t.accent, 0.15)).child(div().absolute().left(px(3.)).top(px(9.)).bottom(px(9.)).w(px(2.5)).rounded_full().bg(t.accent)))
             .when(!focused, |d| d.hover(|s| s.bg(t.bg_hover)))
             .children(status)
             .when(pinned, |d| d.child(div().flex_none().text_size(px(10.)).line_height(px(16.)).text_color(t.warning).child("★")))
