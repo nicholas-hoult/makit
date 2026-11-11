@@ -79,15 +79,19 @@ pub fn identity_opacity(rs: RunState) -> f32 {
 pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
     use gpui::{div, ParentElement};
     use gpui::prelude::FluentBuilder;
+    // The slot is as tall as the title line (16) and the logo is centred in it, so logo and title share a centre line
     div()
         .relative()
         .w(px(18.))
         .h(px(16.))
         .flex_none()
+        .flex()
+        .items_center()
         .child(div().opacity(identity_opacity(rs)).child(logo))
         .when_some(badge(rs), |d, b| {
             let (size, c) = (6.0, color(rs, t));
-            let dot = div().absolute().right(px(0.)).bottom(px(0.)).size(px(size)).rounded_full();
+            // logo is 14 tall, centred in 16: its lower-right corner is at (14, 15), the badge sits on it
+            let dot = div().absolute().right(px(2.)).bottom(px(1.)).size(px(size)).rounded_full();
             d.child(match b {
                 Badge::Dot => dot.bg(c),
                 Badge::Ring => dot.border_1().border_color(c),
