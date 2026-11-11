@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="#许可"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
-  <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
+  <img alt="平台：macOS 与 Windows 预览版" src="https://img.shields.io/badge/platform-macOS%20%26%20Windows%20preview-lightgrey.svg">
   <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange.svg">
   <img alt="Status: 0.1" src="https://img.shields.io/badge/version-0.1-green.svg">
 </p>
@@ -26,7 +26,7 @@
   <a href="#从源码构建">从源码构建</a>
 </p>
 
-**原生、轻量（安装包 7.7 MB）。** 内置多套精美主题，支持 iTerm2 主题导入。 Rust + GPUI，不是套壳网页。本地运行，不上传。macOS 是主要版本，Windows 有预览版，Linux 计划 0.3。支持 **Claude Code**、**Codex** 和 **opencode**。
+**原生、轻量（安装包 7.7 MB）。** 内置多套精美主题，支持 iTerm2 主题导入。 Rust + GPUI，不是套壳网页。本地运行，不上传。**macOS 是正式版，Windows 是未签名的预览版，Linux 计划 0.3，目前还没有安装包。** 支持 **Claude Code**、**Codex** 和 **opencode**。
 
 ⭐ **觉得有用的话，欢迎 Star 和 Fork。** 用着不顺、想要什么功能，直接提 [Issue](https://github.com/nicholas-hoult/makit/issues) 就行；也欢迎 PR。
 
@@ -79,7 +79,7 @@ agent 的输出是按写入时的宽度硬换行的。在设置里打开可重�
 - **快**：5000 个会话时列表约 0.6–0.9 秒就绪；很长的对话里每新增一条记录约 0.04 ms（数据和方法见下面的「性能」）。
 - **中文 / English**：默认英文，设置里可切换或跟随系统。
 - **好看**：内置多套精美主题，支持 iTerm2 主题导入。自动跟随系统深 / 浅色。
-- **跨平台**：目标是 macOS / Linux / Windows 三端。**0.1 先发 macOS**，Windows 计划 0.2、Linux 计划 0.3。
+- **跨平台**：macOS 是正式版。Windows 已提供未签名的预览版。Linux 计划 0.3，目前还没有安装包。
 
 <p align="center"><img src="screenshots/demo-search.gif" alt="⌘K 搜索所有会话，一键恢复" width="720"><br><sub>⌘K 搜索所有会话，一键恢复</sub></p>
 
