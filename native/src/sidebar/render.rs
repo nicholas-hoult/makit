@@ -126,7 +126,9 @@ impl SidebarView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (key2, cwd2, cwd3, name2) = (key.clone(), cwd.clone(), cwd.clone(), name.clone());
-        let count_always = tree::count_always_visible(self.state.read(cx).prefs.sidebar.group_count_always, collapsed);
+        // Unlike a status group, a project header keeps its name when collapsed, and most projects are collapsed by
+        // default: forcing the count on would make the option look like it does nothing here (#304)
+        let count_always = self.state.read(cx).prefs.sidebar.group_count_always;
         div()
             .id(SharedString::from(format!("proj-{key}")))
             .group("tree-project-header")
