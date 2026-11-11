@@ -966,7 +966,7 @@ impl WorkspaceView {
                         d.child(svg().path("icons/tab-pin.svg").size(px(11.0)).flex_none().text_color(theme.fg_muted))
                     })
                     .child(div().min_w(px(20.0)).max_w(px(180.0)).truncate().child(title))
-                    .when_some(status, |d, st| d.child(render_status_icon(st, theme)))
+                    .when_some(status.filter(|st| crate::sidebar::status_icon::shown(*st)), |d, st| d.child(render_status_icon(st, theme)))
                     .child({
                         let (cid, tid) = (cid.clone(), tid.clone());
                         div()

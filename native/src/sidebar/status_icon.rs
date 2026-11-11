@@ -48,8 +48,18 @@ pub fn color(rs: RunState, t: &Theme) -> Hsla {
     c
 }
 
-/// The icon itself, `size` px square. Sidebar rows use 12, tabs 11.
+/// Whether a state gets an icon at all. Idle and stopped have nothing to say, so only the two that ask for attention
+/// (waiting for you, busy) are drawn (#303, quiet variant).
+pub fn shown(rs: RunState) -> bool {
+    matches!(rs, RunState::Waiting | RunState::Busy)
+}
+
+/// The icon itself, `size` px square. Sidebar rows use 12, tabs 11. A state that is not `shown` is an empty box of the
+/// same size, so titles stay aligned and do not jump when a session changes state.
 pub fn render(rs: RunState, size: f32, t: &Theme) -> AnyElement {
+    if !shown(rs) {
+        return gpui::div().size(px(size)).flex_none().into_any_element();
+    }
     svg().path(path(rs)).size(px(size)).flex_none().text_color(color(rs, t)).into_any_element()
 }
 
@@ -79,6 +89,13 @@ mod tests {
         assert!(emphasis(RunState::Stopped) <= emphasis(RunState::Idle));
         let t = crate::theme::Theme::by_id("embark", &[]);
         assert!(color(RunState::Idle, &t).a < t.success.a, "idle is drawn fainter than the theme colour");
+    }
+
+    #[test]
+    fn only_states_that_ask_for_attention_are_drawn() {
+        // Quiet variant (#303): a session that is idle or stopped has nothing to say, so no icon; waiting and busy are drawn
+        assert!(shown(RunState::Waiting) && shown(RunState::Busy));
+        assert!(!shown(RunState::Idle) && !shown(RunState::Stopped));
     }
 
     #[test]
