@@ -249,7 +249,7 @@ impl SidebarView {
                 .items_center()
                 .justify_center()
                 .tooltip(tip(rs.title()))
-                .child(status_icon::render(rs, 14., t));
+                .child(status_icon::render(rs, 12., t));
             icon.into_any_element()
         });
 

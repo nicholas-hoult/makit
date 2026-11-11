@@ -26,6 +26,17 @@ pub fn path(rs: RunState) -> &'static str {
     }
 }
 
+/// How loud a state is drawn (alpha factor). Only the state that needs the user is at full strength; the rest recede
+/// so a sidebar of live sessions does not read as a row of equally loud icons (#303).
+pub fn emphasis(rs: RunState) -> f32 {
+    match rs {
+        RunState::Waiting => 1.0,
+        RunState::Busy => 0.75,
+        RunState::Idle => 0.5,
+        RunState::Stopped => 0.45,
+    }
+}
+
 pub fn color(rs: RunState, t: &Theme) -> Hsla {
     let mut c = match rs {
         RunState::Waiting => t.warning,
@@ -33,13 +44,11 @@ pub fn color(rs: RunState, t: &Theme) -> Hsla {
         RunState::Idle => t.success,
         RunState::Stopped => t.fg_muted,
     };
-    if rs == RunState::Stopped {
-        c.a *= 0.8;
-    }
+    c.a *= emphasis(rs);
     c
 }
 
-/// The icon itself, `size` px square. Sidebar rows use 14, tabs 12.
+/// The icon itself, `size` px square. Sidebar rows use 12, tabs 11.
 pub fn render(rs: RunState, size: f32, t: &Theme) -> AnyElement {
     svg().path(path(rs)).size(px(size)).flex_none().text_color(color(rs, t)).into_any_element()
 }
@@ -58,6 +67,18 @@ mod tests {
             assert!(seen.insert(path(rs)), "two states share the icon {}", path(rs));
             assert!(crate::assets::Assets.load(path(rs)).unwrap().is_some(), "{} is not registered in assets.rs", path(rs));
         }
+    }
+
+    #[test]
+    fn only_the_state_that_needs_you_is_at_full_strength() {
+        // Every live session wears an icon, so the quiet states must recede and the one that needs you must stay
+        // the most noticeable. A flat table brings back a sidebar full of equally loud icons (#303).
+        assert_eq!(emphasis(RunState::Waiting), 1.0);
+        assert!(emphasis(RunState::Busy) < emphasis(RunState::Waiting));
+        assert!(emphasis(RunState::Idle) < emphasis(RunState::Busy));
+        assert!(emphasis(RunState::Stopped) <= emphasis(RunState::Idle));
+        let t = crate::theme::Theme::by_id("embark", &[]);
+        assert!(color(RunState::Idle, &t).a < t.success.a, "idle is drawn fainter than the theme colour");
     }
 
     #[test]

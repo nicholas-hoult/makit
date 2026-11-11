@@ -1334,7 +1334,7 @@ impl WorkspaceView {
 /// Tab status icon: same look as the sidebar rows (#245, #290) — one silhouette per state
 fn render_status_icon(st: crate::sidebar::groups::RunState, theme: &Theme) -> AnyElement {
     use crate::sidebar::status_icon;
-    div().ml(px(2.0)).flex().items_center().child(status_icon::render(st, 12., theme)).into_any_element()
+    div().ml(px(2.0)).flex().items_center().child(status_icon::render(st, 11., theme)).into_any_element()
 }
 
 /// 闪牌（#201 加强版）：目标 pane 整圈边框闪一下强调色，正中一张牌——大图标「弹出」（先冲过头再回弹）、
