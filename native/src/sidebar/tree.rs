@@ -20,10 +20,10 @@ pub const PAD_H: f32 = 4.0;
 pub const GROUP_GAP: f32 = 6.0;
 /// 项目组之间（#277：和状态视图的组间距一样）
 pub const SECTION_GAP: f32 = 4.0;
-/// 会话行（#277）：padding 3 + 标题行 16（12px 字）+ 1 + 元信息行 13（10px 字）+ 3 + 常驻描边 2，再加行间 2
-pub const SESSION_H: f32 = 40.0;
+/// 会话行（#277、#303）：padding 5 + 标题行 16（12px 字）+ 1 + 元信息行 13（10px 字）+ 5 + 常驻描边 2，再加行间 2
+pub const SESSION_H: f32 = 44.0;
 /// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
-pub const SESSION_H_COMPACT: f32 = 26.0;
+pub const SESSION_H_COMPACT: f32 = 30.0;
 /// 第二行的四项（图标 / 项目名 / 短 ID / 分支）全关了 → 行高收紧
 pub fn compact_rows(logo: bool, project: bool, short_id: bool, branch: bool) -> bool {
     !(logo || project || short_id || branch)
@@ -524,7 +524,7 @@ mod tests {
         let t = build(Case { project_view: true, ..Case::default() });
         let hs: Vec<f32> = t.items.iter().map(|i| i.height()).collect();
         // pad, 已打开组头, o1, o2, 组→项目间距 6, x 头, x1, x2, 4, y 头(折叠), 4, pad
-        assert_eq!(hs, [4.0, 22.0, 40.0, 40.0, 6.0, 26.0, 40.0, 40.0, 4.0, 26.0, 4.0, 4.0]);
+        assert_eq!(hs, [4.0, 22.0, SESSION_H, SESSION_H, 6.0, 26.0, SESSION_H, SESSION_H, 4.0, 26.0, 4.0, 4.0]);
         assert!(matches!(&t.items[9], Item::ProjectHeader { key, collapsed: true, count: 1, .. } if key == "y"));
         assert_eq!(t.membership.get(&r("y1")), Some(&GroupRef::Project { key: "y".into(), has_active: false }));
     }

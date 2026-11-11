@@ -258,7 +258,7 @@ impl SidebarView {
             .flex()
             .items_center()
             .gap(px(4.))
-            .child(div().flex_1().min_w_0().truncate().text_color(t.fg).child(title))
+            .child(div().flex_1().min_w_0().truncate().text_color(t.fg).font_weight(FontWeight::SEMIBOLD).child(title))
             // 只有「等待审批 / 等待回答」值得挤占标题的横向空间
             .when(m.status == "waiting", |d| {
                 d.child(
@@ -344,18 +344,18 @@ impl SidebarView {
             .flex()
             .items_start()
             .gap(px(6.))
-            // padding 5 12 5 8，减掉常驻的 1px 描边位（选中时才上色，免得选中那一刻内容跳 1px）
-            .pt(px(3.))
-            .pb(px(3.))
+            // padding 6 12 6 8，减掉常驻的 1px 描边位（选中时才上色，免得选中那一刻内容跳 1px）；上下留白对标 #303
+            .pt(px(5.))
+            .pb(px(5.))
             .pl(px(7.))
             .pr(px(11.))
             .border_1()
             .border_color(if selected || multi { t.accent } else { gpui::transparent_black() })
-            .rounded(px(4.))
+            .rounded(px(6.))
             .text_size(px(12.))
             .line_height(px(16.))
             .cursor_pointer()
-            .when(focused, |d| d.bg(mix(t.accent, 0.15)).child(div().absolute().left_0().top_0().bottom_0().w(px(2.)).rounded_l(px(3.)).bg(t.accent)))
+            .when(focused, |d| d.bg(mix(t.accent, 0.15)).child(div().absolute().left(px(3.)).top(px(5.)).bottom(px(5.)).w(px(3.)).rounded_full().bg(t.accent)))
             .when(!focused, |d| d.hover(|s| s.bg(t.bg_hover)))
             .children(status)
             .when(pinned, |d| d.child(div().flex_none().text_size(px(10.)).line_height(px(16.)).text_color(t.warning).child("★")))
@@ -394,7 +394,7 @@ impl SidebarView {
                 |d, _, _, cx| crate::workspace::dnd::ghost(&d.title, cx),
             );
         // 行间 2：外层比描边框多 2，由底部 padding 吃掉（行高来源仍是 tree 的常量）
-        div().h(px(row_h)).px(px(4.)).pb(px(2.)).child(li).into_any_element()
+        div().h(px(row_h)).px(px(6.)).pb(px(2.)).child(li).into_any_element()
     }
 
     /// `.tree-header`：padding 8；搜索框 + 「显示选项」按钮（22×22，margin-left 6，偏离默认时 --accent-text）
