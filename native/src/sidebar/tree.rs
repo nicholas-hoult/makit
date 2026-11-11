@@ -24,12 +24,6 @@ pub const SECTION_GAP: f32 = 4.0;
 pub const SESSION_H: f32 = 44.0;
 /// 第二行（图标 / 项目名 / 短 ID / 分支）一项都不显示时的会话行：去掉那 1 + 13 = 14px（#238）
 pub const SESSION_H_COMPACT: f32 = 30.0;
-/// Whether a group header's count is drawn all the time. A collapsed group's count is all that is left of it, so it
-/// never hides; an open group shows it only while the pointer is on the header, unless the user asked for it always (#304)
-pub fn count_always_visible(pref_always: bool, collapsed: bool) -> bool {
-    pref_always || collapsed
-}
-
 /// 第二行的三项（项目名 / 短 ID / 分支）全关了 → 行高收紧。工具图标已经挪到行首（#303），不再算第二行的内容
 pub fn compact_rows(project: bool, short_id: bool, branch: bool) -> bool {
     !(project || short_id || branch)
@@ -480,16 +474,6 @@ mod tests {
         assert_eq!(set.len(), all.len(), "顺序里无重复");
     }
 
-
-    #[test]
-    fn group_count_is_shown_on_hover_unless_the_option_or_a_collapsed_group_needs_it() {
-        // A collapsed group's count is the only thing left of it, so it never hides; an open group shows it
-        // only while the pointer is on the header, unless the user asks for it all the time (#304)
-        assert!(count_always_visible(false, true), "collapsed: always");
-        assert!(count_always_visible(true, true));
-        assert!(count_always_visible(true, false), "option on: always");
-        assert!(!count_always_visible(false, false), "open, option off: only on hover");
-    }
 
     #[test]
     fn rows_compact_only_when_every_second_line_item_is_off() {

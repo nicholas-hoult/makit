@@ -76,7 +76,8 @@ impl SidebarView {
     /// `.tree-group-label`：10px 弱文字，padding 2 12 3 4，gap 5；可折叠时整行可点，hover 才给底色
     fn render_group_header(&mut self, id: String, label: String, count: usize, collapsed: bool, warn: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let color = if warn { t.warning } else { t.fg_muted };
-        let count_always = tree::count_always_visible(self.state.read(cx).prefs.sidebar.group_count_always, collapsed);
+        // Group counts show on hover only, unless the user asked for them always (#304). No exception for collapsed groups
+        let count_always = self.state.read(cx).prefs.sidebar.group_count_always;
         let tooltip = if collapsed { ts!("sidebar.tooltip.expand", label = label) } else { ts!("sidebar.tooltip.collapse", label = label) };
         div()
             .h(px(GROUP_LABEL_H))
@@ -104,7 +105,7 @@ impl SidebarView {
                     .tooltip(tip(tooltip))
                     .child(div().w(px(8.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(10., !collapsed, color, "tree-group-label", t.fg)))
                     .child(div().flex_1().min_w_0().truncate().child(label))
-                    // 折叠起来之后计数是这一组唯一剩下的信息，所以它必须一直在；展开时默认只在移上去时显示（#304）；放右边（用户 2026-10-16）
+                    // 计数默认只在移上去时显示，设置里可改成一直显示（#304，用户 2026-11-12：对所有分组生效，折叠的也一样）；放右边（用户 2026-10-16）
                     .child(div().flex_none().opacity(0.6).when(!count_always, |d| d.invisible().group_hover("tree-group-label", |s| s.visible())).child(count.to_string()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_group(&id, cx))),
             )
@@ -126,8 +127,6 @@ impl SidebarView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (key2, cwd2, cwd3, name2) = (key.clone(), cwd.clone(), cwd.clone(), name.clone());
-        // Unlike a status group, a project header keeps its name when collapsed, and most projects are collapsed by
-        // default: forcing the count on would make the option look like it does nothing here (#304)
         let count_always = self.state.read(cx).prefs.sidebar.group_count_always;
         div()
             .id(SharedString::from(format!("proj-{key}")))
