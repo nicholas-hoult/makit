@@ -238,6 +238,7 @@ impl SidebarView {
             .child(row("show-project", p.row_project, ts!("sidebar.options.show_project"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_project = !p.row_project))))
             .child(row("show-time", p.row_time, ts!("sidebar.options.show_time"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_time = !p.row_time))))
             .child(row("show-short-id", p.row_short_id, ts!("sidebar.options.show_short_id"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_short_id = !p.row_short_id))))
+            .child(row("group-count-always", p.group_count_always, ts!("sidebar.options.group_count_always"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.group_count_always = !p.group_count_always))))
             .child(row("show-branch", p.row_branch, ts!("sidebar.options.show_branch"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_branch = !p.row_branch))))
             .child(sep())
             .child({

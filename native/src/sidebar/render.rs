@@ -76,6 +76,7 @@ impl SidebarView {
     /// `.tree-group-label`：10px 弱文字，padding 2 12 3 4，gap 5；可折叠时整行可点，hover 才给底色
     fn render_group_header(&mut self, id: String, label: String, count: usize, collapsed: bool, warn: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let color = if warn { t.warning } else { t.fg_muted };
+        let count_always = tree::count_always_visible(self.state.read(cx).prefs.sidebar.group_count_always, collapsed);
         let tooltip = if collapsed { ts!("sidebar.tooltip.expand", label = label) } else { ts!("sidebar.tooltip.collapse", label = label) };
         div()
             .h(px(GROUP_LABEL_H))
@@ -103,8 +104,8 @@ impl SidebarView {
                     .tooltip(tip(tooltip))
                     .child(div().w(px(8.)).flex_none().flex().justify_center().opacity(0.6).child(chevron(10., !collapsed, color, "tree-group-label", t.fg)))
                     .child(div().flex_1().min_w_0().truncate().child(label))
-                    // 折叠起来之后计数是这一组唯一剩下的信息，所以它必须一直在；放右边（用户 2026-10-16）
-                    .child(div().flex_none().opacity(0.6).child(count.to_string()))
+                    // 折叠起来之后计数是这一组唯一剩下的信息，所以它必须一直在；展开时默认只在移上去时显示（#304）；放右边（用户 2026-10-16）
+                    .child(div().flex_none().opacity(0.6).when(!count_always, |d| d.invisible().group_hover("tree-group-label", |s| s.visible())).child(count.to_string()))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_group(&id, cx))),
             )
             .into_any_element()
@@ -125,6 +126,7 @@ impl SidebarView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (key2, cwd2, cwd3, name2) = (key.clone(), cwd.clone(), cwd.clone(), name.clone());
+        let count_always = tree::count_always_visible(self.state.read(cx).prefs.sidebar.group_count_always, collapsed);
         div()
             .id(SharedString::from(format!("proj-{key}")))
             .group("tree-project-header")
@@ -162,6 +164,7 @@ impl SidebarView {
                     .text_size(px(12.))
                     .line_height(px(16.))
                     .font_weight(FontWeight::MEDIUM)
+                    .when(!count_always, |d| d.invisible().group_hover("tree-project-header", |s| s.visible()))
                     .child(count.to_string()),
             )
             // `.tree-project-add`：16×16、圆角 3、--fg-subtle、14px；只在表头 hover 时出现

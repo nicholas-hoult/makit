@@ -121,6 +121,7 @@
   "sidebar.options.show_logo": "显示模型图标",
   "sidebar.options.show_project": "显示项目名",
   "sidebar.options.show_time": "显示活跃时间",
+  "sidebar.options.group_count_always": "分组数字一直显示",
   "sidebar.options.show_short_id": "显示短 ID",
   "sidebar.options.show_branch": "显示分支",
   "sidebar.options.refreshing": "刷新中…",

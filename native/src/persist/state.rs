@@ -108,6 +108,8 @@ pub struct SidebarPrefs {
     pub row_project: bool,
     /// 行右上角显示活跃时间（#238，默认开）
     pub row_time: bool,
+    /// 分组数字一直显示（#304）；默认关：展开的组只在鼠标移上去时显示，折叠的组永远显示
+    pub group_count_always: bool,
     /// `makit-hover-mode`：always / cmd / off
     pub hover_mode: String,
     /// `makit-proj-collapsed`：项目组折叠集合（colKey 与 `__expanded__`+colKey 两种）
@@ -135,6 +137,7 @@ impl Default for SidebarPrefs {
             row_logo: true,
             row_project: true,
             row_time: true,
+            group_count_always: false,
             hover_mode: "always".into(),
             proj_collapsed: Vec::new(),
             group_collapsed: Vec::new(),

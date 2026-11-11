@@ -121,6 +121,7 @@
   "sidebar.options.show_logo": "Show model icon",
   "sidebar.options.show_project": "Show project name",
   "sidebar.options.show_time": "Show last active time",
+  "sidebar.options.group_count_always": "Always show group counts",
   "sidebar.options.show_short_id": "Show short ID",
   "sidebar.options.show_branch": "Show branch",
   "sidebar.options.refreshing": "Refreshing…",
