@@ -242,10 +242,10 @@ impl SidebarView {
         // With the logo option off, fall back to the plain state icon (only drawn for waiting / busy)
         let status = if show_logo {
             let logo_el = match (&logo, m.tool.as_str()) {
-                (Some(src), _) => img(src.clone()).size(px(14.)).flex_none().rounded(px(3.)).into_any_element(),
+                (Some(src), _) => img(src.clone()).size(px(12.)).flex_none().rounded(px(3.)).into_any_element(),
                 (None, "opencode") => tool_text_badge("OC", t.fg_muted, mix(t.fg_muted, 0.18)),
                 (None, "codex") => tool_text_badge("CX", brand_codex(), mix(brand_codex(), 0.18)),
-                _ => div().size(px(14.)).into_any_element(),
+                _ => div().size(px(12.)).into_any_element(),
             };
             Some(div().id(SharedString::from(format!("st-{uid}"))).tooltip(tip(rs.title())).child(status_icon::identity(rs, logo_el, t)).into_any_element())
         } else {
@@ -612,10 +612,10 @@ impl Render for SidebarView {
     }
 }
 
-/// Tool without a bundled logo: a small text badge in the same 14px box as a logo
+/// Tool without a bundled logo: a small text badge in the same 12px box as a logo
 fn tool_text_badge(text: &'static str, fg: Hsla, bg: Hsla) -> AnyElement {
     div()
-        .size(px(14.))
+        .size(px(12.))
         .flex_none()
         .flex()
         .items_center()
@@ -623,8 +623,8 @@ fn tool_text_badge(text: &'static str, fg: Hsla, bg: Hsla) -> AnyElement {
         .rounded(px(3.))
         .bg(bg)
         .text_color(fg)
-        .text_size(px(8.))
-        .line_height(px(11.))
+        .text_size(px(7.))
+        .line_height(px(10.))
         .font_weight(FontWeight::BOLD)
         .child(text)
         .into_any_element()

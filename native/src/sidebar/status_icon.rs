@@ -74,7 +74,7 @@ pub fn identity_opacity(rs: RunState) -> f32 {
     if rs == RunState::Stopped { 0.45 } else { 1.0 }
 }
 
-/// Tool logo (or text badge) in a fixed 18x16 slot with the state badge on its lower-right corner.
+/// Tool logo (or text badge, 12px: the same size as the title text) in a fixed 16x16 slot with the state badge on its lower-right corner.
 /// The slot has a fixed width in every state, so titles stay aligned when a session changes state.
 pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
     use gpui::{div, ParentElement};
@@ -82,15 +82,15 @@ pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
     // The slot is as tall as the title line (16) and the logo is centred in it, so logo and title share a centre line
     div()
         .relative()
-        .w(px(18.))
+        .w(px(16.))
         .h(px(16.))
         .flex_none()
         .flex()
         .items_center()
         .child(div().opacity(identity_opacity(rs)).child(logo))
         .when_some(badge(rs), |d, b| {
-            let (size, c) = (6.0, color(rs, t));
-            // logo is 14 tall, centred in 16: its lower-right corner is at (14, 15), the badge sits on it
+            let (size, c) = (5.0, color(rs, t));
+            // logo is 12 wide / tall, centred in 16: its lower-right corner is at (12, 14), the badge sits on it
             let dot = div().absolute().right(px(2.)).bottom(px(1.)).size(px(size)).rounded_full();
             d.child(match b {
                 Badge::Dot => dot.bg(c),
