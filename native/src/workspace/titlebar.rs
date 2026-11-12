@@ -33,8 +33,10 @@ pub const CONTROLS_LEFT: f32 = 68.0;
 /// 标题栏图标按钮 20×22（TS 版是 24×22，#238 起图标之间收紧）
 pub const ICON_BTN_W: f32 = 20.0;
 pub const ICON_BTN_H: f32 = 22.0;
-/// 铃铛按钮的左边界（窗口坐标）：折叠按钮右边
-pub const BELL_LEFT: f32 = CONTROLS_LEFT + ICON_BTN_W;
+/// 两个图标按钮之间的间距（原来是 0，紧贴；照 render.rs 同类图标按钮的 `ml(px(2.))` 补上）
+pub const ICON_BTN_GAP: f32 = 2.0;
+/// 铃铛按钮的左边界（窗口坐标）：折叠按钮右边 + 间距
+pub const BELL_LEFT: f32 = CONTROLS_LEFT + ICON_BTN_W + ICON_BTN_GAP;
 
 /// B 侧栏包：侧栏 resizer 悬停 / 拖动中
 #[derive(Clone, Copy, Default)]
@@ -177,6 +179,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                 .h(px(TITLEBAR_H))
                 .flex()
                 .items_center()
+                .gap(px(ICON_BTN_GAP))
                 .child(
                     icon_button("titlebar-sidebar-toggle", "icons/titlebar-sidebar-toggle.svg", 14.0, cx)
                         .tooltip(crate::tooltip::tip(ts!("titlebar.collapse_sidebar")))
