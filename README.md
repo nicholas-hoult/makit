@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="#license"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg"></a>
-  <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
+  <img alt="Platform: macOS and Windows preview" src="https://img.shields.io/badge/platform-macOS%20%26%20Windows%20preview-lightgrey.svg">
   <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-orange.svg">
   <img alt="Status: 0.1" src="https://img.shields.io/badge/version-0.1-green.svg">
 </p>
@@ -27,7 +27,7 @@
   <a href="#build-from-source">Build from source</a>
 </p>
 
-**Native, light (7.7 MB installer).** Multiple beautiful built-in themes, with support for importing iTerm2 themes. Rust + GPUI, not a web page in disguise. Local only, nothing uploaded. macOS is the main build; Windows is a preview (from 0.1.5), Linux is planned for 0.3. Supports **Claude Code**, **Codex** and **opencode**.
+**Native, light (7.7 MB installer).** Multiple beautiful built-in themes, with support for importing iTerm2 themes. Rust + GPUI, not a web page in disguise. Local only, nothing uploaded. **macOS + Windows (preview), Linux coming in 0.3.** Supports **Claude Code**, **Codex** and **opencode**.
 
 ⭐ **If you find it useful, a Star or a Fork is very welcome.** If something feels off or you want a feature, just open an [Issue](https://github.com/nicholas-hoult/makit/issues). PRs are welcome too.
 
@@ -80,7 +80,7 @@ Tree-style splits you resize by dragging, so one screen keeps an eye on several 
 - **Fast**: the session list is ready in about 0.6–0.9 s with up to 5,000 sessions; each new record in a very long conversation costs about 0.04 ms (data and method in "Performance" below).
 - **Chinese / English**: English by default; switch in Settings or follow the system.
 - **Beautiful**: Multiple beautiful built-in themes, with support for importing iTerm2 themes. They follow the system light / dark setting.
-- **Cross-platform**: the goal is macOS / Linux / Windows. macOS is the main build; a Windows preview (`windows-x64.zip`) ships with each release; Linux is planned for 0.3.
+- **Cross-platform**: macOS + Windows (preview), Linux coming in 0.3.
 
 <p align="center"><img src="screenshots/demo-search.gif" alt="⌘K: search every session and resume it" width="720"><br><sub>⌘K: search every session and resume it</sub></p>
 
