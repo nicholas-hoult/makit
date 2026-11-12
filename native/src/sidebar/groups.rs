@@ -241,7 +241,7 @@ pub struct StatusGroups {
 
 /// 按状态分组（`statusGroups`）。链条先到先得，一条会话只进它符合条件的最靠前那一组：
 /// 置顶 → 已打开 → 需要回应 → 进行中 → 空闲 → 历史（已停止）。
-/// - 置顶、历史尊重用户选的排序；已打开按屏幕上的标签顺序（`opened_index`）；其余固定按最近活动
+/// - 每组内部都按用户选的排序方式排（#304，用户 2026-11-12：所有分组统一生效）
 /// - `candidates` 是参与分组的下标（过滤后的），顺序即 JS 里 `list` 的顺序（排序稳定，平手时保持它）
 pub fn status_groups(
     list: &[SessionMeta],
@@ -257,15 +257,13 @@ pub fn status_groups(
         out.sort_by(|&a, &b| cmp(&list[a], &list[b]));
         out
     };
-    let by_recent = |a: &SessionMeta, b: &SessionMeta| b.mtime.cmp(&a.mtime);
     let user_sort = |a: &SessionMeta, b: &SessionMeta| sort.compare(a, b);
-    let opened_pos = |s: &SessionMeta| opened_index.get(&s.session_id).copied().unwrap_or(usize::MAX);
     StatusGroups {
         pinned: take(&|s| pinned.contains(&s.session_id), &user_sort),
-        opened: take(&|s| opened_index.contains_key(&s.session_id), &|a, b| opened_pos(a).cmp(&opened_pos(b))),
-        attention: take(&|s| meta_state(s) == RunState::Waiting, &by_recent),
-        busy: take(&|s| meta_state(s) == RunState::Busy, &by_recent),
-        idle: take(&|s| meta_state(s) == RunState::Idle, &by_recent),
+        opened: take(&|s| opened_index.contains_key(&s.session_id), &user_sort),
+        attention: take(&|s| meta_state(s) == RunState::Waiting, &user_sort),
+        busy: take(&|s| meta_state(s) == RunState::Busy, &user_sort),
+        idle: take(&|s| meta_state(s) == RunState::Idle, &user_sort),
         history: take(&|_| true, &user_sort),
     }
 }
@@ -523,7 +521,7 @@ pub(crate) mod tests {
         let two = vec![mk("a", true, "idle", 1), mk("b", true, "idle", 9)];
         let opened: HashMap<String, usize> = [("a".to_string(), 0), ("b".to_string(), 1)].into();
         let g2 = status_groups(&two, &all_rows(&two), &opened, &HashSet::new(), SortKey::Recent);
-        assert_eq!(ids(&two, &g2.opened), ["a", "b"], "已打开按标签顺序，不按时间");
+        assert_eq!(ids(&two, &g2.opened), ["b", "a"], "已打开也按用户排序设置排（#304），这里是最近活动在前");
     }
 
     /// F0 原型的旧用例（已打开 → 需要回应 → 进行中 → 历史，空组不出现），换成新接口照样成立
@@ -544,7 +542,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn user_sort_applies_to_pinned_and_history_only() {
+    fn user_sort_applies_to_every_group() {
         let mut a = mk("a", false, "", 1);
         a.user_msg_count = 9;
         a.first_user_msg = "b 开头".into();
@@ -557,7 +555,7 @@ pub(crate) mod tests {
         let list = vec![a, b, w1, w2];
         let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::Count);
         assert_eq!(ids(&list, &g.history), ["a", "b"], "按消息数");
-        assert_eq!(ids(&list, &g.attention), ["w2", "w1"], "需要回应固定按最近活动，不管用户排序");
+        assert_eq!(ids(&list, &g.attention), ["w1", "w2"], "需要回应也按消息数排（#304，用户 2026-11-12：所有分组统一生效）");
         let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::FirstMsg);
         assert_eq!(ids(&list, &g.history), ["b", "a"], "按首条消息");
     }
