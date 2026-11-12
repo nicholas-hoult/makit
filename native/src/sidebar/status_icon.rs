@@ -10,6 +10,12 @@
 //! app with a few running sessions. The silhouettes already carry the meaning.
 //! A wrong table here shows up as tabs and sidebar disagreeing about the same session, or as two states
 //! drawing the same shape.
+//!
+//! Colour (#278, read off cmux's `SidebarCompactStatusGlyph`): only the state that asks you to do something
+//! (waiting) gets a hue; everything settled — busy, idle, stopped — is grayscale, told apart by shape and
+//! `emphasis`. The corner badge on the tool logo follows the same source's rule ("everything settled gets a
+//! symbol that says what it is"): idle used to draw no badge at all, which read identical to a never-opened
+//! session; it now gets the same tick-in-a-ring as the standalone icon, just shrunk to badge size.
 
 use gpui::{px, svg, AnyElement, Hsla, IntoElement, Styled};
 
@@ -37,36 +43,43 @@ pub fn emphasis(rs: RunState) -> f32 {
     }
 }
 
+/// Waiting is the only state with its own hue; busy / idle / stopped are all grayscale (#278) — a sidebar of
+/// live sessions should not read as a row of equally loud colours, and the one state that needs you is the
+/// only one allowed to stand out by colour as well as by shape.
 pub fn color(rs: RunState, t: &Theme) -> Hsla {
     let mut c = match rs {
         RunState::Waiting => t.warning,
-        RunState::Busy => t.info,
-        RunState::Idle => t.success,
-        RunState::Stopped => t.fg_muted,
+        RunState::Busy | RunState::Idle | RunState::Stopped => t.fg_muted,
     };
     c.a *= emphasis(rs);
     c
 }
 
-/// Whether a state gets an icon at all. Idle and stopped have nothing to say, so only the two that ask for attention
-/// (waiting for you, busy) are drawn (#303, quiet variant).
+/// Whether the *standalone* icon (tab bar, or sidebar with "show icon" off) draws at all. Kept narrow on
+/// purpose: without a tool logo to carry identity, idle / stopped have nothing worth taking the space for.
+/// The corner badge on the tool logo (`badge`, below) is the wider one — see its doc comment.
 pub fn shown(rs: RunState) -> bool {
     matches!(rs, RunState::Waiting | RunState::Busy)
 }
 
-/// The corner badge on a tool logo (#303). A dot means "look at me", a ring means "working".
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The corner badge on a tool logo (#303, widened in #278). Every state draws one: idle / stopped used to
+/// draw nothing, which made a live-but-quiet session look identical to one that was never opened — the
+/// cmux principle this followed is "everything settled gets a symbol that says what it is", not a blank.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Badge {
     Dot,
     Ring,
+    Check,
+    Dashed,
 }
 
 pub fn badge(rs: RunState) -> Option<Badge> {
-    match rs {
-        RunState::Waiting => Some(Badge::Dot),
-        RunState::Busy => Some(Badge::Ring),
-        RunState::Idle | RunState::Stopped => None,
-    }
+    Some(match rs {
+        RunState::Waiting => Badge::Dot,
+        RunState::Busy => Badge::Ring,
+        RunState::Idle => Badge::Check,
+        RunState::Stopped => Badge::Dashed,
+    })
 }
 
 /// A stopped session keeps its logo (it still says who it is) but recedes
@@ -89,13 +102,16 @@ pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
         .items_center()
         .child(div().opacity(identity_opacity(rs)).child(logo))
         .when_some(badge(rs), |d, b| {
-            let (size, c) = (5.0, color(rs, t));
-            // logo is 12 wide / tall, centred in 16: its lower-right corner is at (12, 14), the badge sits on it
-            let dot = div().absolute().right(px(2.)).bottom(px(1.)).size(px(size)).rounded_full();
-            d.child(match b {
-                Badge::Dot => dot.bg(c),
-                Badge::Ring => dot.border_1().border_color(c),
-            })
+            let c = color(rs, t);
+            // logo is 12 wide / tall, centred in 16: its lower-right corner is at (12, 14), the badge sits on it.
+            // Dot / Ring are plain shapes at the original 5px; Check / Dashed reuse the standalone SVGs (they
+            // need the extra detail to read at a glance) at 7px, nudged to keep the same corner alignment.
+            match b {
+                Badge::Dot => d.child(div().absolute().right(px(2.)).bottom(px(1.)).size(px(5.)).rounded_full().bg(c)),
+                Badge::Ring => d.child(div().absolute().right(px(2.)).bottom(px(1.)).size(px(5.)).rounded_full().border_1().border_color(c)),
+                Badge::Check => d.child(svg().path(path(RunState::Idle)).absolute().right(px(1.)).bottom(px(0.)).size(px(7.)).text_color(c)),
+                Badge::Dashed => d.child(svg().path(path(RunState::Stopped)).absolute().right(px(1.)).bottom(px(0.)).size(px(7.)).text_color(c)),
+            }
         })
         .into_any_element()
 }
@@ -133,24 +149,38 @@ mod tests {
         assert!(emphasis(RunState::Busy) < emphasis(RunState::Waiting));
         assert!(emphasis(RunState::Idle) < emphasis(RunState::Busy));
         assert!(emphasis(RunState::Stopped) <= emphasis(RunState::Idle));
-        let t = crate::theme::Theme::by_id("embark", &[]);
-        assert!(color(RunState::Idle, &t).a < t.success.a, "idle is drawn fainter than the theme colour");
     }
 
     #[test]
-    fn only_states_that_ask_for_attention_are_drawn() {
-        // Quiet variant (#303): a session that is idle or stopped has nothing to say, so no icon; waiting and busy are drawn
+    fn only_waiting_has_its_own_hue() {
+        // #278: busy / idle / stopped are all grayscale, told apart by shape + emphasis, not by colour;
+        // waiting is the one state allowed a hue, because it is the one that needs you to act
+        let t = crate::theme::Theme::by_id("embark", &[]);
+        assert_ne!(color(RunState::Waiting, &t).h, t.fg_muted.h);
+        for rs in [RunState::Busy, RunState::Idle, RunState::Stopped] {
+            assert_eq!(color(rs, &t).h, t.fg_muted.h, "{rs:?} should be grayscale");
+            assert_eq!(color(rs, &t).s, t.fg_muted.s, "{rs:?} should be grayscale");
+        }
+    }
+
+    #[test]
+    fn only_states_that_ask_for_attention_get_a_standalone_icon() {
+        // Narrow on purpose (`shown`'s doc comment): without a tool logo to anchor identity, idle / stopped
+        // have nothing worth the space in the tab bar or the logo-off sidebar fallback
         assert!(shown(RunState::Waiting) && shown(RunState::Busy));
         assert!(!shown(RunState::Idle) && !shown(RunState::Stopped));
     }
 
     #[test]
-    fn badge_only_for_states_that_ask_for_attention() {
-        // Identity-first row (#303): the tool logo says who it is, a small badge on its corner says whether to look
+    fn badge_draws_something_for_every_live_state() {
+        // #278: idle / stopped used to have no badge at all (indistinguishable from a never-opened session);
+        // cmux's rule is "everything settled gets a symbol", so every state now gets its own badge shape
         assert_eq!(badge(RunState::Waiting), Some(Badge::Dot));
         assert_eq!(badge(RunState::Busy), Some(Badge::Ring));
-        assert_eq!(badge(RunState::Idle), None);
-        assert_eq!(badge(RunState::Stopped), None);
+        assert_eq!(badge(RunState::Idle), Some(Badge::Check));
+        assert_eq!(badge(RunState::Stopped), Some(Badge::Dashed));
+        let shapes: std::collections::HashSet<_> = [Badge::Dot, Badge::Ring, Badge::Check, Badge::Dashed].into_iter().collect();
+        assert_eq!(shapes.len(), 4, "every state must have a shape of its own");
     }
 
     #[test]
