@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-11-13
+
+### Changed
+- Sidebar group counts are now shown only on hover; an option in the display settings ("Always show group counts") turns them back on for every group, including collapsed ones (#304).
+- Every status group in the sidebar (Opened, Needs reply, Running, Idle, History) now follows the sort order chosen in settings; before, only Pinned and History did, and Opened always followed on-screen tab order regardless of the setting (#304).
+
 ## [0.2.10] - 2026-11-11
 
 ### Changed
