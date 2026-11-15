@@ -2,7 +2,7 @@ name: Rebuild Windows zip
 
 # One-off: rebuild the Windows .zip from the branch this is run on and replace the asset on an existing release,
 # without touching the macOS assets, the Homebrew cask or the version number (#285: the 0.1.7 exe had no manifest
-# and failed at launch). Run from the Actions tab on master with the tag.
+# and failed at launch). Run from the Actions tab on main with the tag.
 on:
   workflow_dispatch:
     inputs:

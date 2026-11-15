@@ -181,6 +181,7 @@ brew install --cask nicholas-hoult/tap/makit
 
 Homebrew installs the same signed, notarized app.
 
+<a id="first-launch-unsigned-this-step-is-required"></a>
 ### First launch
 
 From 0.2.7 the app is signed with an Apple Developer ID and notarized by Apple: double-click `makit.app` and it opens. Nothing to allow.

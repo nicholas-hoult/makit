@@ -16,6 +16,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_URL = "https://api.github.com/repos/nicholas-hoult/makit/releases?per_page=100"
+README_PATH = ROOT / "README.md"
+REPO_ANCHOR_RE = re.compile(r'href="https://github\.com/nicholas-hoult/makit#([^"]+)"')
+HEADING_RE = re.compile(r"^#{1,6}\s+(.*)")
+ANCHOR_ALIAS_RE = re.compile(r'<a\s+id="([^"]+)"')
+
+def github_slug(heading):
+    """GitHub's heading-to-anchor rule, close enough for the plain-ASCII headings this repo uses: lowercase,
+    drop punctuation, spaces to hyphens."""
+    s = re.sub(r"[^\w\s-]", "", heading.strip().lower())
+    return re.sub(r"\s+", "-", s)
+
+def readme_anchors(readme_text):
+    """Every anchor a `#fragment` link into README.md can land on: a heading's own slug, or an explicit `<a id>`
+    alias kept for a heading that was renamed (see the "First launch" one, #262)."""
+    anchors = {github_slug(m.group(1)) for m in map(HEADING_RE.match, readme_text.splitlines()) if m}
+    anchors.update(ANCHOR_ALIAS_RE.findall(readme_text))
+    return anchors
+
+def missing_readme_anchors(page_html, readme_text):
+    """Anchors a page's bare-repo links (`.../nicholas-hoult/makit#foo`) point at but README.md has no heading or
+    `<a id>` alias for: a dead link once rendered, even though the release text around it is exactly right."""
+    wanted = set(REPO_ANCHOR_RE.findall(page_html))
+    return sorted(wanted - readme_anchors(readme_text))
 
 def stable_releases(items):
     kept = []
@@ -228,6 +251,10 @@ def write_pages(releases):
                    "../assets/style.css", "../assets/favicon.png", "../en/changelog/", "English", "../", "返回官网", releases, zh_blurb)
     en_html = page("en", "Changelog", "https://makit.unitysight.com/en/changelog/",
                    "../../assets/style.css", "../../assets/favicon.png", "../../changelog/", "简体中文", "../", "Back to website", releases, en_blurb)
+    readme_text = README_PATH.read_text(encoding="utf-8")
+    missing = sorted(set(missing_readme_anchors(zh_html, readme_text)) | set(missing_readme_anchors(en_html, readme_text)))
+    if missing:
+        raise SystemExit("the changelog links to README anchors that do not exist: %s" % missing)
     zh.write_text(zh_html, encoding="utf-8")
     en.write_text(en_html, encoding="utf-8")
     print("published releases", [r["tag_name"] for r in releases])
@@ -259,6 +286,18 @@ def self_check():
                    "../../assets/style.css", "../../assets/favicon.png", "../../changelog/", "简体中文", "../", "Back to website", [], ("note", "empty"))
     if 'class="back" href="../">Back to website' not in en_page or 'href="../../">makit' in en_page:
         raise SystemExit("self-check English home link is wrong")
+    if github_slug("First launch") != "first-launch":
+        raise SystemExit("self-check: github_slug regressed")
+    sample_readme = '### First launch\n\n<a id="old-name"></a>\n### Another one\n'
+    anchors = readme_anchors(sample_readme)
+    if anchors != {"first-launch", "old-name", "another-one"}:
+        raise SystemExit("self-check: readme_anchors wrong: %s" % anchors)
+    ok_html = '<a href="https://github.com/nicholas-hoult/makit#old-name">x</a>'
+    bad_html = '<a href="https://github.com/nicholas-hoult/makit#does-not-exist">x</a>'
+    if missing_readme_anchors(ok_html, sample_readme):
+        raise SystemExit("self-check: a real anchor was flagged as missing")
+    if missing_readme_anchors(bad_html, sample_readme) != ["does-not-exist"]:
+        raise SystemExit("self-check: a dead README anchor was not caught")
     print("self-check ok")
 
 def main():
