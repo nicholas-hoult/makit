@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-11-15
+
+### Added
+- The local session link's `open` can start a session with its first message already sent, instead of the caller polling for a session id that does not exist until the session writes its first message (#299).
+- The local session link can now archive a session (#299).
+
+### Fixed
+- A reply sent over the local session link could have its Enter swallowed right after a multi-line paste, leaving the message sitting unsent; it is now sent as its own step after a short pause (#299).
+- Idle and stopped sessions now get a corner badge too, and the busy/idle colors were muted to grayscale so only "waiting for you" keeps color; idle sessions used to look just like ones that had never been opened (#278).
+
+### Changed
+- A small gap now separates the sidebar-toggle and bell icons in the title bar.
+
 ## [0.2.11] - 2026-11-13
 
 ### Changed
