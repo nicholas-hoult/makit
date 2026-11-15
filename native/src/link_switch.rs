@@ -44,8 +44,8 @@ pub enum MainOp {
     Write { session_id: String, bytes: Vec<u8> },
     /// 会话所在终端的屏幕快照
     Screen { session_id: String },
-    /// 在目录里开新标签启动工具（已经过 `plan_open` 检查）
-    Open { cwd: String, tool: String },
+    /// 在目录里开新标签启动工具（已经过 `plan_open` / `validate_open_text` 检查），`text` 是首条消息
+    Open { cwd: String, tool: String, text: Option<String> },
     /// 续接已结束的会话
     Resume { session_id: String },
 }
@@ -121,12 +121,16 @@ impl Backend for NativeBackend {
         }
     }
 
-    fn open(&self, cwd: &str, tool: &str) -> Result<(), String> {
-        self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string() })
+    fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), String> {
+        self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from) })
     }
 
     fn resume(&self, session_id: &str) -> Result<(), String> {
         self.ask_done(MainOp::Resume { session_id: session_id.to_string() })
+    }
+
+    fn archive(&self, session_id: &str) -> Result<(), String> {
+        self.core.archive(session_id)
     }
 }
 
@@ -196,10 +200,10 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
     match op {
         MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done),
         MainOp::Screen { session_id } => ws.update(cx, |w, cx| w.screen_of_session(&session_id, cx)).map(MainReply::Screen),
-        MainOp::Open { cwd, tool } => {
+        MainOp::Open { cwd, tool, text } => {
             let state = AppState::global(cx);
             state.update(cx, |s, cx| {
-                s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool));
+                s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref());
                 s.workspace_changed(cx);
             });
             crate::overlays::show_toast(crate::ts!("link.toast.remote_input"), crate::overlays::toast::REMOTE_INPUT, cx);
@@ -295,7 +299,10 @@ mod tests {
             assert_eq!(req.op, MainOp::Screen { session_id: "s1".into() });
             req.reply.send(Ok(MainReply::Screen(screen))).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "codex".into() });
+            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "codex".into(), text: None });
+            req.reply.send(Ok(MainReply::Done)).unwrap();
+            let req = next(&mut rx);
+            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "claude".into(), text: Some("hi there".into()) });
             req.reply.send(Ok(MainReply::Done)).unwrap();
             let req = next(&mut rx);
             assert_eq!(req.op, MainOp::Resume { session_id: "s9".into() });
@@ -305,7 +312,8 @@ mod tests {
             req.reply.send(Ok(MainReply::Done)).unwrap();
         });
         assert_eq!(b.screen("s1"), Ok(expected));
-        assert_eq!(b.open("/Users/me/p", "codex"), Ok(()));
+        assert_eq!(b.open("/Users/me/p", "codex", None), Ok(()));
+        assert_eq!(b.open("/Users/me/p", "claude", Some("hi there")), Ok(()));
         assert_eq!(b.resume("s9"), Err("session not found".into()));
         assert_eq!(b.screen("s1"), Err("unexpected reply".into()));
         main.join().unwrap();

@@ -410,7 +410,7 @@ impl SidebarView {
     fn new_session_in(&mut self, cwd: &str, tool: &str, cx: &mut Context<Self>) {
         let tool = makit_core::ai_provider::tool_arg(tool);
         self.state.update(cx, |s, cx| {
-            s.workspace.open_new_session(cwd, tool);
+            s.workspace.open_new_session(cwd, tool, None);
             s.workspace_changed(cx);
         });
     }

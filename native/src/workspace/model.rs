@@ -268,9 +268,14 @@ pub fn resume_init_command(session_id: &str, tool: Option<&str>) -> String {
     format!("clear && {}", resume_cmd(session_id, tool))
 }
 
-/// 新建 AI 会话的 initCommand（`openNewSession`）
-pub fn new_session_command(tool: Option<&str>) -> String {
-    tool.unwrap_or("claude").into()
+/// 新建 AI 会话的 initCommand（`openNewSession`）。带首条消息时拼成 `claude '<文本>'`（单引号转义，
+/// 同拖拽路径用的 [`crate::terminal::drop_paths::quote_for_shell`]）：会话立刻写盘，不用空等第一条消息（#299）
+pub fn new_session_command(tool: Option<&str>, text: Option<&str>) -> String {
+    let tool = tool.unwrap_or("claude");
+    match text {
+        Some(t) => format!("{tool} {}", crate::terminal::drop_paths::quote_for_shell(t)),
+        None => tool.into(),
+    }
 }
 
 /// 把 shell / new tab 升级成 resume tab（用户在纯 shell 里手打了 claude，后端从 pid 文件认出了会话）。
@@ -1023,13 +1028,14 @@ impl Workspace {
         Opened::New { tab_id: id }
     }
 
-    /// 新建 AI 会话（默认 claude，Codex 传 Some("codex")）。返回 tab id
-    pub fn open_new_session(&mut self, cwd: &str, tool: Option<&str>) -> String {
+    /// 新建 AI 会话（默认 claude，Codex 传 Some("codex")）。`text` 是首条消息（本机会话接口 `open`，#299），
+    /// 侧栏「新建会话」等界面入口传 `None`。返回 tab id
+    pub fn open_new_session(&mut self, cwd: &str, tool: Option<&str>, text: Option<&str>) -> String {
         let tab = PaneTab {
             id: make_tab_id(),
             kind: TabKind::New,
             cwd: cwd.into(),
-            init_command: Some(new_session_command(tool)),
+            init_command: Some(new_session_command(tool, text)),
             session_id: None,
             session_short_id: None,
             label: ts!("workspace.new_session_label").into(),
@@ -1180,9 +1186,14 @@ mod tests {
         assert_eq!(resume_cmd(SID, None), format!("claude -r {SID}"));
         assert_eq!(resume_cmd(SID, Some("codex")), format!("codex resume {SID}"));
         assert_eq!(resume_cmd("ses_abc", Some("opencode")), "opencode -s ses_abc");
-        assert_eq!(new_session_command(None), "claude");
-        assert_eq!(new_session_command(Some("codex")), "codex");
-        assert_eq!(new_session_command(Some("opencode")), "opencode");
+        assert_eq!(new_session_command(None, None), "claude");
+        assert_eq!(new_session_command(Some("codex"), None), "codex");
+        assert_eq!(new_session_command(Some("opencode"), None), "opencode");
+        // 带首条消息：拼成一个带引号的 shell 参数，这样会话立刻写盘（#299）
+        assert_eq!(new_session_command(None, Some("hello there")), "claude 'hello there'");
+        assert_eq!(new_session_command(Some("codex"), Some("hi")), "codex hi");
+        // 文本本身带单引号：转义成 shell 安全的形式，不能逃出引号去跑别的命令
+        assert_eq!(new_session_command(None, Some("it's me")), "claude 'it'\\''s me'");
         assert_eq!(resume_init_command(SID, None), format!("clear && claude -r {SID}"));
         assert_eq!(resume_init_command(SID, Some("codex")), format!("clear && codex resume {SID}"));
     }

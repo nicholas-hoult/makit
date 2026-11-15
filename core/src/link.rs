@@ -4,8 +4,9 @@
 //! connection closes. Stateless, so polling is enough and a restart of either side needs no reconnect logic.
 //! `transcript` takes `after` (items after that index) or `tail` (only the last N, for a first look at a long conversation).
 //! Ops: `hello` / `sessions` / `transcript` / `screen` (read-only) and `input` (reply text, approve, deny, interrupt),
-//! `keys` (whitelisted keys), `open` (new session of a known tool in a directory), `resume` (an ended session). The
-//! writing ops are a separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
+//! `keys` (whitelisted keys), `open` (new session of a known tool in a directory, optionally with its first message),
+//! `resume` (an ended session), `archive` (a session that is not running). The writing ops are a separate opt-in in
+//! makit's settings and refused while it is off, see [`Backend::write_enabled`].
 //! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
 //!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
@@ -24,6 +25,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 pub const PROTO: u32 = 1;
 /// A request line longer than this is refused (a request is a few dozen bytes).
@@ -103,13 +105,20 @@ pub trait Backend: Send + Sync {
     fn screen(&self, _session_id: &str) -> Result<Screen, String> {
         Err("screen not supported".into())
     }
-    /// Start `tool` in a new tab in `cwd`. Only called after [`plan_open`] accepted it and the directory exists.
-    fn open(&self, _cwd: &str, _tool: &str) -> Result<(), String> {
+    /// Start `tool` in a new tab in `cwd`, typing `text` as its first message when given (so the session writes its
+    /// file right away instead of waiting at an empty prompt). Only called after [`plan_open`] / [`validate_open_text`]
+    /// accepted the request and the directory exists.
+    fn open(&self, _cwd: &str, _tool: &str, _text: Option<&str>) -> Result<(), String> {
         Err("open not supported".into())
     }
     /// Resume an ended session in a tab, in its own directory.
     fn resume(&self, _session_id: &str) -> Result<(), String> {
         Err("resume not supported".into())
+    }
+    /// Archive a session that is not running (same action as the sidebar's archive). Only called after the caller
+    /// checked the session exists and is not running.
+    fn archive(&self, _session_id: &str) -> Result<(), String> {
+        Err("archive not supported".into())
     }
 }
 
@@ -129,9 +138,21 @@ pub enum InputKind {
     Type(String),
 }
 
+/// One step of carrying out a planned write: either bytes to send, or a pause before the next step.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WriteStep {
+    Bytes(Vec<u8>),
+    Wait(Duration),
+}
+
+/// How long to wait after a bracketed paste before sending Enter. Claude Code's TUI takes a beat to pull a paste
+/// into its input box; Enter sent right behind the paste's end marker can arrive before that happens and gets
+/// swallowed, leaving the message sitting in the input box unsent (seen repeatedly in practice).
+pub const PASTE_SETTLE: Duration = Duration::from_millis(200);
+
 /// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
 /// "type" is not an op of its own: it says `input` takes kind `type` and replies while the session works.
-pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe", "type"];
+pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type"];
 
 /// Most keys one `keys` request may carry.
 pub const MAX_KEYS: usize = 16;
@@ -187,8 +208,9 @@ pub fn plan_keys(state: &str, keys: &[String]) -> Result<Vec<u8>, String> {
 }
 
 /// Text as terminal bytes: length and control-character checks, several lines as one bracketed paste (otherwise
-/// every newline would submit on its own). No Enter: the caller adds it.
-fn text_bytes(text: &str) -> Result<Vec<u8>, String> {
+/// every newline would submit on its own). No Enter: the caller adds it. The `bool` says whether a paste was used,
+/// so the caller knows whether Enter needs [`PASTE_SETTLE`] first.
+fn text_bytes(text: &str) -> Result<(Vec<u8>, bool), String> {
     let text = text.replace("\r\n", "\n");
     if text.chars().count() > MAX_INPUT_CHARS {
         return Err("text too long".into());
@@ -197,12 +219,29 @@ fn text_bytes(text: &str) -> Result<Vec<u8>, String> {
         return Err("control characters".into());
     }
     if !text.contains('\n') {
-        return Ok(text.into_bytes());
+        return Ok((text.into_bytes(), false));
     }
     let mut out = b"\x1b[200~".to_vec();
     out.extend_from_slice(text.as_bytes());
     out.extend_from_slice(b"\x1b[201~");
-    Ok(out)
+    Ok((out, true))
+}
+
+/// Check `open`'s optional first-message text: same rules as a reply's text (non-empty, length, no control
+/// characters other than newline/tab). Unlike [`text_bytes`] this returns the text itself, not PTY bytes: `open`
+/// embeds it as one quoted shell argument rather than writing it into an already-running terminal.
+pub fn validate_open_text(text: &str) -> Result<String, String> {
+    let text = text.replace("\r\n", "\n");
+    if text.trim().is_empty() {
+        return Err("empty text".into());
+    }
+    if text.chars().count() > MAX_INPUT_CHARS {
+        return Err("text too long".into());
+    }
+    if text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Err("control characters".into());
+    }
+    Ok(text)
 }
 
 /// Check an `open` request before anything is started. The directory's existence is checked by the caller.
@@ -339,17 +378,17 @@ pub const MAX_INPUT_CHARS: usize = 4000;
 /// Why this is a pure function of its own: it is the safety gate for typing into someone's terminal. Replying to a
 /// session that is busy garbles its work, Esc sent to a session that is not at a prompt interrupts a running turn, and
 /// a stray control character in the text could drive the terminal itself instead of the program in it.
-pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Vec<u8>, String> {
+pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Vec<WriteStep>, String> {
     if state == "ended" {
         return Err("session ended".into());
     }
     let at_approval = state == "waiting" && waiting_for != "user";
     match kind {
         // Esc while a turn runs stops it; at a prompt it would do nothing useful, in a dialog it would answer it
-        InputKind::Interrupt if state == "busy" => Ok(vec![0x1b]),
+        InputKind::Interrupt if state == "busy" => Ok(vec![WriteStep::Bytes(vec![0x1b])]),
         InputKind::Interrupt => Err("not busy".into()),
-        InputKind::Approve if at_approval => Ok(b"\r".to_vec()),
-        InputKind::Deny if at_approval => Ok(vec![0x1b]),
+        InputKind::Approve if at_approval => Ok(vec![WriteStep::Bytes(b"\r".to_vec())]),
+        InputKind::Deny if at_approval => Ok(vec![WriteStep::Bytes(vec![0x1b])]),
         InputKind::Approve | InputKind::Deny => Err("not waiting for approval".into()),
         InputKind::Text(text) => {
             // A reply goes to a session at its prompt (idle), waiting for the user's answer, or working (the tool takes
@@ -361,16 +400,41 @@ pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Ve
             if text.trim().is_empty() {
                 return Err("empty text".into());
             }
-            let mut out = text_bytes(text)?;
-            out.push(b'\r');
-            Ok(out)
+            let (bytes, pasted) = text_bytes(text)?;
+            Ok(enter_after(bytes, pasted))
         }
         InputKind::Type(text) => {
             if text.is_empty() {
                 return Err("empty text".into());
             }
-            text_bytes(text)
+            let (bytes, _) = text_bytes(text)?;
+            Ok(vec![WriteStep::Bytes(bytes)])
         }
+    }
+}
+
+/// Carry out a plan from [`plan_input`]: write each `Bytes` step, really wait out each `Wait` one. The waits are why
+/// this is not folded into `plan_input` itself: that function stays pure and instant, so tests can check the planned
+/// steps without paying for the real delay.
+fn run_write_steps(backend: &dyn Backend, session_id: &str, steps: Vec<WriteStep>) -> Result<(), String> {
+    for step in steps {
+        match step {
+            WriteStep::Bytes(bytes) => backend.write(session_id, bytes)?,
+            WriteStep::Wait(d) => std::thread::sleep(d),
+        }
+    }
+    Ok(())
+}
+
+/// `bytes` then Enter. A paste needs [`PASTE_SETTLE`] in between: without it, Enter can land before Claude Code's
+/// TUI has pulled the pasted text into its input box and gets swallowed, so the message never submits.
+fn enter_after(bytes: Vec<u8>, pasted: bool) -> Vec<WriteStep> {
+    if pasted {
+        vec![WriteStep::Bytes(bytes), WriteStep::Wait(PASTE_SETTLE), WriteStep::Bytes(b"\r".to_vec())]
+    } else {
+        let mut out = bytes;
+        out.push(b'\r');
+        vec![WriteStep::Bytes(out)]
     }
 }
 
@@ -478,14 +542,43 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             if let Err(e) = plan_open(tool, cwd) {
                 return fail(e);
             }
+            let text = match req.get("text").and_then(Value::as_str) {
+                Some(t) => match validate_open_text(t) {
+                    Ok(t) => Some(t),
+                    Err(e) => return fail(e),
+                },
+                None => None,
+            };
             if !Path::new(cwd).is_dir() {
                 return fail("no such directory");
             }
-            // The new session's id is only known once the tool writes its first record: the other side picks the
-            // newest session of this tool in this directory that started at or after `started_at`
+            // Without `text` the new session's id is only known once the tool writes its first record on its own
+            // (which can take a while at an empty prompt): the other side picks the newest session of this tool in
+            // this directory that started at or after `started_at`. `text` gives the tool something to write right
+            // away, so that poll finds it quickly.
             let started_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-            match backend.open(cwd, tool) {
+            match backend.open(cwd, tool, text.as_deref()) {
                 Ok(()) => json!({"ok": true, "started_at": started_at}).to_string(),
+                Err(e) => fail(e),
+            }
+        }
+        Some("archive") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            if backend.session_state(id).is_some() {
+                return fail("session running");
+            }
+            match backend.sessions(MAX_LIMIT) {
+                Ok(list) if list.iter().any(|s| s.session_id == id) => {}
+                Ok(_) => return fail("session not found"),
+                Err(e) => return fail(e),
+            }
+            match backend.archive(id) {
+                Ok(()) => json!({"ok": true}).to_string(),
                 Err(e) => fail(e),
             }
         }
@@ -549,7 +642,7 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             let Some((state, waiting_for)) = backend.session_state(id) else {
                 return fail("session not found");
             };
-            match plan_input(&state, &waiting_for, &kind).and_then(|bytes| backend.write(id, bytes)) {
+            match plan_input(&state, &waiting_for, &kind).and_then(|steps| run_write_steps(backend, id, steps)) {
                 Ok(()) => json!({"ok": true}).to_string(),
                 Err(e) => fail(e),
             }
@@ -632,6 +725,10 @@ impl Backend for CoreBackend {
         entry.1 = tick;
         entry.0.poll().map_err(|e| e.to_string())?;
         Ok(Self::page(&entry.0, cursor))
+    }
+
+    fn archive(&self, session_id: &str) -> Result<(), String> {
+        crate::archive::archive_session(session_id.to_string())
     }
 }
 
@@ -777,9 +874,10 @@ mod tests {
         write_on: bool,
         /// What `write` received: (session id, bytes)
         written: Mutex<Vec<(String, Vec<u8>)>>,
-        /// What `open` received: (cwd, tool)
-        opened: Mutex<Vec<(String, String)>>,
+        /// What `open` received: (cwd, tool, text)
+        opened: Mutex<Vec<(String, String, Option<String>)>>,
         resumed: Mutex<Vec<String>>,
+        archived: Mutex<Vec<String>>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -812,12 +910,16 @@ mod tests {
             self.written.lock().unwrap().push((id.to_string(), bytes));
             Ok(())
         }
-        fn open(&self, cwd: &str, tool: &str) -> Result<(), String> {
-            self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string()));
+        fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), String> {
+            self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string(), text.map(String::from)));
             Ok(())
         }
         fn resume(&self, id: &str) -> Result<(), String> {
             self.resumed.lock().unwrap().push(id.to_string());
+            Ok(())
+        }
+        fn archive(&self, id: &str) -> Result<(), String> {
+            self.archived.lock().unwrap().push(id.to_string());
             Ok(())
         }
         fn transcript(&self, id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
@@ -830,7 +932,15 @@ mod tests {
     }
 
     fn fake() -> Fake {
-        Fake { sessions: vec![info("s1", "busy"), info("s2", "waiting"), info("s3", "ended")], total: 3, write_on: false, written: Mutex::new(Vec::new()), opened: Mutex::new(Vec::new()), resumed: Mutex::new(Vec::new()) }
+        Fake {
+            sessions: vec![info("s1", "busy"), info("s2", "waiting"), info("s3", "ended")],
+            total: 3,
+            write_on: false,
+            written: Mutex::new(Vec::new()),
+            opened: Mutex::new(Vec::new()),
+            resumed: Mutex::new(Vec::new()),
+            archived: Mutex::new(Vec::new()),
+        }
     }
 
     fn ask(b: &dyn Backend, line: &str) -> Value {
@@ -910,16 +1020,25 @@ mod tests {
         InputKind::Text(s.to_string())
     }
 
+    /// One `Bytes` step, no wait: what a single-line reply or keystroke plans.
+    fn one(bytes: &[u8]) -> Vec<WriteStep> {
+        vec![WriteStep::Bytes(bytes.to_vec())]
+    }
+
     #[test]
     fn plan_text_goes_to_a_session_at_its_prompt_with_enter() {
-        assert_eq!(plan_input("idle", "", &text("继续")).unwrap(), "继续\r".as_bytes());
+        assert_eq!(plan_input("idle", "", &text("继续")).unwrap(), one("继续\r".as_bytes()));
         // Waiting for the user's answer is also a prompt
-        assert_eq!(plan_input("waiting", "user", &text("好")).unwrap(), "好\r".as_bytes());
+        assert_eq!(plan_input("waiting", "user", &text("好")).unwrap(), one("好\r".as_bytes()));
         // While it works the tool takes the message into the running turn (claude queues what is typed meanwhile), like
         // typing in makit itself (replying while the agent works, as when typing in makit)
-        assert_eq!(plan_input("busy", "", &text("顺便看下日志")).unwrap(), "顺便看下日志\r".as_bytes());
-        // Several lines: one bracketed paste, then Enter
-        assert_eq!(plan_input("idle", "", &text("a\r\nb")).unwrap(), b"\x1b[200~a\nb\x1b[201~\r".to_vec());
+        assert_eq!(plan_input("busy", "", &text("顺便看下日志")).unwrap(), one("顺便看下日志\r".as_bytes()));
+        // Several lines: one bracketed paste, a settling wait, then Enter on its own — not glued right behind the
+        // paste's end marker, or Claude Code's TUI can swallow it (#299 bug report)
+        assert_eq!(
+            plan_input("idle", "", &text("a\r\nb")).unwrap(),
+            vec![WriteStep::Bytes(b"\x1b[200~a\nb\x1b[201~".to_vec()), WriteStep::Wait(PASTE_SETTLE), WriteStep::Bytes(b"\r".to_vec())],
+        );
     }
 
     #[test]
@@ -951,10 +1070,11 @@ mod tests {
     fn plan_type_writes_text_without_enter_in_any_live_state() {
         // The terminal view's keyboard: the user sees the screen and decides, so any live state is fine
         for (state, waiting_for) in [("idle", ""), ("busy", ""), ("waiting", "approval"), ("waiting", "user")] {
-            assert_eq!(plan_input(state, waiting_for, &typed("/compact")).unwrap(), b"/compact".to_vec(), "{state}");
+            assert_eq!(plan_input(state, waiting_for, &typed("/compact")).unwrap(), one(b"/compact"), "{state}");
         }
-        // Several lines go in as one paste, still without Enter
-        assert_eq!(plan_input("idle", "", &typed("a\nb")).unwrap(), b"\x1b[200~a\nb\x1b[201~".to_vec());
+        // Several lines go in as one paste, still without Enter — and so without a settling wait either, nothing
+        // follows the paste that could be swallowed
+        assert_eq!(plan_input("idle", "", &typed("a\nb")).unwrap(), one(b"\x1b[200~a\nb\x1b[201~"));
         assert_eq!(plan_input("ended", "", &typed("x")).unwrap_err(), "session ended");
     }
 
@@ -966,7 +1086,7 @@ mod tests {
             assert_eq!(plan_input("busy", "", &typed(bad)).unwrap_err(), "control characters", "{bad:?}");
         }
         // A lone space is a valid thing to type (it toggles options in some menus)
-        assert_eq!(plan_input("busy", "", &typed(" ")).unwrap(), b" ".to_vec());
+        assert_eq!(plan_input("busy", "", &typed(" ")).unwrap(), one(b" "));
     }
 
     #[test]
@@ -978,9 +1098,9 @@ mod tests {
 
     #[test]
     fn plan_approve_and_deny_only_at_an_approval_prompt() {
-        assert_eq!(plan_input("waiting", "approval", &InputKind::Approve).unwrap(), b"\r".to_vec());
-        assert_eq!(plan_input("waiting", "", &InputKind::Approve).unwrap(), b"\r".to_vec());
-        assert_eq!(plan_input("waiting", "approval", &InputKind::Deny).unwrap(), vec![0x1b]);
+        assert_eq!(plan_input("waiting", "approval", &InputKind::Approve).unwrap(), one(b"\r"));
+        assert_eq!(plan_input("waiting", "", &InputKind::Approve).unwrap(), one(b"\r"));
+        assert_eq!(plan_input("waiting", "approval", &InputKind::Deny).unwrap(), one(&[0x1b]));
         // Esc at any other time would interrupt a running turn; Enter would submit an empty message
         for (state, waiting_for) in [("idle", ""), ("busy", ""), ("waiting", "user")] {
             assert_eq!(plan_input(state, waiting_for, &InputKind::Approve).unwrap_err(), "not waiting for approval", "{state}");
@@ -1013,6 +1133,23 @@ mod tests {
         assert_eq!(ask(&b, r#"{"op":"input","session_id":"s3","kind":"deny"}"#)["error"], "session not found");
         assert_eq!(ask(&b, r#"{"op":"input","session_id":"nope","kind":"deny"}"#)["error"], "session not found");
         assert_eq!(b.written.lock().unwrap().len(), 1);
+    }
+
+    // Why this is real-time and not mocked: the bug it guards against is exactly a timing one (#299) — Enter sent
+    // right behind a paste's end marker can be swallowed by Claude Code's TUI. Proving the fix means proving the two
+    // writes are genuinely two separate `write` calls with the settling wait actually elapsed in between, not just
+    // that `plan_input` planned it that way.
+    #[test]
+    fn a_multiline_reply_is_written_in_two_steps_with_the_settle_wait_elapsed_between_them() {
+        let b = Fake { write_on: true, ..fake() };
+        let before = std::time::Instant::now();
+        let r = ask(&b, r#"{"op":"input","session_id":"s1","kind":"text","text":"line one\nline two"}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert!(before.elapsed() >= PASTE_SETTLE, "the response must not come back before the wait is over");
+        assert_eq!(
+            *b.written.lock().unwrap(),
+            vec![("s1".to_string(), b"\x1b[200~line one\nline two\x1b[201~".to_vec()), ("s1".to_string(), b"\r".to_vec())],
+        );
     }
 
     #[test]
@@ -1071,7 +1208,7 @@ mod tests {
 
     #[test]
     fn plan_interrupt_only_while_a_turn_runs() {
-        assert_eq!(plan_input("busy", "", &InputKind::Interrupt).unwrap(), vec![0x1b]);
+        assert_eq!(plan_input("busy", "", &InputKind::Interrupt).unwrap(), one(&[0x1b]));
         for (state, waiting_for) in [("idle", ""), ("waiting", "user"), ("waiting", "approval")] {
             assert_eq!(plan_input(state, waiting_for, &InputKind::Interrupt).unwrap_err(), "not busy", "{state}");
         }
@@ -1104,6 +1241,18 @@ mod tests {
         assert_eq!(plan_open("claude", "relative/dir").unwrap_err(), "cwd must be absolute");
         assert_eq!(plan_open("claude", "").unwrap_err(), "cwd must be absolute");
         assert_eq!(plan_open("claude", "/a\nb").unwrap_err(), "control characters");
+    }
+
+    #[test]
+    fn open_text_is_validated_like_a_reply() {
+        assert_eq!(validate_open_text("hi there").unwrap(), "hi there");
+        assert_eq!(validate_open_text("line one\r\nline two").unwrap(), "line one\nline two");
+        assert_eq!(validate_open_text("").unwrap_err(), "empty text");
+        assert_eq!(validate_open_text("   ").unwrap_err(), "empty text");
+        assert_eq!(validate_open_text(&"a".repeat(MAX_INPUT_CHARS + 1)).unwrap_err(), "text too long");
+        assert_eq!(validate_open_text("hi\x07there").unwrap_err(), "control characters");
+        // Newline and tab are not control characters here: a first message may have several lines
+        assert!(validate_open_text("line one\nline two\tindented").is_ok());
     }
 
     #[test]
@@ -1148,11 +1297,12 @@ mod tests {
         // screen is read-only: allowed while write is off; the fake has no terminal
         assert_eq!(ask(&b, r#"{"op":"screen","session_id":"s1"}"#)["error"], "screen not supported");
         assert_eq!(ask(&b, r#"{"op":"screen"}"#)["error"], "session_id required");
-        // keys / open / resume / interrupt are writes
+        // keys / open / resume / archive / interrupt are writes
         for req in [
             r#"{"op":"keys","session_id":"s1","keys":["enter"]}"#,
             r#"{"op":"open","cwd":"/","tool":"claude"}"#,
             r#"{"op":"resume","session_id":"s3"}"#,
+            r#"{"op":"archive","session_id":"s3"}"#,
             r#"{"op":"input","session_id":"s1","kind":"interrupt"}"#,
         ] {
             assert_eq!(ask(&b, req)["error"], "write disabled", "{req}");
@@ -1164,7 +1314,7 @@ mod tests {
     // is a unix-style absolute path
     #[cfg(unix)]
     #[test]
-    fn keys_interrupt_open_and_resume_with_write_on() {
+    fn keys_interrupt_open_resume_and_archive_with_write_on() {
         let b = Fake { write_on: true, ..fake() };
         assert_eq!(ask(&b, r#"{"op":"keys","session_id":"s2","keys":["down","enter"]}"#)["ok"], true);
         assert_eq!(ask(&b, r#"{"op":"input","session_id":"s1","kind":"interrupt"}"#)["ok"], true);
@@ -1176,7 +1326,15 @@ mod tests {
         let r = ask(&b, &json!({"op": "open", "cwd": dir, "tool": "codex"}).to_string());
         assert_eq!(r["ok"], true, "{r}");
         assert!(r["started_at"].as_i64().is_some_and(|t| t > 0));
-        assert_eq!(*b.opened.lock().unwrap(), vec![(dir.to_string_lossy().to_string(), "codex".to_string())]);
+        // open with a first message: it is validated and passed through so the session writes right away
+        let r2 = ask(&b, &json!({"op": "open", "cwd": dir, "tool": "claude", "text": "hello there"}).to_string());
+        assert_eq!(r2["ok"], true, "{r2}");
+        assert_eq!(
+            *b.opened.lock().unwrap(),
+            vec![(dir.to_string_lossy().to_string(), "codex".to_string(), None), (dir.to_string_lossy().to_string(), "claude".to_string(), Some("hello there".to_string()))],
+        );
+        assert_eq!(ask(&b, &json!({"op": "open", "cwd": dir, "tool": "claude", "text": ""}).to_string())["error"], "empty text");
+        assert_eq!(ask(&b, &json!({"op": "open", "cwd": dir, "tool": "claude", "text": "a\x07b"}).to_string())["error"], "control characters");
         assert_eq!(ask(&b, r#"{"op":"open","cwd":"/no/such/dir/here","tool":"claude"}"#)["error"], "no such directory");
         assert_eq!(ask(&b, r#"{"op":"open","cwd":"/","tool":"zsh"}"#)["error"], "unknown tool");
         // resume: only an ended session
@@ -1184,13 +1342,19 @@ mod tests {
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s1"}"#)["error"], "session running");
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#)["error"], "session not found");
         assert_eq!(*b.resumed.lock().unwrap(), vec!["s3".to_string()]);
+        // archive: only a session that is not running
+        assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s3"}"#)["ok"], true);
+        assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s1"}"#)["error"], "session running");
+        assert_eq!(ask(&b, r#"{"op":"archive","session_id":"nope"}"#)["error"], "session not found");
+        assert_eq!(ask(&b, r#"{"op":"archive"}"#)["error"], "session_id required");
+        assert_eq!(*b.archived.lock().unwrap(), vec!["s3".to_string()]);
     }
 
     #[test]
     fn hello_lists_the_ops_so_the_other_side_can_tell_old_versions() {
         let ops = ask(&fake(), r#"{"op":"hello"}"#)["ops"].clone();
         // "type": input kind `type` (terminal keyboard) and replies accepted while the session works
-        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "subscribe", "type"] {
+        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type"] {
             assert!(ops.as_array().unwrap().iter().any(|o| o == op), "{op}");
         }
     }
