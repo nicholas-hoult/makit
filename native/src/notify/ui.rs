@@ -34,10 +34,11 @@ fn border_px(mut d: Div, w: Pixels) -> Div {
     d
 }
 
-/// 行里的状态色：需要处理的沿用 Tauri 版的 --warning；#215 新增的已完成用 --accent、出错用 --danger
+/// 行里的状态色：需要处理的用 `attention`（#278，和侧栏的角标/徽标同一个色，不再是 Tauri 版沿用的 --warning）；
+/// #215 新增的已完成用 --accent、出错用 --danger
 pub fn kind_color(kind: Kind, t: &Theme) -> Hsla {
     match kind {
-        Kind::NeedsPermission | Kind::NeedsInput => t.warning,
+        Kind::NeedsPermission | Kind::NeedsInput => t.attention,
         Kind::TurnComplete => t.accent,
         Kind::Error => t.danger,
     }

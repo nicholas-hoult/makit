@@ -40,6 +40,9 @@ pub struct Theme {
     pub danger: Hsla,
     pub success: Hsla,
     pub warning: Hsla,
+    /// "需要你去看一眼"专用色：等你回应的角标、徽标、⌘K/通知中心的对应行（#278）。不在 `derive_vars`
+    /// 的 TS 对齐表里，见 `derive::attention` 的文档注释
+    pub attention: Hsla,
     pub info: Hsla,
     pub selection_bg: Hsla,
     pub selection_bg_inactive: Hsla,
@@ -65,8 +68,9 @@ impl Theme {
         let vars = derive_vars(&source);
         let c = |k: &str| to_hsla(vars.get(k).map(|s| s.as_str()).unwrap_or(""));
         let ansi = std::array::from_fn(|i| c(&format!("--ansi-{}", derive::ANSI_NAMES[i])));
+        let light = derive::is_light(&source.bg);
         Self {
-            light: derive::is_light(&source.bg),
+            light,
             bg: c("--bg"),
             fg: c("--fg"),
             bg_soft: c("--bg-soft"),
@@ -84,6 +88,8 @@ impl Theme {
             danger: c("--danger"),
             success: c("--success"),
             warning: c("--warning"),
+            // not part of the TS-parity variable set (`derive_vars`), so it is derived here (#278)
+            attention: to_hsla(&derive::attention(&vars, &source.bg, light)),
             info: c("--info"),
             selection_bg: c("--selection-bg"),
             selection_bg_inactive: c("--selection-bg-inactive"),

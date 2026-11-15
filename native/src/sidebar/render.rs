@@ -9,7 +9,7 @@ use gpui::{
 use crate::ui_scale::px;
 
 use super::status_icon;
-use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label};
+use super::groups::{meta_state, relative_time, session_title, status_label, waiting_label, RunState};
 use super::tree::{self, Item, GROUP_LABEL_H, PROJECT_HEADER_H, SCROLLBAR_W, SESSION_H, SESSION_H_COMPACT};
 use crate::tooltip::tip;
 use super::{collapse, now_secs, DraggedSession, Popup, ResizeDrag, SidebarView, ThumbDrag};
@@ -75,7 +75,8 @@ impl SidebarView {
 
     /// `.tree-group-label`：10px 弱文字，padding 2 12 3 4，gap 5；可折叠时整行可点，hover 才给底色
     fn render_group_header(&mut self, id: String, label: String, count: usize, collapsed: bool, warn: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        let color = if warn { t.warning } else { t.fg_muted };
+        // "a session in here needs you" uses `attention`, not `warning` (#278): same reasoning as the status badge
+        let color = if warn { t.attention } else { t.fg_muted };
         // Group counts show on hover only, unless the user asked for them always (#304). No exception for collapsed groups
         let count_always = self.state.read(cx).prefs.sidebar.group_count_always;
         let tooltip = if collapsed { ts!("sidebar.tooltip.expand", label = label) } else { ts!("sidebar.tooltip.collapse", label = label) };
@@ -274,21 +275,25 @@ impl SidebarView {
             .items_center()
             .gap(px(4.))
             .child(div().flex_1().min_w_0().truncate().text_color(t.fg).font_weight(FontWeight::SEMIBOLD).child(title))
-            // 只有「等待审批 / 等待回答」值得挤占标题的横向空间
-            .when(m.status == "waiting", |d| {
+            // 只有「等待审批 / 等待回答」值得挤占标题的横向空间；用 `rs`（已经按 #308 把 input needed 结算成
+            // idle）而不是原始 `m.status`，不然这个徽标和角标就会对不上
+            .when(rs == RunState::Waiting, |d| {
                 d.child(
                     div()
                         .flex_none()
                         .px(px(5.))
                         .rounded_full()
-                        .bg(mix(t.warning, 0.2))
-                        .text_color(t.warning)
+                        // `attention`, not `warning` (#278): same colour as the status badge for this state
+                        .bg(mix(t.attention, 0.2))
+                        .text_color(t.attention)
                         .text_size(px(9.))
                         .line_height(px(13.))
                         .child(waiting_label(&m.waiting_for)),
                 )
             })
-            // `.tree-session-time`：10px、定宽右列 26、右对齐；tooltip 是 mtime_display。可在「显示选项」里隐藏（#238）
+            // `.tree-session-time`：10px、定宽右列 26、右对齐。可在「显示选项」里隐藏（#238）。
+            // 不再单独挂 tooltip（#278）：行上的悬停卡（下面的 HoverCard）表格最后一行就是同一个 mtime_display，
+            // 两个提示同时出现在行的右边缘，内容重复又叠在一起
             .when(show_time, |d| d.child(
                 div()
                     .id(SharedString::from(format!("time-{uid}")))
@@ -298,7 +303,6 @@ impl SidebarView {
                     .justify_end()
                     .text_size(px(10.))
                     .text_color(t.fg_muted)
-                    .tooltip(tip(m.mtime_display.clone()))
                     .child(relative_time(m.mtime, now_secs())),
             ));
 

@@ -204,7 +204,8 @@ impl PaletteView {
             StyledText::new(text.to_string()).with_highlights(ranges.into_iter().map(|r| (r, mark)))
         };
         let dot_color = match it.status {
-            ItemStatus::Waiting => theme.warning,
+            // `attention`, not `warning` (#278): same colour as the sidebar's status badge for this state
+            ItemStatus::Waiting => theme.attention,
             ItemStatus::Busy => theme.info,
             ItemStatus::Idle => mix_alpha(theme.fg_muted, 0.5),
             ItemStatus::Stopped => mix_alpha(theme.fg_muted, 0.3),
@@ -213,7 +214,7 @@ impl PaletteView {
         let dot = div().size(px(8.0)).rounded(px(4.0)).flex_none().bg(dot_color);
         let dot = if it.status == ItemStatus::Waiting {
             // waiting 是唯一「需要人动手」的一档：外发光（不再呼吸：呼吸要整窗重绘，见 status_icon.rs #290）
-            let ring = mix_alpha(theme.warning, 0.3);
+            let ring = mix_alpha(theme.attention, 0.3);
             dot.border_2()
                 .border_color(ring)
                 .size(px(12.0))
@@ -225,7 +226,7 @@ impl PaletteView {
             dot.into_any_element()
         };
         let pill = (shows_status_pill(it.status) && !it.status_label.is_empty()).then(|| {
-            let c = if it.status == ItemStatus::Waiting { theme.warning } else { theme.accent_alt };
+            let c = if it.status == ItemStatus::Waiting { theme.attention } else { theme.accent_alt };
             div()
                 .text_size(px(10.0))
                 .line_height(px(15.0))
@@ -369,7 +370,7 @@ impl PaletteView {
         });
         let status_rows = StatusKey::ALL.map(|k| {
             let c = match k {
-                StatusKey::WaitingApproval | StatusKey::WaitingUser => theme.warning,
+                StatusKey::WaitingApproval | StatusKey::WaitingUser => theme.attention,
                 StatusKey::Busy => theme.info,
                 StatusKey::Archived => theme.accent_alt,
                 _ => theme.fg_subtle,

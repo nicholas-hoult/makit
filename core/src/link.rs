@@ -379,6 +379,9 @@ pub const MAX_INPUT_CHARS: usize = 4000;
 /// session that is busy garbles its work, Esc sent to a session that is not at a prompt interrupts a running turn, and
 /// a stray control character in the text could drive the terminal itself instead of the program in it.
 pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Vec<WriteStep>, String> {
+    // "waiting" + "input needed" is just Claude Code sitting at its prompt, not a real dialog (#308):
+    // settle it to idle before any of the checks below, same as the sidebar and notifications do
+    let (state, waiting_for) = crate::running::settle_prompt_wait(state, waiting_for);
     if state == "ended" {
         return Err("session ended".into());
     }
@@ -1039,6 +1042,18 @@ mod tests {
             plan_input("idle", "", &text("a\r\nb")).unwrap(),
             vec![WriteStep::Bytes(b"\x1b[200~a\nb\x1b[201~".to_vec()), WriteStep::Wait(PASTE_SETTLE), WriteStep::Bytes(b"\r".to_vec())],
         );
+    }
+
+    #[test]
+    fn plan_text_goes_through_when_claude_is_just_sitting_at_its_prompt() {
+        // #308: Claude Code writes waiting_for = "input needed" after every turn, not just when it's really
+        // asking for a permission or an answer. A reply must go through like at any other idle prompt, and
+        // Approve / Deny / Interrupt must all still refuse (there is no real dialog to answer, nothing to stop)
+        assert_eq!(plan_input("waiting", "input needed", &text("继续")).unwrap(), one("继续\r".as_bytes()));
+        assert_eq!(plan_input("waiting", "input needed", &typed("/compact")).unwrap(), one(b"/compact"));
+        assert_eq!(plan_input("waiting", "input needed", &InputKind::Approve).unwrap_err(), "not waiting for approval");
+        assert_eq!(plan_input("waiting", "input needed", &InputKind::Deny).unwrap_err(), "not waiting for approval");
+        assert_eq!(plan_input("waiting", "input needed", &InputKind::Interrupt).unwrap_err(), "not busy");
     }
 
     #[test]

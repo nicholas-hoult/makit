@@ -57,7 +57,7 @@ pub fn tab_status(tab: &PaneTab, meta: Option<&SessionMeta>) -> Option<RunState>
     if !m.running {
         return None;
     }
-    Some(run_state(true, &m.status))
+    Some(run_state(true, &m.status, &m.waiting_for))
 }
 
 /// 类型图标（ContainerView `kindIcon`）：resume ↻ / new ✦ / shell $

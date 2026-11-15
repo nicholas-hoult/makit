@@ -45,14 +45,34 @@ pub fn emphasis(rs: RunState) -> f32 {
 
 /// Waiting is the only state with its own hue; busy / idle / stopped are all grayscale (#278) — a sidebar of
 /// live sessions should not read as a row of equally loud colours, and the one state that needs you is the
-/// only one allowed to stand out by colour as well as by shape.
-pub fn color(rs: RunState, t: &Theme) -> Hsla {
+/// only one allowed to stand out by colour as well as by shape. Waiting uses `t.attention`, not `t.warning`:
+/// plain warning yellow turns muddy brown on light themes once pushed for contrast, which read as not
+/// urgent at all (#278, found by a screen-recorded 0.2.12 pass over all four states).
+fn hued(rs: RunState, t: &Theme, alpha: f32) -> Hsla {
     let mut c = match rs {
-        RunState::Waiting => t.warning,
+        RunState::Waiting => t.attention,
         RunState::Busy | RunState::Idle | RunState::Stopped => t.fg_muted,
     };
-    c.a *= emphasis(rs);
+    c.a *= alpha;
     c
+}
+
+pub fn color(rs: RunState, t: &Theme) -> Hsla {
+    hued(rs, t, emphasis(rs))
+}
+
+/// The corner badge's own alpha floor (#278): distinct from `emphasis()` because the stopped state's
+/// dashed ring, already small, was unreadable at `emphasis(Stopped) = 0.45` — a badge that cannot be read
+/// fails the one job it has, whatever `emphasis()` says about how loud a full-size icon should be.
+fn badge_emphasis(rs: RunState) -> f32 {
+    match rs {
+        RunState::Stopped => 0.75,
+        _ => emphasis(rs),
+    }
+}
+
+fn badge_color(rs: RunState, t: &Theme) -> Hsla {
+    hued(rs, t, badge_emphasis(rs))
 }
 
 /// Whether the *standalone* icon (tab bar, or sidebar with "show icon" off) draws at all. Kept narrow on
@@ -102,15 +122,17 @@ pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
         .items_center()
         .child(div().opacity(identity_opacity(rs)).child(logo))
         .when_some(badge(rs), |d, b| {
-            let c = color(rs, t);
+            let c = badge_color(rs, t);
             // logo is 12 wide / tall, centred in 16: its lower-right corner is at (12, 14), the badge sits on it.
             // Dot / Ring are plain shapes at the original 5px; Check / Dashed reuse the standalone SVGs (they
             // need the extra detail to read at a glance) at 7px, nudged to keep the same corner alignment.
+            // Dashed is drawn a size up (9px, #278): a dashed ring that small read as a faint blur, not a
+            // shape, even before the alpha bump above.
             match b {
                 Badge::Dot => d.child(div().absolute().right(px(2.)).bottom(px(1.)).size(px(5.)).rounded_full().bg(c)),
                 Badge::Ring => d.child(div().absolute().right(px(2.)).bottom(px(1.)).size(px(5.)).rounded_full().border_1().border_color(c)),
                 Badge::Check => d.child(svg().path(path(RunState::Idle)).absolute().right(px(1.)).bottom(px(0.)).size(px(7.)).text_color(c)),
-                Badge::Dashed => d.child(svg().path(path(RunState::Stopped)).absolute().right(px(1.)).bottom(px(0.)).size(px(7.)).text_color(c)),
+                Badge::Dashed => d.child(svg().path(path(RunState::Stopped)).absolute().right(px(0.)).bottom(px(-1.)).size(px(9.)).text_color(c)),
             }
         })
         .into_any_element()
@@ -154,9 +176,11 @@ mod tests {
     #[test]
     fn only_waiting_has_its_own_hue() {
         // #278: busy / idle / stopped are all grayscale, told apart by shape + emphasis, not by colour;
-        // waiting is the one state allowed a hue, because it is the one that needs you to act
+        // waiting is the one state allowed a hue, because it is the one that needs you to act, and it uses
+        // the dedicated `attention` colour, not `warning` (plain warning yellow goes muddy on light themes)
         let t = crate::theme::Theme::by_id("embark", &[]);
         assert_ne!(color(RunState::Waiting, &t).h, t.fg_muted.h);
+        assert_eq!(color(RunState::Waiting, &t).h, t.attention.h, "waiting should use the dedicated attention colour");
         for rs in [RunState::Busy, RunState::Idle, RunState::Stopped] {
             assert_eq!(color(rs, &t).h, t.fg_muted.h, "{rs:?} should be grayscale");
             assert_eq!(color(rs, &t).s, t.fg_muted.s, "{rs:?} should be grayscale");
@@ -169,6 +193,17 @@ mod tests {
         // have nothing worth the space in the tab bar or the logo-off sidebar fallback
         assert!(shown(RunState::Waiting) && shown(RunState::Busy));
         assert!(!shown(RunState::Idle) && !shown(RunState::Stopped));
+    }
+
+    #[test]
+    fn stopped_badge_is_more_visible_than_its_standalone_icon_fade() {
+        // #278: the dashed badge at emphasis(Stopped) = 0.45 read as a faint blur at its small size;
+        // the badge needs its own, higher floor even though the full-size icon still fades by the usual rule
+        assert!(badge_emphasis(RunState::Stopped) > emphasis(RunState::Stopped));
+        // the other three states don't need a separate floor: their badges were already legible
+        for rs in [RunState::Waiting, RunState::Busy, RunState::Idle] {
+            assert_eq!(badge_emphasis(rs), emphasis(rs), "{rs:?} should keep the plain emphasis for its badge");
+        }
     }
 
     #[test]

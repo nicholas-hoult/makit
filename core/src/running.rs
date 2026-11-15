@@ -16,6 +16,47 @@ pub struct RunningInfo {
     pub pid: u32,
 }
 
+/// Claude Code writes `status: "waiting"`, `waitingFor: "input needed"` after every turn ends — it is
+/// just sitting at its prompt, not an actual permission dialog or question. Every consumer of a session's
+/// (status, waiting_for) must run the pair through this first, or "finished and idle" reads as "needs you":
+/// the write gate in `link::plan_input` rejected a reply at this point (zbot's UBot had already let a phone
+/// reply through, since nothing about it looks blocked), and the sidebar label / notifications would have
+/// shown the same wrong "needs you" / "waiting for approval" too (#308).
+pub fn settle_prompt_wait<'a>(status: &'a str, waiting_for: &'a str) -> (&'a str, &'a str) {
+    if status == "waiting" && waiting_for == "input needed" {
+        ("idle", "")
+    } else {
+        (status, waiting_for)
+    }
+}
+
+#[cfg(test)]
+mod settle_prompt_wait_tests {
+    use super::*;
+
+    /// Why test this (#308): the TUI's "sitting at the prompt" marker must read as idle everywhere — the
+    /// write gate, the sidebar label, notifications — or UBot's phone replies get rejected while the
+    /// sidebar still calls it "needs you"
+    #[test]
+    fn input_needed_settles_to_idle() {
+        assert_eq!(settle_prompt_wait("waiting", "input needed"), ("idle", ""));
+    }
+
+    #[test]
+    fn a_real_approval_or_question_prompt_is_left_alone() {
+        assert_eq!(settle_prompt_wait("waiting", "approval"), ("waiting", "approval"));
+        assert_eq!(settle_prompt_wait("waiting", "user"), ("waiting", "user"));
+        assert_eq!(settle_prompt_wait("waiting", ""), ("waiting", ""), "空字符串不是 input needed，按原样当等待处理（未知理由，宁可多等）");
+    }
+
+    #[test]
+    fn non_waiting_states_pass_through_unchanged() {
+        for (status, waiting_for) in [("busy", "input needed"), ("idle", "input needed"), ("", "input needed")] {
+            assert_eq!(settle_prompt_wait(status, waiting_for), (status, waiting_for), "只在 status 真是 waiting 时才纠正");
+        }
+    }
+}
+
 pub fn load_running_info() -> HashMap<String, RunningInfo> {
     let mut map = match dirs::home_dir() {
         Some(h) => load_running_info_in(&h.join(".claude").join("sessions"), &pid_alive),

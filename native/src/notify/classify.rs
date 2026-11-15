@@ -80,6 +80,11 @@ pub struct RunStatus {
 
 impl RunStatus {
     pub fn new(status: &str, waiting_for: &str) -> Self {
+        // #308: settle "waiting" + "input needed" (just sitting at the prompt) to idle here, at
+        // construction, so every consumer below sees it already corrected — including the
+        // busy → idle "turn finished" case, which this combination should trigger instead of a
+        // false "needs your permission"
+        let (status, waiting_for) = makit_core::running::settle_prompt_wait(status, waiting_for);
         Self { status: status.into(), waiting_for: waiting_for.into() }
     }
 }
@@ -251,6 +256,22 @@ mod tests {
         assert_eq!(c(Some(&busy), None), None, "跑到一半进程没了：不编造完成");
         assert_eq!(c(Some(&idle), Some(&busy)), None);
         assert_eq!(c(None, None), None);
+    }
+
+    #[test]
+    fn input_needed_is_not_a_waiting_notification() {
+        // #308: claude writes waiting_for = "input needed" after every turn, not just real prompts/dialogs.
+        // RunStatus::new settles it to idle, so busy -> "input needed" reads as a normal turn-complete,
+        // not a false "needs your permission"
+        let busy = RunStatus::new("busy", "");
+        let settled = RunStatus::new("waiting", "input needed");
+        assert_eq!(settled, RunStatus::new("idle", ""), "构造时就该结算成 idle");
+        let c = |p: Option<&RunStatus>, n: Option<&RunStatus>| classify_status_change(p, n);
+        assert_eq!(c(Some(&busy), Some(&settled)), Some(notify(Kind::TurnComplete, "")), "该报完成，不是等你");
+        assert_eq!(c(None, Some(&settled)), None, "第一次看到就是闲着，不算完成也不算等待");
+        // a real prompt right after is still caught
+        let wait_user = RunStatus::new("waiting", "user");
+        assert_eq!(c(Some(&settled), Some(&wait_user)), Some(notify(Kind::NeedsInput, "")));
     }
 
     #[test]

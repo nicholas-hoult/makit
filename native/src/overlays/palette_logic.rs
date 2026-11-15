@@ -272,21 +272,30 @@ pub const GROUP_CAP: usize = 30;
 /// App.tsx `paletteItems`：分组顺序 等待回答 → 等待审批 → 进行中 → 空闲 → 已停止（≤30）→ 已归档（≤30）。
 /// 组名同时是折叠状态的持久化键。
 pub fn build_items(sessions: &[SessionMeta], pinned: &[String], sort: SortKey) -> Vec<PaletteItem> {
+    // #308: "waiting" + "input needed" is Claude Code sitting at its prompt, not a real dialog — settle it
+    // before classifying, same rule the write gate and the sidebar use, so it doesn't group as "needs you" here either
+    fn eff_status(s: &SessionMeta) -> &str {
+        makit_core::running::settle_prompt_wait(&s.status, &s.waiting_for).0
+    }
+    fn eff_waiting_for(s: &SessionMeta) -> &str {
+        makit_core::running::settle_prompt_wait(&s.status, &s.waiting_for).1
+    }
     let active: Vec<&SessionMeta> = sessions.iter().filter(|s| !s.archived).collect();
-    let waiting = |user: bool| active.iter().copied().filter(move |s| s.running && s.status == "waiting" && (s.waiting_for == "user") == user).collect::<Vec<_>>();
-    let running: Vec<&SessionMeta> = active.iter().copied().filter(|s| s.running && s.status != "waiting").collect();
-    let busy: Vec<&SessionMeta> = running.iter().copied().filter(|s| s.status == "busy").collect();
-    let idle: Vec<&SessionMeta> = running.iter().copied().filter(|s| s.status != "busy").collect();
+    let waiting = |user: bool| active.iter().copied().filter(move |s| s.running && eff_status(s) == "waiting" && (eff_waiting_for(s) == "user") == user).collect::<Vec<_>>();
+    let running: Vec<&SessionMeta> = active.iter().copied().filter(|s| s.running && eff_status(s) != "waiting").collect();
+    let busy: Vec<&SessionMeta> = running.iter().copied().filter(|s| eff_status(s) == "busy").collect();
+    let idle: Vec<&SessionMeta> = running.iter().copied().filter(|s| eff_status(s) != "busy").collect();
     let stopped: Vec<&SessionMeta> = active.iter().copied().filter(|s| !s.running).collect();
     let archived: Vec<&SessionMeta> = sessions.iter().filter(|s| s.archived).collect();
 
     let mut items = Vec::new();
     let mut push = |s: &SessionMeta, group: &str| {
+        let (eff_status, eff_waiting_for) = (eff_status(s), eff_waiting_for(s));
         let status = if s.archived {
             ItemStatus::Archived
-        } else if s.status == "waiting" {
+        } else if eff_status == "waiting" {
             ItemStatus::Waiting
-        } else if s.status == "busy" {
+        } else if eff_status == "busy" {
             ItemStatus::Busy
         } else if s.running {
             ItemStatus::Idle
@@ -294,7 +303,7 @@ pub fn build_items(sessions: &[SessionMeta], pinned: &[String], sort: SortKey) -
             ItemStatus::Stopped
         };
         let status_label = match status {
-            ItemStatus::Waiting if s.waiting_for == "user" => crate::sidebar::groups::status_label::waiting_user(),
+            ItemStatus::Waiting if eff_waiting_for == "user" => crate::sidebar::groups::status_label::waiting_user(),
             ItemStatus::Waiting => crate::sidebar::groups::status_label::waiting_approval(),
             ItemStatus::Busy => crate::sidebar::groups::status_label::busy(),
             ItemStatus::Idle => crate::sidebar::groups::status_label::idle(),
@@ -314,7 +323,7 @@ pub fn build_items(sessions: &[SessionMeta], pinned: &[String], sort: SortKey) -
             project_root: if s.git_root.is_empty() { s.cwd.clone() } else { s.git_root.clone() },
             status,
             status_label: status_label.into(),
-            waiting_for: s.waiting_for.clone(),
+            waiting_for: eff_waiting_for.to_string(),
             running: s.running,
             pinned: pinned.iter().any(|p| *p == s.session_id),
             archived: s.archived,
@@ -595,6 +604,21 @@ mod tests {
         assert_eq!(by("已归档").status, ItemStatus::Archived);
         assert_eq!(by("已归档").status_label, "已归档");
         assert_eq!(items.len(), 6, "每条会话只进一个组");
+    }
+
+    #[test]
+    fn build_items_settles_input_needed_to_idle() {
+        // #308：claude 每轮结束都写 waiting_for = "input needed"，不是真的权限框 / 提问框，
+        // ⌘K 面板要和侧栏、写入把关用同一条规则，不能单独漏了还显示成「等待」
+        let s = vec![with("x", |m| {
+            m.running = true;
+            m.status = "waiting".into();
+            m.waiting_for = "input needed".into();
+        })];
+        let it = &build_items(&s, &[], SortKey::Recent)[0];
+        assert_eq!(it.status, ItemStatus::Idle);
+        assert_eq!(it.status_label, "空闲");
+        assert_eq!(it.waiting_for, "", "结算过的值也要存回去，不留原始的 input needed");
     }
 
     #[test]

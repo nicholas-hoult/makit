@@ -336,7 +336,7 @@ impl WorkspaceView {
                         .locate_tab(t)
                         .and_then(|(_, tab)| tab.session_id.as_deref())
                         .and_then(|sid| s.session(sid))
-                        .is_some_and(|m| model::stop_needs_confirm(crate::sidebar::groups::run_state(m.running, &m.status)))
+                        .is_some_and(|m| model::stop_needs_confirm(crate::sidebar::groups::run_state(m.running, &m.status, &m.waiting_for)))
                 })
                 .count()
         };

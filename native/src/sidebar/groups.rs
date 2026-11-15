@@ -49,7 +49,10 @@ pub enum RunState {
     Stopped,
 }
 
-pub fn run_state(running: bool, status: &str) -> RunState {
+pub fn run_state(running: bool, status: &str, waiting_for: &str) -> RunState {
+    // "waiting" + "input needed" is Claude Code just sitting at its prompt, not a real dialog (#308):
+    // settle it before classifying, same rule the write gate (`core::link::plan_input`) uses
+    let (status, _) = makit_core::running::settle_prompt_wait(status, waiting_for);
     match status {
         "waiting" => RunState::Waiting,
         "busy" => RunState::Busy,
@@ -59,7 +62,7 @@ pub fn run_state(running: bool, status: &str) -> RunState {
 }
 
 pub fn meta_state(m: &SessionMeta) -> RunState {
-    run_state(m.running, &m.status)
+    run_state(m.running, &m.status, &m.waiting_for)
 }
 
 impl RunState {
@@ -239,9 +242,61 @@ pub struct StatusGroups {
     pub history: Vec<usize>,
 }
 
+/// 一条会话在「需要回应 / 进行中 / 空闲」三态里的已确认分类 + 进组序号（#286）。只覆盖这三态：
+/// 已停止的会话不进这张表（见 `advance_active_entry`），该去哪个历史分组仍由 `status_groups` 原样判断。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ActiveEntry {
+    /// 已确认（不是刚读到、还没过两次确认）的分类，分组用它、不用实时 `meta_state`
+    pub rs: RunState,
+    /// 上次（重新）进入 `rs` 时分配的序号，单调递增；同一分类期间不变
+    pub seq: u64,
+    /// 上一次读到、但还没确认（和已确认值不一样，且还没连续出现两次）的分类
+    pending: Option<RunState>,
+}
+
+/// 推进「需要回应 / 进行中 / 空闲」的已确认分类表（#286）。两件事一起做，因为都是同一张表的读写：
+///
+/// 1. **组内顺序稳定**：`rs` 不变时 `seq` 原样带过去，不会因为 `mtime` 一直刷新就重新分配——
+///    `status_groups` 拿 `seq` 排组内顺序，不再拿会抖的 `mtime`。
+/// 2. **分类变化要连续读到两次才算数**：分类第一次出现从没见过的会话直接确认（没有「以前」可比）；
+///    已经在表里的会话，分类变了先记成 `pending`，下一次再读到同一个新值才真正提交、分配新 `seq`——
+///    一次性读到的脏值（比如巡检撞上 claude 写状态文件的中间态）不会让它跳组又跳回来。
+///
+/// 返回新表和用完的下一个序号（调的人存着，下次调再传进来）。
+pub fn advance_active_entry(prev: &HashMap<String, ActiveEntry>, sessions: &[SessionMeta], next_seq: u64) -> (HashMap<String, ActiveEntry>, u64) {
+    let mut next_seq = next_seq;
+    let mut out = HashMap::with_capacity(sessions.len());
+    for m in sessions {
+        let raw = meta_state(m);
+        if !matches!(raw, RunState::Waiting | RunState::Busy | RunState::Idle) {
+            continue;
+        }
+        let entry = match prev.get(&m.session_id) {
+            None => {
+                let seq = next_seq;
+                next_seq += 1;
+                ActiveEntry { rs: raw, seq, pending: None }
+            }
+            Some(e) if e.rs == raw => ActiveEntry { rs: raw, seq: e.seq, pending: None },
+            Some(e) if e.pending == Some(raw) => {
+                let seq = next_seq;
+                next_seq += 1;
+                ActiveEntry { rs: raw, seq, pending: None }
+            }
+            Some(e) => ActiveEntry { rs: e.rs, seq: e.seq, pending: Some(raw) },
+        };
+        out.insert(m.session_id.clone(), entry);
+    }
+    (out, next_seq)
+}
+
 /// 按状态分组（`statusGroups`）。链条先到先得，一条会话只进它符合条件的最靠前那一组：
 /// 置顶 → 已打开 → 需要回应 → 进行中 → 空闲 → 历史（已停止）。
-/// - 每组内部都按用户选的排序方式排（#304，用户 2026-11-12：所有分组统一生效）
+/// - 置顶 / 已打开 / 历史都按用户选的排序方式排（#304，用户 2026-11-12：所有分组统一生效）
+/// - 需要回应 / 进行中 / 空闲**用哪个会话落进哪一组都看 `active` 里确认过的分类，不用实时状态**（#286：
+///   巡检偶尔撞上一次性的脏值不该让一行跳组又跳回来）；组内顺序默认按进组顺序稳定（也是 `active`），
+///   用户把排序方式从默认的「最近活动」改掉时（数量 / 首条消息）才照那个来——那两种本来就不常变，
+///   用户指定了就该照办，不该被这条稳定顺序的规则盖掉
 /// - `candidates` 是参与分组的下标（过滤后的），顺序即 JS 里 `list` 的顺序（排序稳定，平手时保持它）
 pub fn status_groups(
     list: &[SessionMeta],
@@ -249,6 +304,7 @@ pub fn status_groups(
     opened_index: &HashMap<String, usize>,
     pinned: &HashSet<String>,
     sort: SortKey,
+    active: &HashMap<String, ActiveEntry>,
 ) -> StatusGroups {
     let mut taken: HashSet<usize> = HashSet::new();
     let mut take = |pred: &dyn Fn(&SessionMeta) -> bool, cmp: &dyn Fn(&SessionMeta, &SessionMeta) -> Ordering| {
@@ -258,12 +314,21 @@ pub fn status_groups(
         out
     };
     let user_sort = |a: &SessionMeta, b: &SessionMeta| sort.compare(a, b);
+    let committed = |s: &SessionMeta| active.get(&s.session_id).map(|e| e.rs);
+    let active_order = |a: &SessionMeta, b: &SessionMeta| -> Ordering {
+        if sort != SortKey::Recent {
+            return sort.compare(a, b);
+        }
+        let sa = active.get(&a.session_id).map(|e| e.seq).unwrap_or(0);
+        let sb = active.get(&b.session_id).map(|e| e.seq).unwrap_or(0);
+        sb.cmp(&sa) // 序号越大越晚进组，排在前面——和原来「越新越靠前」的感觉一致，只是不再跟着 mtime 抖
+    };
     StatusGroups {
         pinned: take(&|s| pinned.contains(&s.session_id), &user_sort),
         opened: take(&|s| opened_index.contains_key(&s.session_id), &user_sort),
-        attention: take(&|s| meta_state(s) == RunState::Waiting, &user_sort),
-        busy: take(&|s| meta_state(s) == RunState::Busy, &user_sort),
-        idle: take(&|s| meta_state(s) == RunState::Idle, &user_sort),
+        attention: take(&|s| committed(s) == Some(RunState::Waiting), &active_order),
+        busy: take(&|s| committed(s) == Some(RunState::Busy), &active_order),
+        idle: take(&|s| committed(s) == Some(RunState::Idle), &active_order),
         history: take(&|_| true, &user_sort),
     }
 }
@@ -420,6 +485,11 @@ pub(crate) mod tests {
         (0..list.len()).collect()
     }
 
+    /// 测试用：当成每条会话第一次被看到（没有「以前」，立刻确认），等价于旧版不记历史的即时分类
+    pub fn fresh_active(list: &[SessionMeta]) -> HashMap<String, ActiveEntry> {
+        advance_active_entry(&HashMap::new(), list, 0).0
+    }
+
     // ---- scripts/test-session-status.ts ----
 
     #[test]
@@ -435,10 +505,22 @@ pub(crate) mod tests {
             (false, "busy", RunState::Busy),
         ];
         for (running, status, want) in cases {
-            assert_eq!(run_state(running, status), want, "running={running} status={status:?}");
+            assert_eq!(run_state(running, status, ""), want, "running={running} status={status:?}");
             // anyAlive 必须和 runState 的「非 stopped」严格等价
             assert_eq!(any_alive([&mk("x", running, status, 0)]), want != RunState::Stopped);
         }
+    }
+
+    #[test]
+    fn run_state_settles_input_needed_to_idle() {
+        // #308: "waiting" + "input needed" is Claude Code sitting at its prompt, not a real dialog —
+        // it must classify (and therefore group / label) exactly like plain idle, not "needs you"
+        assert_eq!(run_state(true, "waiting", "input needed"), RunState::Idle);
+        // a real approval / question prompt is untouched
+        assert_eq!(run_state(true, "waiting", "approval"), RunState::Waiting);
+        assert_eq!(run_state(true, "waiting", "user"), RunState::Waiting);
+        // same session, found dead: it's Stopped, not Idle — "input needed" only settles a *live* wait
+        assert_eq!(run_state(false, "waiting", "input needed"), RunState::Stopped);
     }
 
     #[test]
@@ -508,7 +590,7 @@ pub(crate) mod tests {
         ];
         let opened: HashMap<String, usize> = [("openIdle".to_string(), 0), ("openPinned".to_string(), 1)].into();
         let pinned: HashSet<String> = ["pinDead", "pinBusy", "openPinned"].iter().map(|s| s.to_string()).collect();
-        let g = status_groups(&all, &all_rows(&all), &opened, &pinned, SortKey::Recent);
+        let g = status_groups(&all, &all_rows(&all), &opened, &pinned, SortKey::Recent, &fresh_active(&all));
         assert_eq!(ids(&all, &g.pinned), ["openPinned", "pinBusy", "pinDead"], "置顶在最上面，且拿走所有置顶的（哪怕在跑、哪怕开着）");
         assert_eq!(ids(&all, &g.opened), ["openIdle"], "已打开：置顶拿走的不再重复");
         assert_eq!(ids(&all, &g.attention), ["wait"]);
@@ -520,7 +602,7 @@ pub(crate) mod tests {
 
         let two = vec![mk("a", true, "idle", 1), mk("b", true, "idle", 9)];
         let opened: HashMap<String, usize> = [("a".to_string(), 0), ("b".to_string(), 1)].into();
-        let g2 = status_groups(&two, &all_rows(&two), &opened, &HashSet::new(), SortKey::Recent);
+        let g2 = status_groups(&two, &all_rows(&two), &opened, &HashSet::new(), SortKey::Recent, &fresh_active(&two));
         assert_eq!(ids(&two, &g2.opened), ["b", "a"], "已打开也按用户排序设置排（#304），这里是最近活动在前");
     }
 
@@ -535,7 +617,7 @@ pub(crate) mod tests {
             mk("new", false, "", 50),
         ];
         let opened: HashMap<String, usize> = [("idle-open".to_string(), 0)].into();
-        let g = status_groups(&rows, &all_rows(&rows), &opened, &HashSet::new(), SortKey::Recent);
+        let g = status_groups(&rows, &all_rows(&rows), &opened, &HashSet::new(), SortKey::Recent, &fresh_active(&rows));
         assert_eq!(g.opened, vec![3], "开着又在跑的只出现在「已打开」，不会重复出现在「空闲」");
         assert!(g.idle.is_empty());
         assert_eq!(g.history, vec![4, 0], "历史按最近活动");
@@ -553,11 +635,90 @@ pub(crate) mod tests {
         w1.user_msg_count = 99;
         let w2 = mk("w2", true, "waiting", 9);
         let list = vec![a, b, w1, w2];
-        let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::Count);
+        let active = fresh_active(&list);
+        let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::Count, &active);
         assert_eq!(ids(&list, &g.history), ["a", "b"], "按消息数");
         assert_eq!(ids(&list, &g.attention), ["w1", "w2"], "需要回应也按消息数排（#304，用户 2026-11-12：所有分组统一生效）");
-        let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::FirstMsg);
+        let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::FirstMsg, &active);
         assert_eq!(ids(&list, &g.history), ["b", "a"], "按首条消息");
+    }
+
+    // ---- #286：活跃分组不再跟着一直刷新的 mtime 抖 ----
+
+    #[test]
+    fn busy_group_order_is_stable_across_mtime_churn() {
+        // 两个同时「进行中」的会话，mtime 来回交替谁更新——组内顺序不该跟着换，这正是用户看到的「一直动来动去」
+        let mut active = HashMap::new();
+        let mut seq = 0u64;
+        for round in 0..5 {
+            let (a_mtime, b_mtime) = if round % 2 == 0 { (10, 20) } else { (30, 25) };
+            let list = vec![mk("a", true, "busy", a_mtime), mk("b", true, "busy", b_mtime)];
+            let (next_active, next_seq) = advance_active_entry(&active, &list, seq);
+            active = next_active;
+            seq = next_seq;
+            let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::Recent, &active);
+            assert_eq!(ids(&list, &g.busy), ["b", "a"], "round {round}：顺序不该跟着交替的 mtime 变");
+        }
+    }
+
+    #[test]
+    fn user_chosen_sort_still_applies_to_active_groups() {
+        // 用户把排序方式从默认的「最近活动」改掉时，活跃分组仍然照用户选的来，不被这条稳定顺序盖掉——
+        // 和 user_sort_applies_to_every_group 测的是同一条规则，这里专门确认加了 active 参数之后没退步
+        let mut w1 = mk("w1", true, "waiting", 1);
+        w1.user_msg_count = 1;
+        let mut w2 = mk("w2", true, "waiting", 2);
+        w2.user_msg_count = 9;
+        let list = vec![w1, w2];
+        let active = fresh_active(&list); // w1 先进表、序号更小；按进组顺序排的话 w2 该在前
+        let g = status_groups(&list, &all_rows(&list), &HashMap::new(), &HashSet::new(), SortKey::Count, &active);
+        assert_eq!(ids(&list, &g.attention), ["w2", "w1"], "按消息数排，不按进组顺序");
+    }
+
+    #[test]
+    fn advance_active_entry_commits_a_new_session_immediately() {
+        // 从没见过的会话没有「以前」可比，直接确认，不用等第二次读到
+        let a = mk("a", true, "busy", 1);
+        let (m, next_seq) = advance_active_entry(&HashMap::new(), &[a], 0);
+        assert_eq!(m["a"].rs, RunState::Busy);
+        assert_eq!(m["a"].seq, 0);
+        assert_eq!(next_seq, 1);
+    }
+
+    #[test]
+    fn advance_active_entry_ignores_a_value_that_shows_up_once_and_reverts() {
+        // #286 副因兜底：巡检撞上一次脏值（这里模拟成 busy → 空状态 → 又变回 busy），不该提交成一次跳组
+        let (m0, seq0) = advance_active_entry(&HashMap::new(), &[mk("a", true, "busy", 1)], 0);
+        let committed_seq = m0["a"].seq;
+
+        let (m1, seq1) = advance_active_entry(&m0, &[mk("a", true, "", 1)], seq0); // 一次性读到「空闲」
+        assert_eq!(m1["a"].rs, RunState::Busy, "只出现一次的新值不提交");
+        assert_eq!(m1["a"].seq, committed_seq, "没提交，序号不变");
+
+        let (m2, _) = advance_active_entry(&m1, &[mk("a", true, "busy", 1)], seq1); // 读回原值
+        assert_eq!(m2["a"].rs, RunState::Busy);
+        assert_eq!(m2["a"].seq, committed_seq, "跟没发生过一样");
+    }
+
+    #[test]
+    fn advance_active_entry_commits_a_change_seen_twice_in_a_row() {
+        // 连续两次都读到同一个新值，才真的算数：真的从 busy 变成 idle
+        let (m0, seq0) = advance_active_entry(&HashMap::new(), &[mk("a", true, "busy", 1)], 0);
+        let old_seq = m0["a"].seq;
+
+        let (m1, seq1) = advance_active_entry(&m0, &[mk("a", true, "", 1)], seq0); // 第一次读到 idle：记成 pending
+        assert_eq!(m1["a"].rs, RunState::Busy, "第一次还不算数");
+
+        let (m2, _) = advance_active_entry(&m1, &[mk("a", true, "", 1)], seq1); // 第二次：确认
+        assert_eq!(m2["a"].rs, RunState::Idle);
+        assert!(m2["a"].seq > old_seq, "真的换组了，序号要变大（排到前面）");
+    }
+
+    #[test]
+    fn advance_active_entry_drops_a_session_that_stopped() {
+        let (m0, _) = advance_active_entry(&HashMap::new(), &[mk("a", true, "busy", 1)], 0);
+        let (m1, _) = advance_active_entry(&m0, &[mk("a", false, "", 1)], 0);
+        assert!(!m1.contains_key("a"), "已停止不归这张表管，交给 history 那条老路径");
     }
 
     /// 固定东八区（无夏令时）的「本地日期」，测试不依赖机器时区

@@ -203,6 +203,20 @@ pub fn derive_vars(src: &ThemeSource) -> BTreeMap<String, String> {
     v
 }
 
+/// "需要你去看一眼"的专用色（#278），不进 `derive_vars` 的表——那张表要和 TS 版逐项对齐（见文件头注释），
+/// 加一个 TS 没有的键会把每套主题的变量个数、内容都对不上。
+///
+/// 为什么不能直接用 `--warning`：`--warning` 是纯黄色按 `readable()` 推到和 bg 对比度达标，深色底会推亮，
+/// 但浅色底会一路推暗——纯黄本来对比度就低，推到达标时已经滑到橄榄棕，不再像个「警示色」。`--danger`
+/// 本身够醒目，但那是出错专用，等待状态借用会和出错混在一起。这里改用红和黄对半混出的橙，同样过
+/// `readable()`，橙色推暗时还是橙，不会滑向棕，也不会撞上出错的红。
+pub fn attention(vars: &BTreeMap<String, String>, bg: &str, light: bool) -> String {
+    let ansi = |n: &str| vars[&format!("--ansi-{n}")].clone();
+    let pick = |base: &str, bright: &str| if light { ansi(base) } else { ansi(bright) };
+    let orange = mix(&pick("red", "bright-red"), &pick("yellow", "bright-yellow"), 0.5);
+    readable(&orange, bg, 4.0)
+}
+
 /// `#rrggbb` / `rgba(r,g,b,a)` → (r,g,b,a)，各分量 0–1。认不出来返回 None。
 pub fn parse_color(s: &str) -> Option<[f32; 4]> {
     let s = s.trim();
@@ -238,6 +252,49 @@ mod tests {
 
     use super::*;
     use crate::theme::legacy_fixture::legacy_themes;
+
+    fn theme(id: &str) -> ThemeSource {
+        legacy_themes().into_iter().find(|t| t.id == id).unwrap()
+    }
+
+    #[test]
+    fn attention_keeps_contrast_against_every_background() {
+        // 和别的语义色一样走 4.0 的门槛（#278），不然在某些主题下会和 bg 糊在一起
+        for src in legacy_themes() {
+            let vars = derive_vars(&src);
+            let bg = src.bg.as_str();
+            let attn = attention(&vars, bg, is_light(bg));
+            assert!(contrast(&attn, bg) >= 4.0 - 1e-9, "{}: attention={attn} bg={bg} contrast={}", src.id, contrast(&attn, bg));
+        }
+    }
+
+    #[test]
+    fn attention_is_not_the_muddy_warning_on_a_light_background() {
+        // #278 的根因：纯黄按 readable() 在浅色底一路推暗，变成橄榄棕，不再像警示色；
+        // attention 换成红黄对半混的橙再 readable()，推暗也还是橙，和原来的 --warning 不该撞车
+        let src = theme("vscode-light");
+        let vars = derive_vars(&src);
+        let warning = &vars["--warning"];
+        let attn = attention(&vars, &src.bg, true);
+        assert_ne!(&attn, warning, "在浅色主题下应该和旧的 --warning 不一样");
+    }
+
+    #[test]
+    fn attention_sits_between_red_and_yellow_so_it_wont_be_mistaken_for_an_error() {
+        // 橙色的特征：红绿蓝三个通道里，绿介于红和蓝之间，且明显比红弱——纯红（danger）绿通道接近 0，
+        // 纯黄（旧 warning）绿通道接近红。两套主题（深色/浅色）各挑一个代表性输入
+        for id in ["vscode-dark", "vscode-light"] {
+            let src = theme(id);
+            let vars = derive_vars(&src);
+            let light = is_light(&src.bg);
+            let attn = attention(&vars, &src.bg, light);
+            let danger = &vars["--danger"];
+            assert_ne!(&attn, danger, "{id}: attention 不该和 danger 撞色");
+            let (r, g, b) = hex_to_rgb(&attn);
+            assert!(g > b, "{id}: attention={attn} 应该比纯红多一点绿（更偏橙）");
+            assert!((r as i32 - g as i32) > 10, "{id}: attention={attn} 绿不该追平红（否则就是纯黄）");
+        }
+    }
 
     /// TS 版（`src/theme.ts` 的 `deriveVars`）对当时 25 套内置主题（现存于 `legacy_fixture.rs`）+ 2 个边界输入的推导结果
     const FIXTURE: &str = include_str!("../../tests/fixtures/theme-derived.json");

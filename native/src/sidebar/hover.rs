@@ -63,9 +63,11 @@ impl HoverTracker {
     }
 }
 
-/// 卡片左上角：行的右边 +4；y 取 min(行 top, 窗口高 - 300)
-pub fn card_origin(row_right: f32, row_top: f32, window_h: f32) -> (f32, f32) {
-    (row_right + 4.0, row_top.min(window_h - 300.0))
+/// 卡片左上角：行的右边 +4；y 原来固定取行的 top，和鼠标实际停在行里哪个高度无关——两行高的会话行上，
+/// 鼠标停在下半行时卡片仍然贴着行顶出现，看起来「滞后于指针」（#278）。现在 y 取卡片即将出现那一刻
+/// 指针的实际高度（`pointer_y`），只用 min(窗口高 - 300) 防止探出窗口底部
+pub fn card_origin(row_right: f32, pointer_y: f32, window_h: f32) -> (f32, f32) {
+    (row_right + 4.0, pointer_y.min(window_h - 300.0))
 }
 
 /// 卡片标题（同 TS：display_name → first_user_msg → [short_id]，不压平，显示时再压）
@@ -173,6 +175,7 @@ mod tests {
 
     #[test]
     fn origin_right_of_row_and_kept_on_screen() {
+        // 第二个参数现在是指针的实际高度，不是行顶（#278）；数值上和改之前的用例一样，只是语义变了
         assert_eq!(card_origin(280.0, 100.0, 900.0), (284.0, 100.0));
         assert_eq!(card_origin(280.0, 800.0, 900.0), (284.0, 600.0), "靠近窗口底往上挪");
     }

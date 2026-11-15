@@ -166,6 +166,10 @@ pub struct SidebarView {
     /// (目标会话, 还能重试几帧, 目标是不是已归档)
     pending_reveal: Option<(String, u8, bool)>,
     pending_focus_list: bool,
+    /// 需要回应 / 进行中 / 空闲三组的已确认分类 + 进组序号（#286），`rebuild` 每次都要推进它再分组，
+    /// 不能跟着重算（否则每次都当第一次看到，稳定顺序和去抖都白做）
+    active_entry: HashMap<String, groups::ActiveEntry>,
+    active_entry_seq: u64,
     _subs: Vec<Subscription>,
 }
 
@@ -248,6 +252,8 @@ impl SidebarView {
             pending_focus_search: false,
             pending_reveal: None,
             pending_focus_list: false,
+            active_entry: HashMap::new(),
+            active_entry_seq: 0,
             _subs: subs,
         };
         this.rebuild(cx);
@@ -277,7 +283,10 @@ impl SidebarView {
         let opened: HashMap<String, usize> = opened_order(&s.workspace.state).into_iter().enumerate().map(|(i, id)| (id, i)).collect();
         let pinned: HashSet<String> = s.prefs.pinned_sessions.iter().cloned().collect();
         let sort = SortKey::parse(&p.sort);
-        let g = status_groups(list, &filtered, &opened, &pinned, sort);
+        let (active_entry, next_seq) = groups::advance_active_entry(&self.active_entry, list, self.active_entry_seq);
+        self.active_entry = active_entry;
+        self.active_entry_seq = next_seq;
+        let g = status_groups(list, &filtered, &opened, &pinned, sort, &self.active_entry);
         let project_view = p.view == "project";
         let group = |id: &str, label: &str, warn: bool, rows: &[usize]| TreeGroup { id: id.into(), label: label.into(), warn, rows: rows.to_vec() };
         let top = vec![group("pinned", &tr!("sidebar.menu.pin"), false, &g.pinned), group("opened", &tr!("sidebar.group.opened"), false, &g.opened)];
@@ -656,7 +665,8 @@ impl SidebarView {
         self.hover_task = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(delay)).await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.show_hover(item_ix, session_id, window, cx);
+                let pointer_y = f32::from(window.mouse_position().y);
+                this.show_hover(item_ix, session_id, Some(pointer_y), window, cx);
             });
         }));
     }
@@ -671,10 +681,13 @@ impl SidebarView {
         }));
     }
 
-    fn show_hover(&mut self, item_ix: usize, session_id: String, window: &mut Window, cx: &mut Context<Self>) {
+    /// `pointer_y`：鼠标触发时传实际指针高度（#278，夹在行范围内，防万一延迟期间指针已经移出这一行）；
+    /// 键盘触发（`toggle_hover_for_selected`）传 `None`，position 仍按行的矩形来——这一条路径根本没有鼠标事件
+    fn show_hover(&mut self, item_ix: usize, session_id: String, pointer_y: Option<f32>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(b) = self.list.bounds_for_item(item_ix) else { return };
+        let y = pointer_y.unwrap_or_else(|| f32::from(b.top())).clamp(f32::from(b.top()), f32::from(b.bottom()));
         // 行的 li 左右各缩进 4px：卡片贴 li 右边 +4 = 列表项右边
-        let (x, y) = hover::card_origin(f32::from(b.right()) - 4.0, f32::from(b.top()), f32::from(window.viewport_size().height));
+        let (x, y) = hover::card_origin(f32::from(b.right()) - 4.0, y, f32::from(window.viewport_size().height));
         self.hover = Some(HoverCard { session_id, at: Point::new(gpui::px(x), gpui::px(y)) });
         cx.notify();
     }
@@ -689,7 +702,7 @@ impl SidebarView {
         }
         let Some(ix) = self.tree.item_of_row(row) else { return };
         self.hover_task = None;
-        self.show_hover(ix, m.session_id, window, cx);
+        self.show_hover(ix, m.session_id, None, window, cx);
     }
 
     // ---------- 滚动 ----------
