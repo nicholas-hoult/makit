@@ -70,8 +70,15 @@ CI 的「Verify signing and notarization」步骤对每个 .dmg 做同样的检�
    git push origin v0.1.1
    ```
 
-4. `.github/workflows/release.yml` 会在 macOS 上跑测试、打通用包和 .dmg，测试通过后**直接发布** Release（说明取自 CHANGELOG；测试或打包失败不会发布）
+4. `.github/workflows/release.yml` 先查官网更新日志（`site/changelog`、`site/en/changelog`）是否跟上了已发布的 Release——落后（通常是上一次忘了第 6 步）就直接失败，不会继续；查过之后在 macOS 上跑测试、打通用包和 .dmg，测试通过后**直接发布** Release（说明取自 CHANGELOG；测试或打包失败不会发布）
 5. 发布后在 Releases 页下载 .dmg 装一遍确认；有问题可以在页面上编辑说明或设为预发布
+6. **同步官网更新日志**（Release 发布之后才能做，它读的是已发布的 Release）：
+
+   ```bash
+   python3 scripts/render-site-changelog.py
+   ```
+
+   确认 `git diff --stat site/changelog site/en/changelog` 只多了这个新版本，提交并推送。漏了这一步，下次发版会被第 4 步的检查挡住。
 
 第一次建议先在 Actions 页用 `workflow_dispatch` 手动试跑，确认构建能过，再打 tag。
 

@@ -3,6 +3,7 @@ name: Release
 # 推 v* tag 触发：测试通过后打 macOS 通用包（Intel + Apple Silicon），直接发布 Release（说明取自 CHANGELOG）。
 # macOS 是正式包；Windows 目前是预览版 .zip（#251，未签名、部分功能还是占位），Linux 0.3 再加 job。
 # macOS 包用 Developer ID 签名并公证（#262，Secrets 见下面的 Set up signing）；推 tag 时缺 Secrets 会直接失败，不会发出没签名的包。
+# 第一步先查官网更新日志是否跟上了已发布的 Release（#262）：落后就直接失败，不会在一个过期的网站上再叠一个版本。
 on:
   push:
     tags:
@@ -16,6 +17,17 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      # Fails fast, before any build: catches a release whose predecessor's marketing-site changelog was never
+      # synced (see the "Sync the site changelog" step in RELEASE.md), rather than publishing another one on top
+      # of a stale site.
+      - name: Check the marketing site changelog is in sync with published releases
+        run: |
+          python3 scripts/render-site-changelog.py
+          if ! git diff --exit-code -- site/changelog site/en/changelog; then
+            echo "::error::site/changelog is behind the published GitHub Releases. Run 'python3 scripts/render-site-changelog.py', commit site/changelog and site/en/changelog, then retry."
+            exit 1
+          fi
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
