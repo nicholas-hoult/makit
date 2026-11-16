@@ -150,6 +150,14 @@ pub enum WriteStep {
 /// swallowed, leaving the message sitting in the input box unsent (seen repeatedly in practice).
 pub const PASTE_SETTLE: Duration = Duration::from_millis(200);
 
+/// Same as [`PASTE_SETTLE`], but for a session that is still busy (#312). A busy TUI is also consuming its own
+/// streamed output when the paste lands, so it gets to reading our input later than an idle one would; 200ms isn't
+/// always enough there and real reports showed text sitting unsent. This is an experience-based margin (roughly 3x
+/// the idle wait), not a measured one — there was no way to reproduce the exact busy timing in a test. If it still
+/// isn't enough in practice, the more principled fix is polling `Backend::screen` for the pasted text instead of
+/// guessing a bigger constant.
+pub const PASTE_SETTLE_BUSY: Duration = Duration::from_millis(600);
+
 /// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
 /// "type" is not an op of its own: it says `input` takes kind `type` and replies while the session works.
 pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type"];
@@ -404,7 +412,7 @@ pub fn plan_input(state: &str, waiting_for: &str, kind: &InputKind) -> Result<Ve
                 return Err("empty text".into());
             }
             let (bytes, pasted) = text_bytes(text)?;
-            Ok(enter_after(bytes, pasted))
+            Ok(enter_after(bytes, pasted, state == "busy"))
         }
         InputKind::Type(text) => {
             if text.is_empty() {
@@ -430,10 +438,12 @@ fn run_write_steps(backend: &dyn Backend, session_id: &str, steps: Vec<WriteStep
 }
 
 /// `bytes` then Enter. A paste needs [`PASTE_SETTLE`] in between: without it, Enter can land before Claude Code's
-/// TUI has pulled the pasted text into its input box and gets swallowed, so the message never submits.
-fn enter_after(bytes: Vec<u8>, pasted: bool) -> Vec<WriteStep> {
+/// TUI has pulled the pasted text into its input box and gets swallowed, so the message never submits. `busy` picks
+/// [`PASTE_SETTLE_BUSY`] instead (#312): a busy TUI reads our input later than an idle one.
+fn enter_after(bytes: Vec<u8>, pasted: bool, busy: bool) -> Vec<WriteStep> {
     if pasted {
-        vec![WriteStep::Bytes(bytes), WriteStep::Wait(PASTE_SETTLE), WriteStep::Bytes(b"\r".to_vec())]
+        let settle = if busy { PASTE_SETTLE_BUSY } else { PASTE_SETTLE };
+        vec![WriteStep::Bytes(bytes), WriteStep::Wait(settle), WriteStep::Bytes(b"\r".to_vec())]
     } else {
         let mut out = bytes;
         out.push(b'\r');
@@ -1042,6 +1052,23 @@ mod tests {
             plan_input("idle", "", &text("a\r\nb")).unwrap(),
             vec![WriteStep::Bytes(b"\x1b[200~a\nb\x1b[201~".to_vec()), WriteStep::Wait(PASTE_SETTLE), WriteStep::Bytes(b"\r".to_vec())],
         );
+        // Waiting for the user's answer is also a prompt, not a busy TUI: short settle
+        assert_eq!(
+            plan_input("waiting", "user", &text("a\nb")).unwrap(),
+            vec![WriteStep::Bytes(b"\x1b[200~a\nb\x1b[201~".to_vec()), WriteStep::Wait(PASTE_SETTLE), WriteStep::Bytes(b"\r".to_vec())],
+        );
+    }
+
+    #[test]
+    fn a_multiline_reply_settles_longer_while_the_session_is_busy() {
+        // #312: a busy TUI is still consuming its own streamed output when our paste lands, so it gets around to
+        // reading the paste into the input box later than an idle one would. The idle PASTE_SETTLE isn't always
+        // enough there, and real reports showed Enter landing before the paste was in the box: text sat unsent.
+        assert_eq!(
+            plan_input("busy", "", &text("a\nb")).unwrap(),
+            vec![WriteStep::Bytes(b"\x1b[200~a\nb\x1b[201~".to_vec()), WriteStep::Wait(PASTE_SETTLE_BUSY), WriteStep::Bytes(b"\r".to_vec())],
+        );
+        assert!(PASTE_SETTLE_BUSY > PASTE_SETTLE, "busy must wait strictly longer, not just a different number");
     }
 
     #[test]
@@ -1161,6 +1188,21 @@ mod tests {
         let r = ask(&b, r#"{"op":"input","session_id":"s1","kind":"text","text":"line one\nline two"}"#);
         assert_eq!(r["ok"], true, "{r}");
         assert!(before.elapsed() >= PASTE_SETTLE, "the response must not come back before the wait is over");
+        assert_eq!(
+            *b.written.lock().unwrap(),
+            vec![("s1".to_string(), b"\x1b[200~line one\nline two\x1b[201~".to_vec()), ("s1".to_string(), b"\r".to_vec())],
+        );
+    }
+
+    // #312: same shape as the test above, but against a busy session. Proves the longer settle is a real elapsed
+    // wait between the two writes, not just a bigger number `plan_input` happens to return.
+    #[test]
+    fn a_multiline_reply_to_a_busy_session_settles_longer_end_to_end() {
+        let b = Fake { write_on: true, ..fake() }; // s1 is "busy" in fake()
+        let before = std::time::Instant::now();
+        let r = ask(&b, r#"{"op":"input","session_id":"s1","kind":"text","text":"line one\nline two"}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert!(before.elapsed() >= PASTE_SETTLE_BUSY, "a busy session must really wait the longer settle, not the idle one");
         assert_eq!(
             *b.written.lock().unwrap(),
             vec![("s1".to_string(), b"\x1b[200~line one\nline two\x1b[201~".to_vec()), ("s1".to_string(), b"\r".to_vec())],
