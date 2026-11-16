@@ -1,6 +1,7 @@
 //! 会话详情面板的纯逻辑：头部副标题、消息时间戳、正序 / 倒序（照 App.tsx:2194-2252）。
 
 use crate::ts;
+use makit_core::diff::DiffStat;
 use makit_core::SessionMeta;
 
 /// 时间戳取前 19 位、T 换成空格（`2026-09-27T10:11:12.345Z` → `2026-09-27 10:11:12`）
@@ -23,6 +24,12 @@ pub fn subtitle(s: &SessionMeta, n_messages: usize) -> String {
 /// 显示顺序的下标。默认倒序（新 → 旧）
 pub fn display_order(len: usize, reversed: bool) -> Vec<usize> {
     if reversed { (0..len).rev().collect() } else { (0..len).collect() }
+}
+
+/// 「N 个文件改动，+X -Y」摘要行（#310）。空文件列表时调用方自己判断显示「无改动」，不走这个函数。
+pub fn diff_summary_line(stat: &DiffStat) -> String {
+    let (added, removed) = stat.files.iter().fold((0u32, 0u32), |(a, r), f| (a + f.added, r + f.removed));
+    ts!("detail.diff_summary", files = stat.files.len(), added = added, removed = removed)
 }
 
 #[cfg(test)]
@@ -54,5 +61,22 @@ mod tests {
         assert_eq!(display_order(3, true), vec![2, 1, 0]);
         assert_eq!(display_order(3, false), vec![0, 1, 2]);
         assert!(display_order(0, true).is_empty());
+    }
+
+    fn file(path: &str, added: u32, removed: u32) -> makit_core::diff::FileDiff {
+        makit_core::diff::FileDiff { path: path.into(), added, removed, binary: false }
+    }
+
+    #[test]
+    fn diff_summary_sums_across_files() {
+        // 测试默认走 zh 回退（和同文件里 subtitle_has_optional_parts 一致）
+        let stat = DiffStat { files: vec![file("a.rs", 3, 1), file("b.rs", 0, 5)], truncated: false };
+        assert_eq!(diff_summary_line(&stat), "2 个文件改动，+3 -6");
+    }
+
+    #[test]
+    fn diff_summary_handles_a_single_file() {
+        let stat = DiffStat { files: vec![file("a.rs", 1, 0)], truncated: false };
+        assert_eq!(diff_summary_line(&stat), "1 个文件改动，+1 -0");
     }
 }

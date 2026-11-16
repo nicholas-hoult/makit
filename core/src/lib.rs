@@ -21,10 +21,12 @@
 //! | `instance` | Single-instance lock (#291) |
 //! | `transcript` | Conversation model: claude jsonl / codex rollout -> unified `Item` list + incremental reader (#231) |
 //! | `worktree` | git worktree listing |
+//! | `diff` | Uncommitted diff stat (file list + added/removed counts) for a session's cwd (#310) |
 
 pub mod i18n;
 pub mod ai_provider;
 pub mod archive;
+pub mod diff;
 pub mod doctor;
 pub mod environment;
 pub mod fsid;

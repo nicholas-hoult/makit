@@ -11,10 +11,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{div, list, prelude::*, px, Context, Entity, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
+use makit_core::diff::{uncommitted_diff, DiffStat};
 use makit_core::transcript::Item;
 use makit_core::SessionMeta;
 
-use super::detail_logic::subtitle;
+use super::detail_logic::{diff_summary_line, subtitle};
 use super::style::*;
 use crate::actions::overlays as act;
 use crate::theme::ActiveTheme;
@@ -56,6 +57,8 @@ pub struct DetailView {
     opened: std::time::Instant,
     /// 后台线程读第一遍文件花的毫秒数
     load_ms: f64,
+    /// 这个会话 cwd 相对 HEAD 的未提交改动（#310）；`None` 表示还没读完，或者 cwd 不是 git 仓库
+    diff: Option<DiffStat>,
 }
 
 impl EventEmitter<DetailEvent> for DetailView {}
@@ -107,10 +110,21 @@ impl DetailView {
             }
         })
         .detach();
+        // diff 读取独立起一个后台任务：和对话内容一样面板打开时读一次，但不纳入上面 300ms 的轮询——
+        // 一次 git diff 不便宜，diff 也不需要像对话内容那样秒级跟随（#310）
+        let cwd = session.cwd.clone();
+        cx.spawn(async move |this, cx| {
+            let stat = cx.background_executor().spawn(async move { uncommitted_diff(&cwd) }).await;
+            let _ = this.update(cx, |d, cx| {
+                d.diff = stat;
+                cx.notify();
+            });
+        })
+        .detach();
         let list = make_list(false);
         // 列表上面垫着 14px 的 padding（见渲染），轨道要和列表视口对齐
         let scrollbar = cx.new(|_| crate::scrollbar::Scrollbar::new(crate::scrollbar::ScrollSource::List(list.clone())).with_inset_top(14.0));
-        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: false, list, scrollbar, focus, opened: std::time::Instant::now(), load_ms: 0.0 }
+        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: false, list, scrollbar, focus, opened: std::time::Instant::now(), load_ms: 0.0, diff: None }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -194,6 +208,34 @@ impl DetailView {
     }
 }
 
+/// 「这个会话改了什么」(#310)：空文件列表显示「无改动」；否则摘要行 + 文件列表，`+N`/`-N` 用既有语义色，
+/// 二进制文件不显示行数。文件列表本身是静态的，不依赖悬停之类的交互。
+fn render_diff(stat: &DiffStat, theme: &crate::theme::Theme) -> impl IntoElement {
+    if stat.files.is_empty() {
+        return div().text_size(px(11.0)).text_color(theme.fg_muted).mt(px(6.0)).child(ts!("detail.diff_none"));
+    }
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .mt(px(6.0))
+        .child(div().text_size(px(11.0)).text_color(theme.fg_muted).child(diff_summary_line(stat)))
+        .children(stat.files.iter().map(|f| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .text_size(px(11.0))
+                .font(mono_font())
+                .child(div().flex_1().min_w_0().text_color(theme.fg_muted).child(f.path.clone()))
+                .when(f.binary, |row| row.child(div().text_color(theme.fg_subtle).child(ts!("detail.diff_binary"))))
+                .when(!f.binary, |row| {
+                    row.child(div().text_color(theme.success).child(format!("+{}", f.added))).child(div().text_color(theme.danger).child(format!("-{}", f.removed)))
+                })
+        }))
+        .when(stat.truncated, |d| d.child(div().text_size(px(11.0)).text_color(theme.fg_subtle).child(ts!("detail.diff_truncated", shown = stat.files.len()))))
+}
+
 impl Render for DetailView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -275,7 +317,8 @@ impl Render for DetailView {
                                             .when(!s.display_name.is_empty(), |d| d.child(div().font_weight(FontWeight::MEDIUM).text_color(accent_text).child(s.display_name.clone()))),
                                     )
                                     .child(div().text_size(px(11.0)).text_color(theme.fg_muted).mt(px(4.0)).child(subtitle(s, n)))
-                                    .child(div().text_size(px(11.0)).text_color(theme.fg_muted).font(mono_font()).mt(px(2.0)).child(s.cwd.clone())),
+                                    .child(div().text_size(px(11.0)).text_color(theme.fg_muted).font(mono_font()).mt(px(2.0)).child(s.cwd.clone()))
+                                    .when_some(self.diff.as_ref(), |d, stat| d.child(render_diff(stat, &theme))),
                             )
                             .child(
                                 div()
