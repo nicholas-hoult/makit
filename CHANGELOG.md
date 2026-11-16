@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-11-17
+
+### Fixed
+- Claude Code sitting at its prompt after a turn ends no longer reads as "needs your approval": replies, the sidebar, and notifications all treat it as idle now (#308).
+- Sessions with a reminder no longer jump around in the sidebar as their status is re-checked; needs-reply, running, and idle sessions keep a stable order, only moving when they actually change group (#286).
+- A reply sent while a session is busy could have its Enter swallowed after a multi-line paste more often than while idle; it now waits a bit longer before sending Enter in that case.
+
+### Changed
+- The "needs you" color is more vivid and no longer looks like a muted warning; the stopped badge is bigger and easier to make out; the sidebar's hover card now follows the pointer instead of staying pinned to the row (#278).
+
 ## [0.2.12] - 2026-11-15
 
 ### Added
