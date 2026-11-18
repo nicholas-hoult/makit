@@ -24,6 +24,7 @@
 </header>
 <div class="layout">
   <aside class="side"><h3>Changelog</h3>
+    <a href="#v0.2.17">v0.2.17 — 2026-11-18</a>
     <a href="#v0.2.16">v0.2.16 — 2026-11-18</a>
     <a href="#v0.2.14">v0.2.14 — 2026-11-18</a>
     <a href="#v0.2.13">v0.2.13 — 2026-11-16</a>
@@ -53,7 +54,19 @@
       <h1>Changelog</h1>
       <p class="fine">The text is the published GitHub Release body. Drafts, prereleases, and unreleased notes are omitted. If GitHub cannot be read, the build fails and does not substitute the repository changelog.</p>
     </section>
-    <section id="v0.2.16"><h2>v0.2.16 — 2026-11-18</h2>
+    <section id="v0.2.17"><h2>v0.2.17 — 2026-11-18</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.17">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.17</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Session capacity settings: a cap on how many sessions may run at once, minimum free memory, and maximum 1-minute load are now adjustable (Settings), along with what to do when the cap is hit -- automatically sleep the longest-idle session, ask each time (default), or just refuse (#316).</li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>Opening or resuming a session while at the capacity cap now actually acts on the chosen policy instead of always refusing: it sleeps the queue&#x27;s victim and proceeds (auto), or asks first when triggered locally (#316).</li><li>Raised the app&#x27;s own file-descriptor limit at startup and started logging it periodically, to catch the kind of resource exhaustion that caused #317 earlier.</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>会话资源上限设置：同时最多跑几个会话、最低空闲内存、最高 1 分钟负载现在都能在设置里调；到上限时怎么办也能选——自动把最久没动的空闲会话换下来、每次问我（默认）、或直接拒绝（#316）。</li></ul>
+<h3>修复</h3>
+<ul class="list"><li>到容量上限时 open / resume 现在会真的按选定的策略执行，不再一律拒绝：自动策略会把置换队列挑出的会话换下来再继续；本机触发且设成「每次问我」时会先弹确认框（#316）。</li><li>启动时提高了程序自己的文件描述符上限，并开始定期记录，用来提前发现 #317 那种资源耗尽的苗头。</li></ul>
+</section>
+<section id="v0.2.16"><h2>v0.2.16 — 2026-11-18</h2>
 <p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.16">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.16</a></p>
 <h3>Fixed</h3>
 <ul class="list"><li>The Windows build (preview .zip) failed in 0.2.14 because a unix-only dependency was used unconditionally; it now reads as &quot;unavailable&quot; there instead, same as it already did when it could not read the data on an unsupported system. No change on macOS.</li></ul>
