@@ -19,6 +19,8 @@ pub struct ScanState {
     pub last_msg: String,
     pub custom_title: String,
     pub agent_name: String,
+    /// Every distinct `cwd` seen in a `user` line, in first-seen order, with how many lines had it (#313).
+    pub cwd_trail: Vec<(String, u32)>,
 }
 
 impl ScanState {
@@ -67,6 +69,10 @@ impl ScanState {
                     self.start_cwd = c.to_string();
                 }
                 self.last_cwd = c.to_string();
+                match self.cwd_trail.iter_mut().find(|(seen, _)| seen == c) {
+                    Some((_, n)) => *n += 1,
+                    None => self.cwd_trail.push((c.to_string(), 1)),
+                }
             }
         }
         if let Some(gb) = rec.get("gitBranch").and_then(|v| v.as_str()) {
@@ -326,6 +332,45 @@ mod incremental_scan_tests {
         fs::write(&cache_file, "{ 这不是 json").unwrap();
         assert!(load_scan_cache_from(&cache_file).is_empty());
         assert!(load_scan_cache_from(&dir.with_file_name("不存在.json")).is_empty());
+    }
+
+    /// #313: the directory history another tool needs to attribute a session is more than just the last cwd --
+    /// a session that moves around between a handful of directories needs each one, in the order it was first seen, with how often it recurred.
+    #[test]
+    fn cwd_trail_lists_distinct_dirs_in_first_seen_order_with_counts() {
+        let mut st = ScanState::default();
+        st.feed_line(&user("一", "/a"));
+        st.feed_line(&user("二", "/b"));
+        st.feed_line(&user("三", "/a")); // back to /a: still the same entry, not a new one at the end
+        st.feed_line(&user("四", "/b"));
+        st.feed_line(&user("五", "/b"));
+        assert_eq!(st.cwd_trail, vec![("/a".to_string(), 2), ("/b".to_string(), 3)]);
+        assert_eq!((st.start_cwd.as_str(), st.last_cwd.as_str()), ("/a", "/b"));
+    }
+
+    #[test]
+    fn cwd_trail_skips_lines_without_a_cwd_or_that_are_not_valid_user_lines() {
+        let mut st = ScanState::default();
+        st.feed_line(&user("一", "/a"));
+        st.feed_line("{\"type\":\"assistant\",\"message\":{\"content\":\"x\"}}\n"); // no cwd field
+        st.feed_line("不是 json");
+        st.feed_line(""); // blank line
+        st.feed_line(&user("二", "/a"));
+        assert_eq!(st.cwd_trail, vec![("/a".to_string(), 2)]);
+    }
+
+    #[test]
+    fn appended_lines_extend_the_cwd_trail_like_a_full_rescan() {
+        let p = tmpfile("trail-append");
+        let _ = fs::remove_file(&p);
+        append(&p, &user("一", "/a"));
+        append(&p, &user("二", "/b"));
+        let s1 = scan_session_file(&p).unwrap();
+        assert_eq!(s1.cwd_trail, vec![("/a".to_string(), 1), ("/b".to_string(), 1)]);
+        append(&p, &user("三", "/a"));
+        let s2 = scan_session_file(&p).unwrap();
+        assert_eq!(s2, full(&p));
+        assert_eq!(s2.cwd_trail, vec![("/a".to_string(), 2), ("/b".to_string(), 1)]);
     }
 
     #[test]

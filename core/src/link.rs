@@ -120,6 +120,23 @@ pub trait Backend: Send + Sync {
     fn archive(&self, _session_id: &str) -> Result<(), String> {
         Err("archive not supported".into())
     }
+    /// Every distinct `cwd` the session's directory moved through (#313: an external tool attributing a session to
+    /// a project needs more than just the starting directory).
+    fn session_cwds(&self, _session_id: &str) -> Result<CwdHistory, String> {
+        Err("session_cwds not supported".into())
+    }
+}
+
+/// A session's directory history, as reported by the `session_cwds` op (#313).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CwdHistory {
+    /// Every distinct `cwd` seen, in first-seen order, paired with how many records had it.
+    pub trail: Vec<(String, u32)>,
+    /// The very first `cwd` the session ran in.
+    pub first: String,
+    /// The most recent `cwd`, which may not be `trail`'s last entry: a session that moves back to an earlier
+    /// directory still counts against that directory's existing trail entry instead of adding a new one.
+    pub last: String,
 }
 
 /// What the other side wants to put into a session.
@@ -160,7 +177,7 @@ pub const PASTE_SETTLE_BUSY: Duration = Duration::from_millis(600);
 
 /// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
 /// "type" is not an op of its own: it says `input` takes kind `type` and replies while the session works.
-pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type"];
+pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds"];
 
 /// Most keys one `keys` request may carry.
 pub const MAX_KEYS: usize = 16;
@@ -636,6 +653,18 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
                 Err(e) => fail(e),
             }
         }
+        Some("session_cwds") => {
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            match backend.session_cwds(id) {
+                Ok(h) => {
+                    let cwds: Vec<Value> = h.trail.iter().map(|(cwd, n)| json!({"cwd": cwd, "n": n})).collect();
+                    json!({"ok": true, "cwds": cwds, "first": h.first, "last": h.last}).to_string()
+                }
+                Err(e) => fail(e),
+            }
+        }
         Some("input") => {
             if !backend.write_enabled() {
                 return fail("write disabled");
@@ -742,6 +771,12 @@ impl Backend for CoreBackend {
 
     fn archive(&self, session_id: &str) -> Result<(), String> {
         crate::archive::archive_session(session_id.to_string())
+    }
+
+    fn session_cwds(&self, session_id: &str) -> Result<CwdHistory, String> {
+        let (path, _tool) = crate::sessions::locate_session_file(session_id).ok_or("session not found")?;
+        let state = crate::scan_cache::scan_session_file(&path).ok_or("failed to read session file")?;
+        Ok(CwdHistory { trail: state.cwd_trail, first: state.start_cwd, last: state.last_cwd })
     }
 }
 
@@ -941,6 +976,12 @@ mod tests {
             }
             let from = cursor_start(self.total, cursor);
             Ok(TranscriptPage { total: self.total, from, items: (from..self.total).map(|i| json!({"id": format!("i{i}")})).collect() })
+        }
+        fn session_cwds(&self, id: &str) -> Result<CwdHistory, String> {
+            if id != "s1" {
+                return Err("session not found".into());
+            }
+            Ok(CwdHistory { trail: vec![("/a".into(), 2), ("/b".into(), 1)], first: "/a".into(), last: "/a".into() })
         }
     }
 
@@ -1408,10 +1449,21 @@ mod tests {
     }
 
     #[test]
+    fn session_cwds_reports_the_trail_with_first_and_last() {
+        let b = fake();
+        let r = ask(&b, r#"{"op":"session_cwds","session_id":"s1"}"#);
+        assert_eq!(r["ok"], true);
+        assert_eq!(r["cwds"], json!([{"cwd": "/a", "n": 2}, {"cwd": "/b", "n": 1}]));
+        assert_eq!((r["first"].as_str(), r["last"].as_str()), (Some("/a"), Some("/a")));
+        assert_eq!(ask(&b, r#"{"op":"session_cwds","session_id":"nope"}"#)["error"], "session not found");
+        assert_eq!(ask(&b, r#"{"op":"session_cwds"}"#)["error"], "session_id required");
+    }
+
+    #[test]
     fn hello_lists_the_ops_so_the_other_side_can_tell_old_versions() {
         let ops = ask(&fake(), r#"{"op":"hello"}"#)["ops"].clone();
         // "type": input kind `type` (terminal keyboard) and replies accepted while the session works
-        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type"] {
+        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds"] {
             assert!(ops.as_array().unwrap().iter().any(|o| o == op), "{op}");
         }
     }

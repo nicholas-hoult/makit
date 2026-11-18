@@ -199,6 +199,7 @@ pub fn parse_session(
         last_msg,
         custom_title,
         agent_name,
+        cwd_trail: _,
     } = scan_session_file(path)?;
 
     if user_count == 0 {
