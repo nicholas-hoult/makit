@@ -24,6 +24,7 @@
 </header>
 <div class="layout">
   <aside class="side"><h3>Changelog</h3>
+    <a href="#v0.2.18">v0.2.18 — 2026-11-18</a>
     <a href="#v0.2.17">v0.2.17 — 2026-11-18</a>
     <a href="#v0.2.16">v0.2.16 — 2026-11-18</a>
     <a href="#v0.2.14">v0.2.14 — 2026-11-18</a>
@@ -54,7 +55,15 @@
       <h1>Changelog</h1>
       <p class="fine">The text is the published GitHub Release body. Drafts, prereleases, and unreleased notes are omitted. If GitHub cannot be read, the build fails and does not substitute the repository changelog.</p>
     </section>
-    <section id="v0.2.17"><h2>v0.2.17 — 2026-11-18</h2>
+    <section id="v0.2.18"><h2>v0.2.18 — 2026-11-18</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.18">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.18</a></p>
+<h3>Added</h3>
+<ul class="list"><li>The local-session link&#x27;s <code>open</code> / <code>resume</code> now carry a structured <code>capacity_limit</code> field (&quot;count&quot; / &quot;low_memory&quot; / &quot;high_load&quot;) when refused by the capacity cap, so an automated caller can react to which threshold tripped instead of parsing the message (#316).</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>本机会话接口的 <code>open</code> / <code>resume</code> 被容量上限拦住时，响应里现在带一个结构化的 <code>capacity_limit</code> 字段（&quot;count&quot;/&quot;low_memory&quot;/&quot;high_load&quot;），自动化调用方可以直接按这个字段分支，不用再解析那句话（#316）。</li></ul>
+</section>
+<section id="v0.2.17"><h2>v0.2.17 — 2026-11-18</h2>
 <p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.17">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.17</a></p>
 <h3>Added</h3>
 <ul class="list"><li>Session capacity settings: a cap on how many sessions may run at once, minimum free memory, and maximum 1-minute load are now adjustable (Settings), along with what to do when the cap is hit -- automatically sleep the longest-idle session, ask each time (default), or just refuse (#316).</li></ul>
