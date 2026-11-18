@@ -20,3 +20,5 @@ pub const REVEAL_FAIL: u64 = 2000;
 pub const BATCH_ARCHIVED: u64 = 3000;
 /// 本机会话接口写进了终端（#299）：提示这次输入来自外部程序
 pub const REMOTE_INPUT: u64 = 2000;
+/// 命中会话资源上限，开不了（#D-2090）：比普通提示长一点，给用户时间看清原因
+pub const CAPACITY_BLOCKED: u64 = 3000;

@@ -47,6 +47,8 @@ pub struct NativeState {
     pub notifications: Vec<serde_json::Value>,
     /// 上次退出 / 失去焦点时的窗口位置和大小（#256 A7）。None = 还没记过，按屏幕大小给默认；还原时一律用 `window_placement::fit_window` 校正
     pub window: Option<SavedWindow>,
+    /// 会话资源上限 + 置换策略（#316/#D-2090）
+    pub capacity: CapacityPrefs,
 }
 
 /// 保存的窗口位置和大小（逻辑像素，坐标是全局的：外接屏在主屏左边时 x 为负，合法）。
@@ -81,7 +83,28 @@ impl Default for NativeState {
             update: UpdatePrefs::default(),
             notifications: Vec::new(),
             window: None,
+            capacity: CapacityPrefs::default(),
         }
+    }
+}
+
+/// 存成原始数字（百分比而不是比例，策略存字符串，和 `pane_icons` / `sidebar.hover_mode` 一个约定），换算成
+/// `state::capacity::CapacityLimits` / `EvictionPolicy` 的转换函数在 `state::capacity`（`limits_from_prefs` /
+/// `policy_from_str`），不在这里：这一层只管「怎么存」，不懂容量判断本身
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct CapacityPrefs {
+    pub max_active: u32,
+    pub min_free_mem_percent: u32,
+    pub max_load_1m: f32,
+    /// "auto" / "ask"（默认）/ "off"
+    pub eviction_policy: String,
+}
+
+impl Default for CapacityPrefs {
+    fn default() -> Self {
+        let d = crate::state::capacity::CapacityLimits::default();
+        Self { max_active: d.max_active as u32, min_free_mem_percent: (d.min_free_mem_ratio * 100.0).round() as u32, max_load_1m: d.max_load_1m, eviction_policy: "ask".into() }
     }
 }
 
@@ -237,6 +260,16 @@ mod tests {
         // 往返
         let back: NativeState = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    /// 为什么要测：`CapacityPrefs::default()` 的数字是手抄 `capacity::CapacityLimits::default()` 算出来的
+    /// （百分比），两处的默认值今后各改各的就会悄悄对不上——这个测试把它们绑在一起
+    #[test]
+    fn capacity_prefs_default_matches_capacity_limits_default() {
+        let d = crate::state::capacity::CapacityLimits::default();
+        let p = CapacityPrefs::default();
+        assert_eq!(crate::state::capacity::limits_from_prefs(p.max_active, p.min_free_mem_percent, p.max_load_1m), d);
+        assert_eq!(crate::state::capacity::policy_from_str(&p.eviction_policy), crate::state::capacity::EvictionPolicy::default());
     }
 
     /// 为什么要测（#256 A6）：老用户的状态文件里没有 `chosen`。读出来如果是 false，升级后他们选好的主题会被系统外观盖掉

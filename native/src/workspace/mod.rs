@@ -359,7 +359,11 @@ impl WorkspaceView {
         .detach();
     }
 
-    fn stop_tabs_now(&mut self, tids: &[String], cx: &mut Context<Self>) {
+    /// `pub(crate)`: the eviction queue (#D-2090, `overlays::session_ops::sleep_eviction_victim`) calls this
+    /// directly instead of `stop_tabs`, since its victim is always idle (`capacity::evictable`'s precondition) and
+    /// so never needs `stop_tabs`'s busy-confirm -- which would otherwise force threading a `Window` through an
+    /// async continuation that has none to give it.
+    pub(crate) fn stop_tabs_now(&mut self, tids: &[String], cx: &mut Context<Self>) {
         log::info!(target: "workspace", "stop {} tab(s): {}", tids.len(), tids.join(", "));
         for tid in tids {
             self.kill_escaped_children(tid, cx);

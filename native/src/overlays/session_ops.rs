@@ -243,8 +243,10 @@ fn ensure_symlink(s: &SessionMeta) {
 }
 
 /// 打开一条会话（`openResumeTab`）：已经在本软件的某个标签里（resume 标签、被绑定的 shell 标签、或进程的 `MAKIT_PTY_ID`
-/// 指向某个标签）就切过去；是别的终端里的进程就 toast 拦下；否则确保软链后开 resume 标签。判定见 `state::binding::decide_open`（#253）
-pub fn open_session(session_id: &str, cx: &mut App) {
+/// 指向某个标签）就切过去；是别的终端里的进程就 toast 拦下；否则先过一遍容量上限（`capacity_decision`），再确保软链、开
+/// resume 标签。判定见 `state::binding::decide_open`（#253）。`window` 只在容量上限触发且策略是「每次问」时才用得上
+/// （本机确认框，#D-2090）——其余分支都不需要它
+pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else { return };
     let decision = decide_open(&state.read(cx).workspace.state.root, &s);
@@ -265,29 +267,108 @@ pub fn open_session(session_id: &str, cx: &mut App) {
         OpenDecision::BlockedExternal { pid } => {
             show_toast(ts!("sidebar.toast.already_running", pid = pid), toast::ALREADY_RUNNING, cx);
         }
-        OpenDecision::OpenNew => {
-            ensure_symlink(&s);
-            let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
-            state.update(cx, |st, cx| {
-                let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(&s));
-                st.workspace_changed(cx);
-            });
+        OpenDecision::OpenNew => open_new_session(s, window, cx),
+    }
+}
+
+/// Opens a brand-new tab for `s`, going through the capacity cap first (#D-2090 接线阶段). Shared by the sidebar's
+/// own open (this file) and link.sock's `resume` when it has nowhere to revive (`resume_session` below).
+fn do_open_new(s: &SessionMeta, cx: &mut App) {
+    ensure_symlink(s);
+    let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
+    let state = AppState::global(cx);
+    state.update(cx, |st, cx| {
+        let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s));
+        st.workspace_changed(cx);
+    });
+}
+
+/// The capacity cap acting on a **local** open (sidebar click / ⌘K / Enter): unlike the remote link.sock path, the
+/// person triggering this is sitting right at the machine, so `AskEachTime` gets an actual confirm dialog here
+/// instead of degrading to a refusal (#D-2090; see `capacity_block` below for the remote side of that split).
+fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
+    use crate::state::capacity::EvictionDecision;
+    match capacity_decision(cx) {
+        None => do_open_new(&s, cx),
+        Some((limit, EvictionDecision::Blocked(_))) => show_toast(limit.reason().to_string(), toast::CAPACITY_BLOCKED, cx),
+        Some((_, EvictionDecision::AutoSleep { session_id })) => {
+            sleep_eviction_victim(&session_id, cx);
+            do_open_new(&s, cx);
+        }
+        Some((_, EvictionDecision::AskToSleep { session_id: victim })) => {
+            let label = AppState::global(cx).read(cx).session(&victim).map(|m| m.short_id.clone()).unwrap_or(victim.clone());
+            let rx = window.prompt(
+                PromptLevel::Warning,
+                &ts!("capacity.ask_evict.title"),
+                Some(&ts!("capacity.ask_evict.detail", session = label)),
+                &[PromptButton::ok(ts!("capacity.ask_evict.confirm")), PromptButton::cancel(ts!("common.cancel"))],
+                cx,
+            );
+            cx.spawn(async move |cx: &mut AsyncApp| {
+                if rx.await.ok() != Some(0) {
+                    return;
+                }
+                let _ = cx.update(|cx| {
+                    sleep_eviction_victim(&victim, cx);
+                    do_open_new(&s, cx);
+                });
+            })
+            .detach();
         }
     }
 }
 
-/// Refuses the next `open` / `resume` through the local-session link when the machine is already stretched thin
-/// (#D-2066, #D-2078): rather than letting `open` report false success while the process silently fails to spawn
-/// (tonight's "too many open files"), or `resume` adding yet another session on top of an already-overloaded
-/// machine, this is checked first and the caller gets a clear reason instead. `None` means there is room.
-/// Readings that cannot be taken (non-macOS, `vm_stat` missing) fail open: a cap nobody can satisfy would make the
-/// cap itself the outage. The three thresholds are the defaults for now; making them settings is follow-up work.
-pub fn capacity_block(cx: &App) -> Option<String> {
-    let active_count = AppState::global(cx).read(cx).sessions.iter().filter(|s| s.running).count();
+/// Puts the eviction queue's victim to sleep (#287's stop-but-keep-tab, via `WorkspaceView::stop_tabs_now`
+/// directly rather than the confirm-having `stop_tabs`): the victim is always idle (`capacity::evictable`'s own
+/// precondition), so the busy-confirm `stop_tabs` would show never applies here, and skipping it means this needs
+/// no `Window` -- important for the `AskToSleep` branch above, which calls this from inside an async continuation
+/// after its own confirm dialog, where there is no `Window` to give it.
+fn sleep_eviction_victim(session_id: &str, cx: &mut App) {
+    let Some(h) = host(cx) else { return };
+    let ws = h.read(cx).workspace.clone();
+    let tids = stoppable_tabs(&AppState::global(cx).read(cx).workspace.state, session_id);
+    if tids.is_empty() {
+        return;
+    }
+    ws.update(cx, |w, cx| w.stop_tabs_now(&tids, cx));
+}
+
+/// The live capacity decision (#D-2090 接线阶段): resource readings + the active session list + the user's chosen
+/// threshold/policy settings. `None` means there is room, proceed as normal. Returns the triggering `CapacityLimit`
+/// alongside the decision so callers that end up refusing (`Blocked`, or a remote caller's `AskToSleep`) have a
+/// reason to report without recomputing it.
+pub fn capacity_decision(cx: &App) -> Option<(crate::state::capacity::CapacityLimit, crate::state::capacity::EvictionDecision)> {
+    use crate::state::capacity::*;
+    let state = AppState::global(cx);
+    let s = state.read(cx);
+    let active_count = s.sessions.iter().filter(|m| m.running).count();
     let free_mem_ratio = crate::state::resources::free_mem_ratio().unwrap_or(1.0);
     let load_1m = crate::state::resources::load_1m().unwrap_or(0.0);
-    crate::state::capacity::capacity_limit(active_count, free_mem_ratio, load_1m, crate::state::capacity::CapacityLimits::default())
-        .map(|limit| limit.reason().to_string())
+    let limits = limits_from_prefs(s.prefs.capacity.max_active, s.prefs.capacity.min_free_mem_percent, s.prefs.capacity.max_load_1m);
+    let limit = capacity_limit(active_count, free_mem_ratio, load_1m, limits)?;
+    let pinned: std::collections::HashSet<String> = s.prefs.pinned_sessions.iter().cloned().collect();
+    let focused = focused_session_ids(&s.workspace.state.root);
+    let candidates = active_candidates(&s.sessions, &pinned, &focused);
+    let victim = eviction_victim(&candidates);
+    let policy = policy_from_str(&s.prefs.capacity.eviction_policy);
+    Some((limit, decide_eviction(limit, victim, policy)))
+}
+
+/// The capacity cap acting on `open` / `resume` through the local-session link (#D-2066, #D-2078, #D-2090): a
+/// remote caller never gets asked interactively -- it cannot see or answer a confirm dialog on this machine (TRD
+/// #316: "跨 link 的调用方不能代替本机用户做决定") -- so `AskToSleep` resolves the same as `Off` here, a plain
+/// refusal with the reason. `Auto` still actually sleeps the victim and lets the request through; `None` means
+/// there is room. Readings that cannot be taken (non-macOS, `vm_stat` missing) fail open: a cap nobody can
+/// satisfy would make the cap itself the outage.
+pub fn capacity_block(cx: &mut App) -> Option<String> {
+    use crate::state::capacity::EvictionDecision;
+    match capacity_decision(cx)? {
+        (_, EvictionDecision::AutoSleep { session_id }) => {
+            sleep_eviction_victim(&session_id, cx);
+            None
+        }
+        (limit, _) => Some(limit.reason().to_string()),
+    }
 }
 
 /// Resume an ended session asked for through the local-session link (#299, #D-2044). Whether it is already
@@ -297,6 +378,10 @@ pub fn capacity_block(cx: &App) -> Option<String> {
 /// cannot be reused here: its "switch to an existing tab" path only clears `stopped`, which does nothing for a
 /// tab whose terminal simply exited on its own without ever being marked stopped, leaving it sitting dead instead
 /// of actually resuming -- `resume_tab` is the one path that rebuilds the terminal in both cases.
+///
+/// Remote-only (called from `link_switch`'s `MainOp::Resume`, which already ran `capacity_block` before this):
+/// the local sidebar/palette resume a stopped tab through `WorkspaceView::resume_tab` directly, uncapped for now
+/// (#D-2090 分期：手动恢复自己已知的某一个标签是一次性、可见的动作，不是这次事故的成因，留作后续)
 pub fn resume_session(session_id: &str, cx: &mut App) {
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else { return };
@@ -306,14 +391,7 @@ pub fn resume_session(session_id: &str, cx: &mut App) {
             let ws = h.read(cx).workspace.clone();
             ws.update(cx, |w, cx| w.resume_tab(&tab_id, cx));
         }
-        LinkResumeDecision::OpenNew => {
-            ensure_symlink(&s);
-            let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
-            state.update(cx, |st, cx| {
-                let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(&s));
-                st.workspace_changed(cx);
-            });
-        }
+        LinkResumeDecision::OpenNew => do_open_new(&s, cx),
     }
 }
 

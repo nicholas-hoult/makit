@@ -16,6 +16,8 @@ use super::shortcuts::{shortcut_groups, ShortcutRow};
 use super::style::*;
 use super::MenuItem;
 use crate::actions::{keymap, overlays as act};
+use crate::persist::state::CapacityPrefs;
+use crate::state::capacity;
 use crate::state::AppState;
 use crate::theme::derive::{is_light, ThemeSource};
 use crate::theme::{builtin::builtin_themes, itermcolors::import_itermcolors, ActiveTheme, Theme};
@@ -66,6 +68,9 @@ pub fn switch_after_delete(order: &[String], chosen: bool, current: &str, delete
 }
 
 pub const HOVER_MODES: [(&str, &str); 3] = [("always", "settings.hover.always"), ("cmd", "settings.hover.cmd"), ("off", "settings.hover.off")];
+
+/// 会话资源上限的置换策略菜单项（id 和存盘字符串一致，见 `capacity::policy_from_str`）
+pub const CAPACITY_POLICIES: [(&str, &str); 3] = [("auto", "settings.capacity.policy.auto"), ("ask", "settings.capacity.policy.ask"), ("off", "settings.capacity.policy.off")];
 
 // ---------- 通知包的接口 ----------
 
@@ -239,6 +244,25 @@ impl SettingsView {
         });
     }
 
+    fn adjust_capacity(&mut self, f: impl FnOnce(&mut CapacityPrefs), cx: &mut Context<Self>) {
+        self.state.update(cx, |s, cx| s.update_prefs(cx, |p| f(&mut p.capacity)));
+    }
+
+    fn open_capacity_policy_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.clone();
+        super::show_context_menu(ev.position(), window, cx, move |cx| {
+            let cur = state.read(cx).prefs.capacity.eviction_policy.clone();
+            CAPACITY_POLICIES
+                .iter()
+                .map(|(id, label)| {
+                    let (state, id) = (state.clone(), id.to_string());
+                    let checked = id == cur;
+                    MenuItem::action(ts!(*label), move |_, cx| state.update(cx, |s, cx| s.update_prefs(cx, |p| p.capacity.eviction_policy = id.clone()))).checked(checked)
+                })
+                .collect()
+        });
+    }
+
     fn open_hover_menu(&mut self, ev: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         let state = self.state.clone();
         super::show_context_menu(ev.position(), window, cx, move |cx| {
@@ -305,6 +329,26 @@ fn language_matches(stored: &str, pref: &str) -> bool {
         crate::i18n::PREF_ZH | crate::i18n::PREF_EN => stored == pref,
         _ => pref == crate::i18n::PREF_SYSTEM,
     }
+}
+
+/// 一个数字设置的「－ 值 ＋」行（会话上限的三个阈值）：标签靠左，步进控件靠右，和别的设置行（toggle/select_box）
+/// 一样占一整行
+fn stepper_row(theme: &Theme, label: &str, dec: gpui::Stateful<gpui::Div>, value: String, inc: gpui::Stateful<gpui::Div>) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .mt(px(8.0))
+        .child(div().text_size(px(12.0)).text_color(theme.fg).child(label.to_string()))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(dec)
+                .child(div().w(px(56.0)).text_size(px(12.0)).text_color(theme.fg).text_center().child(value))
+                .child(inc),
+        )
 }
 
 fn select_box(theme: &Theme, id: &'static str, label: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
@@ -666,6 +710,47 @@ impl Render for SettingsView {
                                     .child(toggle("link-write-enabled", prefs.link_write_enabled, tr!("settings.link.write_toggle")).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.link_write_enabled = !p.link_write_enabled)))))
                                     .child(hint(&tr!("settings.link.write_hint"))),
                             )
+                            // 会话资源上限 + 置换策略（#316/#D-2090）
+                            .child({
+                                let cap = prefs.capacity.clone();
+                                let (min_a, max_a, step_a) = capacity::MAX_ACTIVE_RANGE;
+                                let (min_m, max_m, step_m) = capacity::MIN_FREE_MEM_PERCENT_RANGE;
+                                let (min_l, max_l, step_l) = capacity::MAX_LOAD_1M_RANGE;
+                                let policy_name = ts!(CAPACITY_POLICIES.iter().find(|(id, _)| *id == cap.eviction_policy).unwrap_or(&CAPACITY_POLICIES[1]).1);
+                                section()
+                                    .child(label(&tr!("settings.capacity.title")))
+                                    .child(stepper_row(
+                                        &theme,
+                                        &tr!("settings.capacity.max_active"),
+                                        action_btn(&theme, "cap-active-dec", "－")
+                                            .on_click(cx.listener(move |this, _, _, cx| this.adjust_capacity(|p| p.max_active = capacity::step_u32(p.max_active, -step_a, min_a, max_a), cx))),
+                                        cap.max_active.to_string(),
+                                        action_btn(&theme, "cap-active-inc", "＋")
+                                            .on_click(cx.listener(move |this, _, _, cx| this.adjust_capacity(|p| p.max_active = capacity::step_u32(p.max_active, step_a, min_a, max_a), cx))),
+                                    ))
+                                    .child(stepper_row(
+                                        &theme,
+                                        &tr!("settings.capacity.min_free_mem"),
+                                        action_btn(&theme, "cap-mem-dec", "－").on_click(cx.listener(move |this, _, _, cx| {
+                                            this.adjust_capacity(|p| p.min_free_mem_percent = capacity::step_u32(p.min_free_mem_percent, -step_m, min_m, max_m), cx)
+                                        })),
+                                        format!("{}%", cap.min_free_mem_percent),
+                                        action_btn(&theme, "cap-mem-inc", "＋").on_click(cx.listener(move |this, _, _, cx| {
+                                            this.adjust_capacity(|p| p.min_free_mem_percent = capacity::step_u32(p.min_free_mem_percent, step_m, min_m, max_m), cx)
+                                        })),
+                                    ))
+                                    .child(stepper_row(
+                                        &theme,
+                                        &tr!("settings.capacity.max_load"),
+                                        action_btn(&theme, "cap-load-dec", "－")
+                                            .on_click(cx.listener(move |this, _, _, cx| this.adjust_capacity(|p| p.max_load_1m = capacity::step_f32(p.max_load_1m, -step_l, min_l, max_l), cx))),
+                                        format!("{:.1}", cap.max_load_1m),
+                                        action_btn(&theme, "cap-load-inc", "＋")
+                                            .on_click(cx.listener(move |this, _, _, cx| this.adjust_capacity(|p| p.max_load_1m = capacity::step_f32(p.max_load_1m, step_l, min_l, max_l), cx))),
+                                    ))
+                                    .child(div().mt(px(10.0)).child(select_box(&theme, "capacity-policy-select", policy_name).on_click(cx.listener(|this, ev: &ClickEvent, window, cx| this.open_capacity_policy_menu(ev, window, cx)))))
+                                    .child(hint(&tr!("settings.capacity.hint")))
+                            })
                             // Hover 详情卡片
                             .child(
                                 section()

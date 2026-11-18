@@ -11,7 +11,12 @@
 //! bad in a different way -- too loose and the next incident repeats; too eager and a session the user is
 //! mid-conversation with (or one they pinned) gets killed out from under them.
 
+use std::collections::HashSet;
+
+use makit_core::SessionMeta;
+
 use crate::sidebar::groups::RunState;
+use crate::workspace::model::{collect_containers, LayoutNode};
 
 /// One running session's standing for the cap / eviction queue.
 #[derive(Clone, Debug, PartialEq)]
@@ -130,6 +135,76 @@ pub fn decide_eviction(limit: CapacityLimit, victim: Option<&ActiveCandidate>, p
     }
 }
 
+/// Every session id that is some pane's current tab right now (#D-2090 接线阶段): a split layout can show more
+/// than one at once, all "being looked at". Feeds `ActiveCandidate.focused` -- separate from `evictable` itself so
+/// it can be tested against plain `LayoutNode` fixtures the same way `state::binding` does.
+pub fn focused_session_ids(root: &LayoutNode) -> HashSet<String> {
+    collect_containers(root)
+        .into_iter()
+        .filter_map(|c| c.tabs.iter().find(|t| t.id == c.active_tab_id))
+        .filter_map(|t| t.session_id.clone())
+        .collect()
+}
+
+/// Builds the eviction queue's candidate list from the live session list (#D-2090 接线阶段): only running sessions
+/// count (a stopped tab is not occupying anything), everything else is a straight lookup against the two sets the
+/// caller already has (pinned sessions, focused tab ids).
+pub fn active_candidates(sessions: &[SessionMeta], pinned: &HashSet<String>, focused: &HashSet<String>) -> Vec<ActiveCandidate> {
+    sessions
+        .iter()
+        .filter(|s| s.running)
+        .map(|s| ActiveCandidate {
+            session_id: s.session_id.clone(),
+            run_state: crate::sidebar::groups::run_state(s.running, &s.status, &s.waiting_for),
+            pinned: pinned.contains(&s.session_id),
+            focused: focused.contains(&s.session_id),
+            last_active: s.mtime,
+        })
+        .collect()
+}
+
+/// A settings-panel stepper's next value, clamped to `[min, max]`. Shared by the three capacity thresholds instead
+/// of three near-identical functions -- the ranges/step sizes live with the UI that uses them.
+pub fn step_u32(cur: u32, delta: i32, min: u32, max: u32) -> u32 {
+    (cur as i64 + delta as i64).clamp(min as i64, max as i64) as u32
+}
+
+/// `step_u32`'s float counterpart (the load-average threshold isn't a whole number).
+pub fn step_f32(cur: f32, delta: f32, min: f32, max: f32) -> f32 {
+    (cur + delta).clamp(min, max)
+}
+
+/// Settings-panel ranges for the three thresholds (#D-2090): min/max/step, in the unit the panel displays.
+pub const MAX_ACTIVE_RANGE: (u32, u32, i32) = (2, 60, 1);
+pub const MIN_FREE_MEM_PERCENT_RANGE: (u32, u32, i32) = (0, 50, 5);
+pub const MAX_LOAD_1M_RANGE: (f32, f32, f32) = (1.0, 32.0, 1.0);
+
+/// Persisted prefs store the policy as a plain string (same convention as `pane_icons` / `sidebar.hover_mode`),
+/// not a serde-derived enum: keeps `capacity`'s domain types free of a serde dependency it otherwise has no need
+/// for. Any stored value other than "auto" / "off" falls back to the default `AskEachTime` -- a hand-edited or
+/// future-version state file should fail safe toward asking, not toward silently auto-killing sessions.
+pub fn policy_from_str(s: &str) -> EvictionPolicy {
+    match s {
+        "auto" => EvictionPolicy::Auto,
+        "off" => EvictionPolicy::Off,
+        _ => EvictionPolicy::AskEachTime,
+    }
+}
+
+pub fn policy_to_str(p: EvictionPolicy) -> &'static str {
+    match p {
+        EvictionPolicy::Auto => "auto",
+        EvictionPolicy::Off => "off",
+        EvictionPolicy::AskEachTime => "ask",
+    }
+}
+
+/// Persisted thresholds (plain numbers, percent instead of a ratio so the settings panel shows whole numbers) ->
+/// the domain type `capacity_limit` actually takes.
+pub fn limits_from_prefs(max_active: u32, min_free_mem_percent: u32, max_load_1m: f32) -> CapacityLimits {
+    CapacityLimits { max_active: max_active as usize, min_free_mem_ratio: (min_free_mem_percent as f32 / 100.0).clamp(0.0, 1.0), max_load_1m }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +277,87 @@ mod tests {
     fn every_limit_has_a_distinct_reason() {
         let reasons = [CapacityLimit::Count.reason(), CapacityLimit::LowMemory.reason(), CapacityLimit::HighLoad.reason()];
         assert_eq!(reasons.len(), std::collections::HashSet::from(reasons).len(), "reasons must not collide");
+    }
+
+    use crate::state::sessions::tests::session;
+    use crate::workspace::model::{ContainerNode, PaneTab, SplitNode};
+
+    fn tab(id: &str, sid: Option<&str>) -> PaneTab {
+        PaneTab { id: id.into(), kind: crate::workspace::model::TabKind::Shell, cwd: "/w".into(), init_command: None, session_id: sid.map(String::from), session_short_id: None, label: String::new(), stopped: false, pinned: false }
+    }
+
+    fn container(id: &str, active: &str, tabs: Vec<PaneTab>) -> LayoutNode {
+        LayoutNode::Container(ContainerNode { id: id.into(), active_tab_id: active.into(), tabs, tab_history: vec![] })
+    }
+
+    #[test]
+    fn focused_session_ids_is_each_pane_s_active_tab() {
+        let root = container("c1", "t1", vec![tab("t1", Some("a")), tab("t2", Some("b"))]);
+        // only t1 is active in this single-pane layout: t2's session is not "being looked at"
+        assert_eq!(focused_session_ids(&root), HashSet::from(["a".to_string()]));
+    }
+
+    #[test]
+    fn focused_session_ids_covers_every_pane_in_a_split() {
+        let left = container("c1", "t1", vec![tab("t1", Some("a"))]);
+        let right = container("c2", "t2", vec![tab("t2", Some("b"))]);
+        let root = LayoutNode::Split(SplitNode { dir: crate::workspace::model::Dir::V, ratio: 0.5, a: Box::new(left), b: Box::new(right) });
+        assert_eq!(focused_session_ids(&root), HashSet::from(["a".to_string(), "b".to_string()]));
+    }
+
+    #[test]
+    fn focused_session_ids_skips_tabs_with_no_session() {
+        let root = container("c1", "t1", vec![tab("t1", None)]);
+        assert!(focused_session_ids(&root).is_empty());
+    }
+
+    fn running(id: &str, status: &str, waiting: &str, mtime: i64) -> SessionMeta {
+        let mut s = session(id);
+        s.running = true;
+        s.status = status.into();
+        s.waiting_for = waiting.into();
+        s.mtime = mtime;
+        s
+    }
+
+    #[test]
+    fn active_candidates_only_counts_running_sessions_and_looks_up_pin_and_focus() {
+        let mut stopped = session("c");
+        stopped.running = false;
+        let sessions = [running("a", "idle", "", 10), running("b", "busy", "", 20), stopped];
+        let pinned = HashSet::from(["b".to_string()]);
+        let focused = HashSet::from(["a".to_string()]);
+        let out = active_candidates(&sessions, &pinned, &focused);
+        assert_eq!(out.len(), 2, "the stopped session is not occupying anything, so it is not a candidate at all");
+        let a = out.iter().find(|c| c.session_id == "a").unwrap();
+        assert_eq!(a.run_state, RunState::Idle);
+        assert!(!a.pinned && a.focused && a.last_active == 10);
+        let b = out.iter().find(|c| c.session_id == "b").unwrap();
+        assert_eq!(b.run_state, RunState::Busy);
+        assert!(b.pinned && !b.focused);
+    }
+
+    #[test]
+    fn step_u32_and_step_f32_clamp_to_the_range() {
+        assert_eq!(step_u32(20, 1, 2, 60), 21);
+        assert_eq!(step_u32(60, 1, 2, 60), 60, "no stepping past the max");
+        assert_eq!(step_u32(2, -1, 2, 60), 2, "no stepping past the min");
+        assert_eq!(step_f32(8.0, 1.0, 1.0, 32.0), 9.0);
+        assert_eq!(step_f32(1.0, -1.0, 1.0, 32.0), 1.0);
+    }
+
+    #[test]
+    fn policy_str_round_trips_and_falls_back_to_ask_each_time() {
+        for p in [EvictionPolicy::Auto, EvictionPolicy::AskEachTime, EvictionPolicy::Off] {
+            assert_eq!(policy_from_str(policy_to_str(p)), p);
+        }
+        assert_eq!(policy_from_str("garbage"), EvictionPolicy::AskEachTime, "a hand-edited or future value fails safe toward asking, not auto-killing");
+    }
+
+    #[test]
+    fn limits_from_prefs_converts_the_percent_and_clamps_it() {
+        let l = limits_from_prefs(20, 10, 8.0);
+        assert_eq!(l, CapacityLimits { max_active: 20, min_free_mem_ratio: 0.1, max_load_1m: 8.0 });
+        assert_eq!(limits_from_prefs(20, 500, 8.0).min_free_mem_ratio, 1.0, "a corrupt percent clamps instead of letting the cap become unreachable");
     }
 }

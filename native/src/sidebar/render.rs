@@ -361,7 +361,7 @@ impl SidebarView {
                 this.multi.clear();
                 this.selected = Some(sid_click.clone());
                 this.list_focus.focus(window);
-                this.open_session(&sid_click, cx);
+                this.open_session(&sid_click, window, cx);
                 cx.notify();
             }))
             .on_mouse_down(
@@ -549,9 +549,9 @@ impl Render for SidebarView {
             }))
             .on_action(cx.listener(|this, _: &act::SelectNext, _, cx| this.move_selection(true, cx)))
             .on_action(cx.listener(|this, _: &act::SelectPrev, _, cx| this.move_selection(false, cx)))
-            .on_action(cx.listener(|this, _: &act::OpenSelected, _, cx| {
+            .on_action(cx.listener(|this, _: &act::OpenSelected, window, cx| {
                 if let Some((_, m)) = this.selected_meta(cx) {
-                    this.open_session(&m.session_id, cx);
+                    this.open_session(&m.session_id, window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &act::OpenSelectedSplitRight, _, cx| {

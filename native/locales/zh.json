@@ -444,5 +444,17 @@
   "settings.doctor.copy": "复制检查结果",
   "settings.doctor.copied": "检查结果已复制",
   "settings.doctor.hint": "只读：检查工具、PATH、代理变量、hook、数据目录和会话目录，告诉你哪里要手动处理，不会改任何东西。复制的结果可以贴进 issue，家目录已替换成 ~。",
-  "link.toast.remote_input": "收到本机其他程序的输入"
+  "link.toast.remote_input": "收到本机其他程序的输入",
+  "capacity.ask_evict.title": "要腾位置给这个会话吗？",
+  "capacity.ask_evict.detail": "已经到会话上限。要把 %{session}（空闲中，标签会留着）换下来休眠，好开这个新会话吗？",
+  "capacity.ask_evict.confirm": "让它休眠",
+  "settings.capacity.title": "会话资源上限",
+  "settings.capacity.hint": "限制同时能跑多少个会话，超限时拒绝或先问你再开。默认值是刻意保守的第一版，用一段时间觉得太松或太紧可以自己调。",
+  "settings.capacity.max_active": "最多同时跑几个会话",
+  "settings.capacity.min_free_mem": "最低空闲内存",
+  "settings.capacity.max_load": "最高 1 分钟负载",
+  "settings.capacity.policy": "到上限时怎么办",
+  "settings.capacity.policy.auto": "自动把最久没动的空闲会话换下来",
+  "settings.capacity.policy.ask": "每次问我",
+  "settings.capacity.policy.off": "直接拒绝"
 }

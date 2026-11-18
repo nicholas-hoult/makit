@@ -444,5 +444,17 @@
   "settings.doctor.copy": "Copy results",
   "settings.doctor.copied": "Check results copied",
   "settings.doctor.hint": "Read-only: looks at the tools, PATH, proxy variables, hook, data folders and session folders, and tells you what to fix by hand. Nothing is changed. Paste the copied result into an issue; your home folder is replaced with ~.",
-  "link.toast.remote_input": "Input from another program on this Mac"
+  "link.toast.remote_input": "Input from another program on this Mac",
+  "capacity.ask_evict.title": "Make room for this session?",
+  "capacity.ask_evict.detail": "The session cap is hit. Put %{session} to sleep (it is idle, keeps its tab) to open this one?",
+  "capacity.ask_evict.confirm": "Put it to sleep",
+  "settings.capacity.title": "Session capacity",
+  "settings.capacity.hint": "Caps how many sessions may run at once, refusing or asking before a new one opens past the limit. Defaults are a deliberately conservative first cut; adjust if they turn out too loose or too tight.",
+  "settings.capacity.max_active": "Max running sessions",
+  "settings.capacity.min_free_mem": "Min free memory",
+  "settings.capacity.max_load": "Max 1-minute load",
+  "settings.capacity.policy": "When the cap is hit",
+  "settings.capacity.policy.auto": "Auto-sleep the oldest idle session",
+  "settings.capacity.policy.ask": "Ask me each time",
+  "settings.capacity.policy.off": "Just refuse"
 }

@@ -148,21 +148,21 @@ impl PaletteView {
         cx.notify();
     }
 
-    fn activate(&mut self, item: &PaletteItem, mode: Mode, cx: &mut Context<Self>) {
+    fn activate(&mut self, item: &PaletteItem, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
         let hist = push_history(&self.history, &self.query);
         self.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.palette.history = hist));
         cx.emit(PaletteEvent::Close);
         let sid = item.session_id.clone();
         match mode {
-            Mode::Default => session_ops::open_session(&sid, cx),
+            Mode::Default => session_ops::open_session(&sid, window, cx),
             Mode::SplitRight => session_ops::open_session_split(&sid, Dir::V, cx),
             Mode::SplitDown => session_ops::open_session_split(&sid, Dir::H, cx),
         }
     }
 
-    fn confirm(&mut self, mode: Mode, cx: &mut Context<Self>) {
+    fn confirm(&mut self, mode: Mode, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(it) = self.flat(cx).get(self.active).cloned() {
-            self.activate(&it, mode, cx);
+            self.activate(&it, mode, window, cx);
         }
     }
 
@@ -269,7 +269,7 @@ impl PaletteView {
                     cx.notify();
                 }
             }))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, _, cx| {
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
                 let m = ev.modifiers();
                 let mode = if m.platform && m.shift {
                     Mode::SplitDown
@@ -278,7 +278,7 @@ impl PaletteView {
                 } else {
                     Mode::Default
                 };
-                this.activate(&item, mode, cx);
+                this.activate(&item, mode, window, cx);
             }))
             // 前导定宽槽 20px：状态点 + ★，空着也占位，标题左缘是一条直线
             .child(
@@ -714,9 +714,9 @@ impl Render for PaletteView {
             .on_action(cx.listener(|_, _: &act::Dismiss, _, cx| cx.emit(PaletteEvent::Close)))
             .on_action(cx.listener(|this, _: &act::SelectNext, _, cx| this.step(1, cx)))
             .on_action(cx.listener(|this, _: &act::SelectPrev, _, cx| this.step(-1, cx)))
-            .on_action(cx.listener(|this, _: &act::Confirm, _, cx| this.confirm(Mode::Default, cx)))
-            .on_action(cx.listener(|this, _: &act::ConfirmSplitRight, _, cx| this.confirm(Mode::SplitRight, cx)))
-            .on_action(cx.listener(|this, _: &act::ConfirmSplitDown, _, cx| this.confirm(Mode::SplitDown, cx)))
+            .on_action(cx.listener(|this, _: &act::Confirm, window, cx| this.confirm(Mode::Default, window, cx)))
+            .on_action(cx.listener(|this, _: &act::ConfirmSplitRight, window, cx| this.confirm(Mode::SplitRight, window, cx)))
+            .on_action(cx.listener(|this, _: &act::ConfirmSplitDown, window, cx| this.confirm(Mode::SplitDown, window, cx)))
             .child(
                 div()
                     .id("palette")

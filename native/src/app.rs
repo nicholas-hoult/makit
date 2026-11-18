@@ -376,6 +376,14 @@ pub fn run() {
     // held until `run` returns, which is when the app quits
     let _single_instance = guard_single_instance();
     perf::mark("main start");
+    // Raise the fd soft limit before anything else opens a file or socket (#D-2090, #317): the incident this
+    // guards against (EMFILE across link accept, archive reads, scan-cache writes) comes from the OS default
+    // ceiling, not from any one subsystem leaking descriptors, so this has to happen before any of them run.
+    match crate::state::resources::raise_fd_limit() {
+        Some((old, new)) if new != old => log::info!(target: "resources", "raised the fd soft limit from {old} to {new}"),
+        Some((old, _)) => log::info!(target: "resources", "fd soft limit already {old}, left as is"),
+        None => log::warn!(target: "resources", "could not read/raise the fd soft limit"),
+    }
     Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
         let prefs = match persist::state_path() {
             Some(p) => persist::load_or_default(&p),
@@ -395,6 +403,7 @@ pub fn run() {
         cx.set_global(Theme::by_id(startup_theme, &prefs.theme.imported));
         crate::pulse::start(cx);
         crate::update::start(cx);
+        crate::state::resources::start_fd_monitor(cx);
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
         crate::notify::Notifier::init(state.clone(), cx);
