@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-11-19
+
+### Added
+- Session capacity settings: a cap on how many sessions may run at once, minimum free memory, and maximum 1-minute load are now adjustable (Settings), along with what to do when the cap is hit -- automatically sleep the longest-idle session, ask each time (default), or just refuse (#316).
+
+### Fixed
+- Opening or resuming a session while at the capacity cap now actually acts on the chosen policy instead of always refusing: it sleeps the queue's victim and proceeds (auto), or asks first when triggered locally (#316).
+- Raised the app's own file-descriptor limit at startup and started logging it periodically, to catch the kind of resource exhaustion that caused #317 earlier.
+
 ## [0.2.16] - 2026-11-18
 
 ### Fixed
