@@ -213,7 +213,7 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
                 return Err("session not found".into());
             }
-            crate::overlays::session_ops::open_session(&session_id, cx);
+            crate::overlays::session_ops::resume_session(&session_id, cx);
             Ok(MainReply::Done)
         }
     }

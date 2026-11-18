@@ -6,7 +6,7 @@ use gpui::{App, AsyncApp, ClipboardItem, PromptButton, PromptLevel, Window};
 use makit_core::SessionMeta;
 
 use super::{host, show_toast, toast};
-use crate::state::binding::{decide_open, OpenDecision};
+use crate::state::binding::{decide_link_resume, decide_open, LinkResumeDecision, OpenDecision};
 use crate::state::AppState;
 use crate::workspace::model::{collect_containers, resume_cmd, resume_init_command, Dir, Opened, Side, TabKind, TabSpec};
 
@@ -266,6 +266,33 @@ pub fn open_session(session_id: &str, cx: &mut App) {
             show_toast(ts!("sidebar.toast.already_running", pid = pid), toast::ALREADY_RUNNING, cx);
         }
         OpenDecision::OpenNew => {
+            ensure_symlink(&s);
+            let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
+            state.update(cx, |st, cx| {
+                let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(&s));
+                st.workspace_changed(cx);
+            });
+        }
+    }
+}
+
+/// Resume an ended session asked for through the local-session link (#299, #D-2044). Whether it is already
+/// running is checked by the caller (the `resume` op, before this is even reached) -- this only decides where:
+/// reuse the tab it still has (stopped, or just sitting on its exited terminal) instead of opening a second one,
+/// and only opens a new tab when none exists (`state::binding::decide_link_resume`). Plain `open_session` above
+/// cannot be reused here: its "switch to an existing tab" path only clears `stopped`, which does nothing for a
+/// tab whose terminal simply exited on its own without ever being marked stopped, leaving it sitting dead instead
+/// of actually resuming -- `resume_tab` is the one path that rebuilds the terminal in both cases.
+pub fn resume_session(session_id: &str, cx: &mut App) {
+    let state = AppState::global(cx);
+    let Some(s) = state.read(cx).session(session_id).cloned() else { return };
+    match decide_link_resume(&state.read(cx).workspace.state.root, session_id) {
+        LinkResumeDecision::Revive { tab_id } => {
+            let Some(h) = host(cx) else { return };
+            let ws = h.read(cx).workspace.clone();
+            ws.update(cx, |w, cx| w.resume_tab(&tab_id, cx));
+        }
+        LinkResumeDecision::OpenNew => {
             ensure_symlink(&s);
             let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
             state.update(cx, |st, cx| {

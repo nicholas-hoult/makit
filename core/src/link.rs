@@ -619,8 +619,10 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
                 return fail("session_id required");
             };
+            // Already running is not an error here (#D-2044): the caller asking to resume may simply not know
+            // yet that it already is, so it gets back a quiet ok instead of having to treat this as a failure.
             if backend.session_state(id).is_some() {
-                return fail("session running");
+                return json!({"ok": true, "already_running": true}).to_string();
             }
             match backend.sessions(MAX_LIMIT) {
                 Ok(list) if list.iter().any(|s| s.session_id == id) => {}
@@ -1435,11 +1437,13 @@ mod tests {
         assert_eq!(ask(&b, &json!({"op": "open", "cwd": dir, "tool": "claude", "text": "a\x07b"}).to_string())["error"], "control characters");
         assert_eq!(ask(&b, r#"{"op":"open","cwd":"/no/such/dir/here","tool":"claude"}"#)["error"], "no such directory");
         assert_eq!(ask(&b, r#"{"op":"open","cwd":"/","tool":"zsh"}"#)["error"], "unknown tool");
-        // resume: only an ended session
+        // resume: an ended session actually resumes; an already-running one is a no-op reported as such (#D-2044),
+        // not an error -- the other side may not know it is already running when it asks
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s3"}"#)["ok"], true);
-        assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s1"}"#)["error"], "session running");
+        let r = ask(&b, r#"{"op":"resume","session_id":"s1"}"#);
+        assert_eq!((r["ok"].as_bool(), r["already_running"].as_bool()), (Some(true), Some(true)));
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#)["error"], "session not found");
-        assert_eq!(*b.resumed.lock().unwrap(), vec!["s3".to_string()]);
+        assert_eq!(*b.resumed.lock().unwrap(), vec!["s3".to_string()], "the already-running one must not call resume again");
         // archive: only a session that is not running
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s3"}"#)["ok"], true);
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s1"}"#)["error"], "session running");

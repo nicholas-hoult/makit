@@ -72,6 +72,28 @@ pub fn decide_open(root: &LayoutNode, s: &SessionMeta) -> OpenDecision {
     OpenDecision::OpenNew
 }
 
+/// Where to bring an ended session back when a request comes in through the local-session link (#D-2044): the
+/// caller only gives a `session_id`, already not running (checked before this), with no idea whether makit still
+/// has a tab for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LinkResumeDecision {
+    /// A tab for this session is still there -- stopped, or just sitting on its exited terminal: bring that one back.
+    Revive { tab_id: String },
+    /// No tab anywhere (closed, or never opened in makit): start a fresh one.
+    OpenNew,
+}
+
+/// Find any tab bound to `session_id`, regardless of `stopped` (#D-2044): a resume through the link must reuse a
+/// tab whose session simply exited on its own just as much as one the user explicitly stopped.
+pub fn decide_link_resume(root: &LayoutNode, session_id: &str) -> LinkResumeDecision {
+    for c in collect_containers(root) {
+        if let Some(t) = c.tabs.iter().find(|t| t.session_id.as_deref() == Some(session_id)) {
+            return LinkResumeDecision::Revive { tab_id: t.id.clone() };
+        }
+    }
+    LinkResumeDecision::OpenNew
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +200,29 @@ mod tests {
         // running 但 pid 为 0（还没取到）：保持原行为——不拦，直接开
         let r = root(vec![tab("t1", TabKind::Shell, None)]);
         assert_eq!(decide_open(&r, &running("s4", 0, "")), OpenDecision::OpenNew);
+    }
+
+    /// #D-2044: a resume through the local-session link must reuse a stopped tab, not open a second one for the
+    /// same session -- that was piling up tabs every time the other side resumed an ended session.
+    #[test]
+    fn link_resume_revives_a_stopped_tab_instead_of_opening_a_new_one() {
+        let mut t = tab("t1", TabKind::Resume, Some("s1"));
+        t.stopped = true;
+        let r = root(vec![t]);
+        assert_eq!(decide_link_resume(&r, "s1"), LinkResumeDecision::Revive { tab_id: "t1".into() });
+    }
+
+    /// A tab whose process just exited on its own (not through the explicit "stop") is not marked `stopped` either,
+    /// but it is still the same tab and must be reused -- `stopped` only tells the UI which placeholder to render.
+    #[test]
+    fn link_resume_revives_a_live_but_not_explicitly_stopped_tab_too() {
+        let r = root(vec![tab("t1", TabKind::Resume, Some("s1"))]);
+        assert_eq!(decide_link_resume(&r, "s1"), LinkResumeDecision::Revive { tab_id: "t1".into() });
+    }
+
+    #[test]
+    fn link_resume_opens_a_new_tab_only_when_none_matches() {
+        let r = root(vec![tab("t1", TabKind::Shell, None), tab("t2", TabKind::Resume, Some("other"))]);
+        assert_eq!(decide_link_resume(&r, "s1"), LinkResumeDecision::OpenNew);
     }
 }
