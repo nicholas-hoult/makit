@@ -24,6 +24,7 @@
 //! 改完**一定**调对应的 `*_changed` / `update_prefs`，否则不存盘、别的视图也不知道。
 
 pub mod binding;
+pub mod capacity;
 pub mod sessions;
 
 use std::collections::HashSet;
