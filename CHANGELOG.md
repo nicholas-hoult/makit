@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-11-18
+
+### Fixed
+- Resuming a session through the local-session link no longer opens a second tab for it: it now brings back the tab it still has, whether that tab was explicitly stopped or its process simply exited on its own (#315). Resuming one that turns out to already be running returns a quiet "already running" instead of an error.
+- `resume` / `archive` through the local-session link now check whether a session exists directly on disk instead of against the `sessions` list, which is capped and could come back short under heavy load; a session the list happened to leave out is no longer wrongly reported as "not found" (#317).
+- `open` / `resume` through the local-session link now refuse with a clear reason when the machine is critically low on free memory or under very high load, instead of reporting success while the new session silently fails to start (#316, #317).
+
 ## [0.2.13] - 2026-11-17
 
 ### Fixed
