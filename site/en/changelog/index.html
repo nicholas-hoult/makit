@@ -24,6 +24,7 @@
 </header>
 <div class="layout">
   <aside class="side"><h3>Changelog</h3>
+    <a href="#v0.2.14">v0.2.14 — 2026-11-18</a>
     <a href="#v0.2.13">v0.2.13 — 2026-11-16</a>
     <a href="#v0.2.12">v0.2.12 — 2026-11-15</a>
     <a href="#v0.2.11">v0.2.11 — 2026-11-12</a>
@@ -51,7 +52,15 @@
       <h1>Changelog</h1>
       <p class="fine">The text is the published GitHub Release body. Drafts, prereleases, and unreleased notes are omitted. If GitHub cannot be read, the build fails and does not substitute the repository changelog.</p>
     </section>
-    <section id="v0.2.13"><h2>v0.2.13 — 2026-11-16</h2>
+    <section id="v0.2.14"><h2>v0.2.14 — 2026-11-18</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.14">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.14</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>Resuming a session through the local-session link no longer opens a second tab for it: it now brings back the tab it still has, whether that tab was explicitly stopped or its process simply exited on its own (#315). Resuming one that turns out to already be running returns a quiet &quot;already running&quot; instead of an error.</li><li><code>resume</code> / <code>archive</code> through the local-session link now check whether a session exists directly on disk instead of against the <code>sessions</code> list, which is capped and could come back short under heavy load; a session the list happened to leave out is no longer wrongly reported as &quot;not found&quot; (#317).</li><li><code>open</code> / <code>resume</code> through the local-session link now refuse with a clear reason when the machine is critically low on free memory or under very high load, instead of reporting success while the new session silently fails to start (#316, #317).</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>本机会话接口的 resume 续接已结束会话时不再新开标签：不管这个标签是被显式停止的还是进程自己退出的，都会原地把它拉起来（#315）。如果会话其实已经在跑，现在会安静地回「已经在跑」而不是报错。</li><li>本机会话接口的 resume / archive 判断会话存不存在，改成直接查磁盘，不再依赖有上限、重负载下可能变短的 <code>sessions</code> 列表；列表没包含到的会话不会再被误判成「找不到」（#317）。</li><li>本机会话接口的 open / resume 在机器空闲内存严重不足或负载过高时，现在会直接拒绝并说明原因，而不是报成功、新会话却悄悄起不来（#316、#317）。</li></ul>
+</section>
+<section id="v0.2.13"><h2>v0.2.13 — 2026-11-16</h2>
 <p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.13">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.13</a></p>
 <h3>Fixed</h3>
 <ul class="list"><li>Claude Code sitting at its prompt after a turn ends no longer reads as &quot;needs your approval&quot;: replies, the sidebar, and notifications all treat it as idle now (#308).</li><li>Sessions with a reminder no longer jump around in the sidebar as their status is re-checked; needs-reply, running, and idle sessions keep a stable order, only moving when they actually change group (#286).</li><li>A reply sent while a session is busy could have its Enter swallowed after a multi-line paste more often than while idle; it now waits a bit longer before sending Enter in that case.</li></ul>
