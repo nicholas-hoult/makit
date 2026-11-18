@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.15] - 2026-11-18
+## [0.2.16] - 2026-11-18
 
 ### Fixed
 - The Windows build (preview .zip) failed in 0.2.14 because a unix-only dependency was used unconditionally; it now reads as "unavailable" there instead, same as it already did when it could not read the data on an unsupported system. No change on macOS.
