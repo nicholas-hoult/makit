@@ -25,6 +25,7 @@
 
 pub mod binding;
 pub mod capacity;
+pub mod resources;
 pub mod sessions;
 
 use std::collections::HashSet;

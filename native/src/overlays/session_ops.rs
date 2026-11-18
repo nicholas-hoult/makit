@@ -276,6 +276,20 @@ pub fn open_session(session_id: &str, cx: &mut App) {
     }
 }
 
+/// Refuses the next `open` / `resume` through the local-session link when the machine is already stretched thin
+/// (#D-2066, #D-2078): rather than letting `open` report false success while the process silently fails to spawn
+/// (tonight's "too many open files"), or `resume` adding yet another session on top of an already-overloaded
+/// machine, this is checked first and the caller gets a clear reason instead. `None` means there is room.
+/// Readings that cannot be taken (non-macOS, `vm_stat` missing) fail open: a cap nobody can satisfy would make the
+/// cap itself the outage. The three thresholds are the defaults for now; making them settings is follow-up work.
+pub fn capacity_block(cx: &App) -> Option<String> {
+    let active_count = AppState::global(cx).read(cx).sessions.iter().filter(|s| s.running).count();
+    let free_mem_ratio = crate::state::resources::free_mem_ratio().unwrap_or(1.0);
+    let load_1m = crate::state::resources::load_1m().unwrap_or(0.0);
+    crate::state::capacity::capacity_limit(active_count, free_mem_ratio, load_1m, crate::state::capacity::CapacityLimits::default())
+        .map(|limit| limit.reason().to_string())
+}
+
 /// Resume an ended session asked for through the local-session link (#299, #D-2044). Whether it is already
 /// running is checked by the caller (the `resume` op, before this is even reached) -- this only decides where:
 /// reuse the tab it still has (stopped, or just sitting on its exited terminal) instead of opening a second one,

@@ -125,6 +125,13 @@ pub trait Backend: Send + Sync {
     fn session_cwds(&self, _session_id: &str) -> Result<CwdHistory, String> {
         Err("session_cwds not supported".into())
     }
+    /// Whether a session with this id exists at all (#D-2078). Override this with a direct lookup when one is
+    /// available: the default falls back to [`Backend::sessions`]'s list, which is capped at [`MAX_LIMIT`] and can
+    /// come back short under load (file-descriptor pressure, a very large project history) -- `resume` / `archive`
+    /// must still work on a session the list happened to leave out.
+    fn session_exists(&self, session_id: &str) -> bool {
+        self.sessions(MAX_LIMIT).is_ok_and(|list| list.iter().any(|s| s.session_id == session_id))
+    }
 }
 
 /// A session's directory history, as reported by the `session_cwds` op (#313).
@@ -602,10 +609,8 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             if backend.session_state(id).is_some() {
                 return fail("session running");
             }
-            match backend.sessions(MAX_LIMIT) {
-                Ok(list) if list.iter().any(|s| s.session_id == id) => {}
-                Ok(_) => return fail("session not found"),
-                Err(e) => return fail(e),
+            if !backend.session_exists(id) {
+                return fail("session not found");
             }
             match backend.archive(id) {
                 Ok(()) => json!({"ok": true}).to_string(),
@@ -624,10 +629,10 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             if backend.session_state(id).is_some() {
                 return json!({"ok": true, "already_running": true}).to_string();
             }
-            match backend.sessions(MAX_LIMIT) {
-                Ok(list) if list.iter().any(|s| s.session_id == id) => {}
-                Ok(_) => return fail("session not found"),
-                Err(e) => return fail(e),
+            // Checked directly against disk (#D-2078), not against `sessions`'s list: that list is capped and can
+            // come back short under load, and a session it happened to leave out must still be resumable.
+            if !backend.session_exists(id) {
+                return fail("session not found");
             }
             match backend.resume(id) {
                 Ok(()) => json!({"ok": true}).to_string(),
@@ -780,6 +785,10 @@ impl Backend for CoreBackend {
         let state = crate::scan_cache::scan_session_file(&path).ok_or("failed to read session file")?;
         Ok(CwdHistory { trail: state.cwd_trail, first: state.start_cwd, last: state.last_cwd })
     }
+
+    fn session_exists(&self, session_id: &str) -> bool {
+        crate::sessions::locate_session_file(session_id).is_some()
+    }
 }
 
 /// How often `subscribe` looks for changes, and every how many looks it sends a ping (so a dead peer is noticed).
@@ -928,6 +937,9 @@ mod tests {
         opened: Mutex<Vec<(String, String, Option<String>)>>,
         resumed: Mutex<Vec<String>>,
         archived: Mutex<Vec<String>>,
+        /// Session ids that exist (so `session_exists` is true for them) but are not in `sessions`, simulating a
+        /// session the capped/truncated list leaves out (#D-2078).
+        existing_but_unlisted: Vec<String>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -985,6 +997,9 @@ mod tests {
             }
             Ok(CwdHistory { trail: vec![("/a".into(), 2), ("/b".into(), 1)], first: "/a".into(), last: "/a".into() })
         }
+        fn session_exists(&self, id: &str) -> bool {
+            self.sessions.iter().any(|s| s.session_id == id) || self.existing_but_unlisted.iter().any(|s| s == id)
+        }
     }
 
     fn fake() -> Fake {
@@ -996,6 +1011,7 @@ mod tests {
             opened: Mutex::new(Vec::new()),
             resumed: Mutex::new(Vec::new()),
             archived: Mutex::new(Vec::new()),
+            existing_but_unlisted: Vec::new(),
         }
     }
 
@@ -1450,6 +1466,19 @@ mod tests {
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"nope"}"#)["error"], "session not found");
         assert_eq!(ask(&b, r#"{"op":"archive"}"#)["error"], "session_id required");
         assert_eq!(*b.archived.lock().unwrap(), vec!["s3".to_string()]);
+    }
+
+    /// #D-2078: `sessions`'s list is capped and can come back short under load (file-descriptor pressure was the
+    /// real trigger tonight); resume/archive checked existence against that list and wrongly reported "session not
+    /// found" for a session that genuinely exists but the list happened to leave out.
+    #[test]
+    fn resume_and_archive_work_on_a_session_the_capped_list_left_out() {
+        let b = Fake { write_on: true, existing_but_unlisted: vec!["s9".into()], ..fake() };
+        assert_eq!(ask(&b, r#"{"op":"sessions"}"#)["sessions"].as_array().unwrap().iter().any(|s| s["session_id"] == "s9"), false, "s9 is not in the list");
+        assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s9"}"#)["ok"], true);
+        assert_eq!(*b.resumed.lock().unwrap(), vec!["s9".to_string()]);
+        assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s9"}"#)["ok"], true);
+        assert_eq!(*b.archived.lock().unwrap(), vec!["s9".to_string()]);
     }
 
     #[test]

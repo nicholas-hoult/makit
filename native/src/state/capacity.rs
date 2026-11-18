@@ -110,6 +110,18 @@ pub enum EvictionDecision {
     AskToSleep { session_id: String },
 }
 
+impl CapacityLimit {
+    /// A short, caller-facing reason (#D-2078): used in both the link.sock error and any local toast, so there is
+    /// one place that decides the wording.
+    pub fn reason(self) -> &'static str {
+        match self {
+            CapacityLimit::Count => "too many sessions are already running",
+            CapacityLimit::LowMemory => "the system is low on free memory",
+            CapacityLimit::HighLoad => "the system load is too high right now",
+        }
+    }
+}
+
 pub fn decide_eviction(limit: CapacityLimit, victim: Option<&ActiveCandidate>, policy: EvictionPolicy) -> EvictionDecision {
     match (policy, victim) {
         (EvictionPolicy::Off, _) | (_, None) => EvictionDecision::Blocked(limit),
@@ -184,5 +196,11 @@ mod tests {
     #[test]
     fn default_policy_is_ask_each_time() {
         assert_eq!(EvictionPolicy::default(), EvictionPolicy::AskEachTime);
+    }
+
+    #[test]
+    fn every_limit_has_a_distinct_reason() {
+        let reasons = [CapacityLimit::Count.reason(), CapacityLimit::LowMemory.reason(), CapacityLimit::HighLoad.reason()];
+        assert_eq!(reasons.len(), std::collections::HashSet::from(reasons).len(), "reasons must not collide");
     }
 }

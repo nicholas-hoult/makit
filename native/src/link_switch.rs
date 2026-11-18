@@ -201,6 +201,9 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
         MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done),
         MainOp::Screen { session_id } => ws.update(cx, |w, cx| w.screen_of_session(&session_id, cx)).map(MainReply::Screen),
         MainOp::Open { cwd, tool, text } => {
+            if let Some(reason) = crate::overlays::session_ops::capacity_block(cx) {
+                return Err(reason);
+            }
             let state = AppState::global(cx);
             state.update(cx, |s, cx| {
                 s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref());
@@ -212,6 +215,9 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
         MainOp::Resume { session_id } => {
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
                 return Err("session not found".into());
+            }
+            if let Some(reason) = crate::overlays::session_ops::capacity_block(cx) {
+                return Err(reason);
             }
             crate::overlays::session_ops::resume_session(&session_id, cx);
             Ok(MainReply::Done)
