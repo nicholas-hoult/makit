@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-11-19
+
+### Added
+- The local-session link's `open` / `resume` now carry a structured `capacity_limit` field ("count" / "low_memory" / "high_load") when refused by the capacity cap, so an automated caller can react to which threshold tripped instead of parsing the message (#316).
+
 ## [0.2.17] - 2026-11-19
 
 ### Added
