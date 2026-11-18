@@ -354,20 +354,32 @@ pub fn capacity_decision(cx: &App) -> Option<(crate::state::capacity::CapacityLi
     Some((limit, decide_eviction(limit, victim, policy)))
 }
 
+/// The three capacity thresholds (#316), as the local-session link protocol tags them (#D-2099: 总管's own
+/// automation wants to switch on this instead of parsing the English message).
+fn core_capacity_kind(limit: crate::state::capacity::CapacityLimit) -> makit_core::link::CapacityLimitKind {
+    use crate::state::capacity::CapacityLimit::*;
+    use makit_core::link::CapacityLimitKind as K;
+    match limit {
+        Count => K::Count,
+        LowMemory => K::LowMemory,
+        HighLoad => K::HighLoad,
+    }
+}
+
 /// The capacity cap acting on `open` / `resume` through the local-session link (#D-2066, #D-2078, #D-2090): a
 /// remote caller never gets asked interactively -- it cannot see or answer a confirm dialog on this machine (TRD
 /// #316: "跨 link 的调用方不能代替本机用户做决定") -- so `AskToSleep` resolves the same as `Off` here, a plain
 /// refusal with the reason. `Auto` still actually sleeps the victim and lets the request through; `None` means
 /// there is room. Readings that cannot be taken (non-macOS, `vm_stat` missing) fail open: a cap nobody can
 /// satisfy would make the cap itself the outage.
-pub fn capacity_block(cx: &mut App) -> Option<String> {
+pub fn capacity_block(cx: &mut App) -> Option<makit_core::link::OpenError> {
     use crate::state::capacity::EvictionDecision;
     match capacity_decision(cx)? {
         (_, EvictionDecision::AutoSleep { session_id }) => {
             sleep_eviction_victim(&session_id, cx);
             None
         }
-        (limit, _) => Some(limit.reason().to_string()),
+        (limit, _) => Some(makit_core::link::OpenError::capacity(core_capacity_kind(limit), limit.reason())),
     }
 }
 

@@ -15,7 +15,7 @@ use std::time::Duration;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
 use gpui::{App, Entity, WindowHandle};
-use makit_core::link::{Backend, CoreBackend, Cursor, Handle, Screen, SessionInfo, TranscriptPage};
+use makit_core::link::{Backend, CoreBackend, Cursor, Handle, OpenError, Screen, SessionInfo, TranscriptPage};
 
 use crate::state::{AppEvent, AppState};
 
@@ -57,10 +57,12 @@ pub enum MainReply {
     Screen(Screen),
 }
 
-/// 一次请求：socket 线程发给主线程，`reply` 收回执。
+/// 一次请求：socket 线程发给主线程，`reply` 收回执。错误用 `OpenError`（不是普通 `String`）：`open`/`resume`
+/// 被容量上限拦住时要带上结构化的 `capacity_limit`（#D-2099），`Write`/`Screen` 走同一个通道，错误原样包成
+/// `OpenError::Other`，靠 `From<OpenError> for String` 在各自的 `Backend` 方法里自动降级回普通消息
 pub struct MainRequest {
     pub op: MainOp,
-    pub reply: std_mpsc::Sender<Result<MainReply, String>>,
+    pub reply: std_mpsc::Sender<Result<MainReply, OpenError>>,
 }
 
 /// 等主线程回执的上限。主线程在忙（比如正在大量输出）时也不该让手机一直转圈。
@@ -79,13 +81,13 @@ impl NativeBackend {
         Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT }
     }
 
-    fn ask(&self, op: MainOp) -> Result<MainReply, String> {
+    fn ask(&self, op: MainOp) -> Result<MainReply, OpenError> {
         let (reply, wait) = std_mpsc::channel();
-        self.tx.unbounded_send(MainRequest { op, reply }).map_err(|_| "makit is shutting down".to_string())?;
-        wait.recv_timeout(self.timeout).map_err(|_| "makit did not respond".to_string())?
+        self.tx.unbounded_send(MainRequest { op, reply }).map_err(|_| OpenError::from("makit is shutting down"))?;
+        wait.recv_timeout(self.timeout).map_err(|_| OpenError::from("makit did not respond"))?
     }
 
-    fn ask_done(&self, op: MainOp) -> Result<(), String> {
+    fn ask_done(&self, op: MainOp) -> Result<(), OpenError> {
         match self.ask(op)? {
             MainReply::Done => Ok(()),
             MainReply::Screen(_) => Err("unexpected reply".into()),
@@ -111,7 +113,7 @@ impl Backend for NativeBackend {
     }
 
     fn write(&self, session_id: &str, bytes: Vec<u8>) -> Result<(), String> {
-        self.ask_done(MainOp::Write { session_id: session_id.to_string(), bytes })
+        Ok(self.ask_done(MainOp::Write { session_id: session_id.to_string(), bytes })?)
     }
 
     fn screen(&self, session_id: &str) -> Result<Screen, String> {
@@ -121,11 +123,11 @@ impl Backend for NativeBackend {
         }
     }
 
-    fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), String> {
+    fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), OpenError> {
         self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from) })
     }
 
-    fn resume(&self, session_id: &str) -> Result<(), String> {
+    fn resume(&self, session_id: &str) -> Result<(), OpenError> {
         self.ask_done(MainOp::Resume { session_id: session_id.to_string() })
     }
 
@@ -195,14 +197,14 @@ pub fn attach_window(handle: WindowHandle<crate::app::Root>, mut rx: UnboundedRe
     .detach();
 }
 
-fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::app::Root>) -> Result<MainReply, String> {
+fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::app::Root>) -> Result<MainReply, OpenError> {
     let ws = root.workspace_view();
     match op {
-        MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done),
-        MainOp::Screen { session_id } => ws.update(cx, |w, cx| w.screen_of_session(&session_id, cx)).map(MainReply::Screen),
+        MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done).map_err(OpenError::from),
+        MainOp::Screen { session_id } => ws.update(cx, |w, cx| w.screen_of_session(&session_id, cx)).map(MainReply::Screen).map_err(OpenError::from),
         MainOp::Open { cwd, tool, text } => {
-            if let Some(reason) = crate::overlays::session_ops::capacity_block(cx) {
-                return Err(reason);
+            if let Some(e) = crate::overlays::session_ops::capacity_block(cx) {
+                return Err(e);
             }
             let state = AppState::global(cx);
             state.update(cx, |s, cx| {
@@ -216,8 +218,8 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
                 return Err("session not found".into());
             }
-            if let Some(reason) = crate::overlays::session_ops::capacity_block(cx) {
-                return Err(reason);
+            if let Some(e) = crate::overlays::session_ops::capacity_block(cx) {
+                return Err(e);
             }
             crate::overlays::session_ops::resume_session(&session_id, cx);
             Ok(MainReply::Done)

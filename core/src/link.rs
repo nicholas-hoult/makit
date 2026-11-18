@@ -86,6 +86,63 @@ pub enum Cursor {
     Tail(usize),
 }
 
+/// Which of the three capacity thresholds (#316) refused an `open` / `resume` -- a structured tag alongside the
+/// human-readable message, so an automated caller (#D-2099: 总管's own scripts) can tell "too many sessions" apart
+/// from "low memory" from "high load" without parsing English text that is free to reword later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapacityLimitKind {
+    Count,
+    LowMemory,
+    HighLoad,
+}
+
+impl CapacityLimitKind {
+    /// The `capacity_limit` field's value in the JSON reply.
+    fn tag(self) -> &'static str {
+        match self {
+            CapacityLimitKind::Count => "count",
+            CapacityLimitKind::LowMemory => "low_memory",
+            CapacityLimitKind::HighLoad => "high_load",
+        }
+    }
+}
+
+/// An `open` / `resume` failure. Every other [`Backend`] method keeps the plain `Result<_, String>` it always had --
+/// this richer type exists only where #D-2099 asked for a structured reason, so `message` is still there for every
+/// caller that just wants to display or log something, and `capacity` is `Some` only when a capacity threshold
+/// (rather than, say, "no such directory" or "unknown tool") was the cause.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenError {
+    pub message: String,
+    pub capacity: Option<CapacityLimitKind>,
+}
+
+impl OpenError {
+    pub fn capacity(kind: CapacityLimitKind, message: impl Into<String>) -> Self {
+        Self { message: message.into(), capacity: Some(kind) }
+    }
+}
+
+impl From<String> for OpenError {
+    fn from(message: String) -> Self {
+        Self { message, capacity: None }
+    }
+}
+
+impl From<&str> for OpenError {
+    fn from(message: &str) -> Self {
+        Self { message: message.into(), capacity: None }
+    }
+}
+
+/// Lets `?` downgrade an [`OpenError`] back to a plain message wherever a caller only ever wanted `String` (the
+/// `write` / `screen` requests forwarded through the same main-thread channel as `open` / `resume`, #D-2099).
+impl From<OpenError> for String {
+    fn from(e: OpenError) -> String {
+        e.message
+    }
+}
+
 pub trait Backend: Send + Sync {
     fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String>;
     fn transcript(&self, session_id: &str, cursor: Cursor) -> Result<TranscriptPage, String>;
@@ -108,11 +165,11 @@ pub trait Backend: Send + Sync {
     /// Start `tool` in a new tab in `cwd`, typing `text` as its first message when given (so the session writes its
     /// file right away instead of waiting at an empty prompt). Only called after [`plan_open`] / [`validate_open_text`]
     /// accepted the request and the directory exists.
-    fn open(&self, _cwd: &str, _tool: &str, _text: Option<&str>) -> Result<(), String> {
+    fn open(&self, _cwd: &str, _tool: &str, _text: Option<&str>) -> Result<(), OpenError> {
         Err("open not supported".into())
     }
     /// Resume an ended session in a tab, in its own directory.
-    fn resume(&self, _session_id: &str) -> Result<(), String> {
+    fn resume(&self, _session_id: &str) -> Result<(), OpenError> {
         Err("resume not supported".into())
     }
     /// Archive a session that is not running (same action as the sidebar's archive). Only called after the caller
@@ -525,6 +582,17 @@ fn fail(msg: impl Into<String>) -> String {
     json!({"ok": false, "error": msg.into()}).to_string()
 }
 
+/// Same as [`fail`], plus the structured `capacity_limit` field when the error was the capacity cap (#D-2099).
+/// Added as an extra field only: `hello.ops` and the protocol version do not change, so a caller that does not
+/// look for this field sees exactly the same reply it always did.
+fn fail_open(e: OpenError) -> String {
+    let mut v = json!({"ok": false, "error": e.message});
+    if let Some(k) = e.capacity {
+        v.as_object_mut().expect("object").insert("capacity_limit".into(), json!(k.tag()));
+    }
+    v.to_string()
+}
+
 /// Answer one request line (no trailing newline) with one response line (no trailing newline).
 pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
     if line.len() > MAX_REQUEST {
@@ -596,7 +664,7 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             let started_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
             match backend.open(cwd, tool, text.as_deref()) {
                 Ok(()) => json!({"ok": true, "started_at": started_at}).to_string(),
-                Err(e) => fail(e),
+                Err(e) => fail_open(e),
             }
         }
         Some("archive") => {
@@ -636,7 +704,7 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             }
             match backend.resume(id) {
                 Ok(()) => json!({"ok": true}).to_string(),
-                Err(e) => fail(e),
+                Err(e) => fail_open(e),
             }
         }
         Some("subscribe") => fail("subscribe keeps the connection open, send it as the only request on a connection"),
@@ -940,6 +1008,9 @@ mod tests {
         /// Session ids that exist (so `session_exists` is true for them) but are not in `sessions`, simulating a
         /// session the capped/truncated list leaves out (#D-2078).
         existing_but_unlisted: Vec<String>,
+        /// Set to simulate `open` / `resume` refusing because of the capacity cap (#D-2099), tagged with which
+        /// threshold tripped.
+        capacity_block: Mutex<Option<CapacityLimitKind>>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -972,11 +1043,17 @@ mod tests {
             self.written.lock().unwrap().push((id.to_string(), bytes));
             Ok(())
         }
-        fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), String> {
+        fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), OpenError> {
+            if let Some(kind) = *self.capacity_block.lock().unwrap() {
+                return Err(OpenError::capacity(kind, "at the cap"));
+            }
             self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string(), text.map(String::from)));
             Ok(())
         }
-        fn resume(&self, id: &str) -> Result<(), String> {
+        fn resume(&self, id: &str) -> Result<(), OpenError> {
+            if let Some(kind) = *self.capacity_block.lock().unwrap() {
+                return Err(OpenError::capacity(kind, "at the cap"));
+            }
             self.resumed.lock().unwrap().push(id.to_string());
             Ok(())
         }
@@ -1012,6 +1089,7 @@ mod tests {
             resumed: Mutex::new(Vec::new()),
             archived: Mutex::new(Vec::new()),
             existing_but_unlisted: Vec::new(),
+            capacity_block: Mutex::new(None),
         }
     }
 
@@ -1479,6 +1557,29 @@ mod tests {
         assert_eq!(*b.resumed.lock().unwrap(), vec!["s9".to_string()]);
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s9"}"#)["ok"], true);
         assert_eq!(*b.archived.lock().unwrap(), vec!["s9".to_string()]);
+    }
+
+    /// #D-2099 (总管's own automation asked for this): `open` / `resume` refused by the capacity cap carry a
+    /// structured `capacity_limit` field, not just the human-readable message, so a caller can switch on which
+    /// threshold tripped. Every other refusal (missing directory, unknown tool, session not found, ...) must not
+    /// carry the field at all -- it is specific to the capacity cap, not a general-purpose error code.
+    #[test]
+    fn open_and_resume_report_which_capacity_threshold_tripped() {
+        let b = Fake { write_on: true, ..fake() };
+        *b.capacity_block.lock().unwrap() = Some(CapacityLimitKind::LowMemory);
+        let r = ask(&b, r#"{"op":"open","cwd":"/","tool":"claude"}"#);
+        assert_eq!((r["ok"].as_bool(), r["capacity_limit"].as_str()), (Some(false), Some("low_memory")));
+        assert!(r["error"].as_str().is_some_and(|e| !e.is_empty()));
+        let r = ask(&b, r#"{"op":"resume","session_id":"s3"}"#);
+        assert_eq!((r["ok"].as_bool(), r["capacity_limit"].as_str()), (Some(false), Some("low_memory")));
+        *b.capacity_block.lock().unwrap() = Some(CapacityLimitKind::Count);
+        assert_eq!(ask(&b, r#"{"op":"open","cwd":"/","tool":"claude"}"#)["capacity_limit"], "count");
+        *b.capacity_block.lock().unwrap() = Some(CapacityLimitKind::HighLoad);
+        assert_eq!(ask(&b, r#"{"op":"open","cwd":"/","tool":"claude"}"#)["capacity_limit"], "high_load");
+        // A refusal that is not the capacity cap must not carry the field at all
+        *b.capacity_block.lock().unwrap() = None;
+        assert!(ask(&b, r#"{"op":"open","cwd":"/no/such/dir","tool":"claude"}"#).get("capacity_limit").is_none());
+        assert!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#).get("capacity_limit").is_none());
     }
 
     #[test]
