@@ -36,7 +36,10 @@ pub fn free_mem_ratio() -> Option<f32> {
     parse_vm_stat_free_ratio(&String::from_utf8_lossy(&output.stdout))
 }
 
-/// 1-minute load average via the C library call (no subprocess, works the same on macOS and Linux).
+/// 1-minute load average via the C library call (no subprocess, works the same on macOS and Linux). `libc` is a
+/// unix-only dependency (see `native/Cargo.toml`), and Windows has no equivalent "load average" concept at all
+/// (TRD #316 risk note); `None` there is the correct, permanent answer, not a gap to close later.
+#[cfg(unix)]
 pub fn load_1m() -> Option<f32> {
     let mut loads = [0.0f64; 3];
     let n = unsafe { libc::getloadavg(loads.as_mut_ptr(), 3) };
@@ -44,6 +47,11 @@ pub fn load_1m() -> Option<f32> {
         return None;
     }
     Some(loads[0] as f32)
+}
+
+#[cfg(not(unix))]
+pub fn load_1m() -> Option<f32> {
+    None
 }
 
 #[cfg(test)]
@@ -89,11 +97,18 @@ Swapouts:                                     391537.\n";
         assert_eq!(parse_vm_stat_free_ratio("Pages free: not-a-number."), None);
     }
 
+    #[cfg(unix)]
     #[test]
     fn load_1m_returns_a_plausible_number_on_this_real_machine() {
         // Not a platform-behavior claim beyond "the call works and returns something sane" -- the actual
         // threshold logic is tested in `capacity.rs` with synthetic numbers.
         let l = load_1m().expect("getloadavg works on macOS/Linux");
         assert!(l >= 0.0 && l < 10_000.0);
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn load_1m_is_unknown_on_non_unix() {
+        assert_eq!(load_1m(), None);
     }
 }
