@@ -9,8 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.21] - 2026-11-19
+
+### Added
+- The local-session link's `resume` gained an optional `allow_new_tab`: the caller can ask makit to only reuse a tab the session already has and refuse (with a structured reason) instead of opening a new one when there is nothing to reuse (#299).
+
 ### Fixed
 - The installed Claude Code hook script hung for ~4s on every single hook event (until Claude Code's own hook timeout killed it): macOS's bundled `nc` never exits once its peer closes the connection. The script now calls a `hook` subcommand on makit's own executable instead (#215).
+- Resuming an ended session through the local-session link could fail with "did not start a process" for every session right after a restart: the check for "does this tab need reviving" mistook "nothing has been built for it yet this launch" for "already running fine" (#299).
+- The detached helper that swaps in a downloaded update and relaunches makit now runs in its own process group instead of makit's, so it keeps running even if something signals makit's whole process group while it is still waiting for the old process to exit (#299).
 
 ## [0.2.20] - 2026-11-19
 
