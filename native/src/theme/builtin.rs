@@ -1,16 +1,19 @@
-//! 内置 21 套主题的源色（#248）：深色 11 套（Embark 在最前，是默认）+ 浅色 10 套。
+//! 内置 18 套主题的源色（#248）：深色 10 套（Embark 在最前，是默认）+ 浅色 8 套。
 //!
 //! 来源：<https://github.com/mbadolato/iTerm2-Color-Schemes>（MIT）里的 `.itermcolors`，经 `itermcolors::parse_itermcolors`
 //! 解析（P3 已换算成 sRGB）得到的十六进制。合集本身是 MIT，但合集自己的 LICENSE 原文写明这只覆盖仓库整体，不覆盖单个主题；
-//! 每套主题的真实上游项目和授权见 `THIRD_PARTY_THEMES.md`（已逐个核实，#255）。Modus Vivendi/Operandi Tinted 的上游是
-//! GPL-3.0-or-later、Moonwalk 的上游没有 LICENSE 文件，这两条的授权风险目前尚未解决，怎么处理待定。
+//! 每套主题的真实上游项目和授权见 `THIRD_PARTY_THEMES.md`（已逐个核实，#255）。
 //! 挑选标准：六种主色色相正确且不发灰、12 个常用文字色对比度 ≥ 3:1、正文 ≥ 7:1（`tests::every_builtin_theme_is_readable` 守着）。
 //! 切换前的旧 25 套留在 `legacy_fixture.rs`（仅测试用，给 Tauri 版推导结果对照）。
+//!
+//! Moonwalk（上游没有 LICENSE 文件）和 Modus Vivendi/Modus Operandi Tinted（上游是 GPL-3.0-or-later，
+//! 作者没有说过色值本身可以自由引用）这三套已经撤下（#255，总管 #D-2114 定）。色值仍留在 [`REMOVED`]：
+//! 不是给用户选的，只用来给曾经选中它们的人算一个色值最接近的现存主题、迁过去（`migrate_removed_theme`）。
 
 use super::derive::ThemeSource;
 
 /// (id, 名字, bg, fg, ANSI 16 色)
-const RAW: [(&str, &str, &str, &str, [&str; 16]); 21] = [
+const RAW: [(&str, &str, &str, &str, [&str; 16]); 18] = [
     ("embark", "Embark", "#1e1c31", "#eeffff", ["#1e1c31", "#f0719b", "#a1efd3", "#ffe9aa", "#57c7ff", "#c792ea", "#87dfeb", "#f8f8f2", "#585273", "#f02e6e", "#2ce592", "#ffb378", "#1da0e2", "#a742ea", "#63f2f1", "#a6b3cc"]),
     ("catppuccin-mocha", "Catppuccin Mocha", "#1e1e2e", "#cdd6f4", ["#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de", "#585b70", "#f7aec2", "#c2ecbf", "#fcd682", "#aeccfc", "#f398da", "#b1eae1", "#a6adc8"]),
     ("catppuccin-macchiato", "Catppuccin Macchiato", "#24273a", "#cad3f5", ["#494d64", "#ed8796", "#a6da95", "#eed49f", "#8aadf4", "#f5bde6", "#8bd5ca", "#b8c0e0", "#5b6078", "#f2a7b2", "#bde3b0", "#f4e3c1", "#adc5f7", "#f493da", "#a5ded6", "#a5adcb"]),
@@ -21,32 +24,58 @@ const RAW: [(&str, &str, &str, &str, [&str; 16]); 21] = [
     ("carbonfox", "Carbonfox", "#161616", "#f2f4f8", ["#282828", "#ee5396", "#25be6a", "#08bdba", "#78a9ff", "#be95ff", "#33b1ff", "#dfdfe0", "#484848", "#f16da6", "#46c880", "#2dc7c4", "#8cb6ff", "#c8a5ff", "#52bdff", "#e4e4e5"]),
     ("moonfly", "Moonfly", "#080808", "#bdbdbd", ["#323437", "#ff5454", "#8cc85f", "#e3c78a", "#80a0ff", "#cf87e8", "#79dac8", "#c6c6c6", "#949494", "#ff5189", "#36c692", "#c6c684", "#74b2ff", "#ae81ff", "#85dc85", "#e4e4e4"]),
     ("everblush", "Everblush", "#141b1e", "#dadada", ["#232a2d", "#e57474", "#8ccf7e", "#e5c76b", "#67b0e8", "#c47fd5", "#6cbfbf", "#b3b9b8", "#2d3437", "#ef7e7e", "#96d988", "#f4d67a", "#71baf2", "#ce89df", "#67cbe7", "#bdc3c2"]),
-    ("modus-vivendi-tinted", "Modus Vivendi Tinted", "#0d0e1c", "#ffffff", ["#0d0e1c", "#ff5f59", "#44bc44", "#d0bc00", "#2fafff", "#feacd0", "#00d3d0", "#a6a6a6", "#595959", "#ff6b55", "#00c06f", "#fec43f", "#79a8ff", "#b6a0ff", "#6ae4b9", "#ffffff"]),
     ("github-light-default", "GitHub Light Default", "#ffffff", "#1f2328", ["#24292f", "#cf222e", "#116329", "#4d2d00", "#0969da", "#8250df", "#1b7c83", "#6e7781", "#57606a", "#a40e26", "#1a7f37", "#633c01", "#218bff", "#a475f9", "#3192aa", "#8c959f"]),
     ("github-light-high-contrast", "GitHub Light High Contrast", "#ffffff", "#0e1116", ["#0e1116", "#a0111f", "#024c1a", "#3f2200", "#0349b4", "#622cbc", "#1b7c83", "#66707b", "#4b535d", "#86061d", "#055d20", "#4e2c00", "#1168e3", "#844ae7", "#3192aa", "#88929d"]),
-    ("modus-operandi-tinted", "Modus Operandi Tinted", "#fbf7f0", "#000000", ["#000000", "#a60000", "#006800", "#6f5500", "#0031a9", "#721045", "#005e8b", "#a6a6a6", "#595959", "#972500", "#00663f", "#884900", "#3548cf", "#531ab6", "#005f5f", "#595959"]),
     ("dayfox", "Dayfox", "#f6f2ee", "#3d2b5a", ["#352c24", "#a5222f", "#396847", "#ac5402", "#2848a9", "#6e33ce", "#287980", "#f2e9e1", "#534c45", "#b3434e", "#577f63", "#b86e28", "#4863b6", "#8452d5", "#488d93", "#f4ece6"]),
     ("zenbones-light", "Zenbones Light", "#f0edec", "#2c363c", ["#f0edec", "#a8334c", "#4f6c31", "#944927", "#286486", "#88507d", "#3b8992", "#2c363c", "#cfc1ba", "#94253e", "#3f5a22", "#803d1c", "#1d5573", "#7b3b70", "#2b747c", "#4f5e68"]),
     ("porcelain", "Porcelain", "#fbfbfd", "#2a2e37", ["#2a2e37", "#c60018", "#157424", "#855700", "#004cc8", "#761bc3", "#006873", "#5a6170", "#828896", "#d60027", "#1b842d", "#af2700", "#005bdb", "#862ad2", "#007f8f", "#1b1e25"]),
     ("letterpress", "Letterpress", "#f3ecdf", "#3a352c", ["#3a352c", "#b0202a", "#506b24", "#8a5e0a", "#2a5c8a", "#6e4b2e", "#176b5f", "#aeaba4", "#8e886f", "#b0202a", "#506b24", "#8a4fa0", "#2a5c8a", "#176b5f", "#176b5f", "#3a352c"]),
-    ("moonwalk", "Moonwalk", "#e4e2e0", "#061f4a", ["#080808", "#7a0047", "#145b0e", "#733a11", "#002fa7", "#5400a8", "#00566b", "#9c958d", "#494440", "#af1608", "#4c6129", "#7a5000", "#0d50c5", "#952197", "#006092", "#ffffff"]),
     ("patina-light", "Patina Light", "#ddd7c4", "#2e2a24", ["#2e2a24", "#9b3b3b", "#34644c", "#6e5817", "#2f626f", "#7a4f47", "#2e6260", "#5a5248", "#625a51", "#833333", "#2d5839", "#634e14", "#2c5660", "#6d463e", "#285654", "#393a34"]),
     ("nvim-light", "Nvim Light", "#e0e2ea", "#14161b", ["#07080d", "#590008", "#005523", "#6b5300", "#004c73", "#470045", "#007373", "#eef1f8", "#4f5258", "#590008", "#005523", "#6b5300", "#004c73", "#470045", "#007373", "#eef1f8"]),
+];
+
+/// 被撤下的三套（#255/#D-2114）：授权没解决，不再给用户选，但保留原始色值只用于
+/// `removed_theme` / `nearest_surviving` 给已经选中它们的人算迁移目标。永远不出现在 [`builtin_themes`] 里。
+const REMOVED: [(&str, &str, &str, &str, [&str; 16]); 3] = [
+    ("moonwalk", "Moonwalk", "#e4e2e0", "#061f4a", ["#080808", "#7a0047", "#145b0e", "#733a11", "#002fa7", "#5400a8", "#00566b", "#9c958d", "#494440", "#af1608", "#4c6129", "#7a5000", "#0d50c5", "#952197", "#006092", "#ffffff"]),
+    ("modus-vivendi-tinted", "Modus Vivendi Tinted", "#0d0e1c", "#ffffff", ["#0d0e1c", "#ff5f59", "#44bc44", "#d0bc00", "#2fafff", "#feacd0", "#00d3d0", "#a6a6a6", "#595959", "#ff6b55", "#00c06f", "#fec43f", "#79a8ff", "#b6a0ff", "#6ae4b9", "#ffffff"]),
+    ("modus-operandi-tinted", "Modus Operandi Tinted", "#fbf7f0", "#000000", ["#000000", "#a60000", "#006800", "#6f5500", "#0031a9", "#721045", "#005e8b", "#a6a6a6", "#595959", "#972500", "#00663f", "#884900", "#3548cf", "#531ab6", "#005f5f", "#595959"]),
 ];
 
 pub const DEFAULT_THEME_ID: &str = "embark";
 
 pub fn builtin_themes() -> Vec<ThemeSource> {
-    RAW.iter()
-        .map(|(id, name, bg, fg, ansi)| ThemeSource {
-            id: id.to_string(),
-            name: name.to_string(),
-            bg: bg.to_string(),
-            fg: fg.to_string(),
-            ansi: ansi.iter().map(|s| s.to_string()).collect(),
-            selection: None,
-        })
-        .collect()
+    RAW.iter().map(from_raw).collect()
+}
+
+fn from_raw((id, name, bg, fg, ansi): &(&str, &str, &str, &str, [&str; 16])) -> ThemeSource {
+    ThemeSource { id: id.to_string(), name: name.to_string(), bg: bg.to_string(), fg: fg.to_string(), ansi: ansi.iter().map(|s| s.to_string()).collect(), selection: None }
+}
+
+/// A removed theme (#255/#D-2114), by id. `None` for anything still in [`builtin_themes`] or never known at all.
+pub fn removed_theme(id: &str) -> Option<ThemeSource> {
+    REMOVED.iter().find(|r| r.0 == id).map(from_raw)
+}
+
+/// Squared Euclidean distance between two `#rrggbb` colors -- a plain visual-closeness metric, not anything
+/// perceptual (no need for more than "which of these looks least different").
+fn color_dist2(a: &str, b: &str) -> u32 {
+    let (ar, ag, ab) = super::derive::hex_to_rgb(a);
+    let (br, bg, bb) = super::derive::hex_to_rgb(b);
+    let d = |x: u8, y: u8| (x as i32 - y as i32).pow(2) as u32;
+    d(ar, br) + d(ag, bg) + d(ab, bb)
+}
+
+/// Distance between two themes' full color sets (bg + fg + all 16 ANSI slots), so two themes that merely share a
+/// background but clash everywhere else don't count as "close".
+fn theme_dist(a: &ThemeSource, b: &ThemeSource) -> u32 {
+    color_dist2(&a.bg, &b.bg) + color_dist2(&a.fg, &b.fg) + a.ansi.iter().zip(b.ansi.iter()).map(|(x, y)| color_dist2(x, y)).sum::<u32>()
+}
+
+/// Which surviving built-in theme looks most like `removed` (#255/#D-2114): the one a user who had `removed`
+/// selected should be migrated to. `builtin_themes()` is never empty, so this always returns something.
+pub fn nearest_surviving(removed: &ThemeSource) -> ThemeSource {
+    builtin_themes().into_iter().min_by_key(|t| theme_dist(removed, t)).unwrap_or_else(|| from_raw(&RAW[0]))
 }
 
 #[cfg(test)]
@@ -99,6 +128,29 @@ mod tests {
     fn dark_themes_come_first_then_light() {
         let themes = builtin_themes();
         let (dark, light) = (themes.iter().filter(|t| !is_light(&t.bg)).count(), themes.iter().filter(|t| is_light(&t.bg)).count());
-        assert_eq!((dark, light), (11, 10), "深色 11（Embark + 10）、浅色 10");
+        assert_eq!((dark, light), (10, 8), "深色 10（Embark + 9）、浅色 8（#255/#D-2114 撤下 Moonwalk 后）");
+    }
+
+    /// #255/#D-2114: 这三套授权没解决，撤下来不再给用户选，但还查得到色值和能算出一个迁移目标
+    #[test]
+    fn removed_themes_are_not_in_the_builtin_list_but_still_resolve_and_have_a_migration_target() {
+        for id in ["moonwalk", "modus-vivendi-tinted", "modus-operandi-tinted"] {
+            assert!(!builtin_themes().iter().any(|t| t.id == id), "{id} 不该再出现在可选列表里");
+            let removed = removed_theme(id).unwrap_or_else(|| panic!("{id} 该在 REMOVED 里"));
+            let nearest = nearest_surviving(&removed);
+            assert_ne!(nearest.id, id, "迁移目标必须是现存的主题");
+            assert!(builtin_themes().iter().any(|t| t.id == nearest.id));
+        }
+        assert!(removed_theme("embark").is_none(), "没被撤下的主题不该出现在 REMOVED 里");
+    }
+
+    /// 为什么要测：色值最接近的现存主题应该是"同色调里挑一个"，不能跨深浅色——深底主题迁去浅底主题是肉眼可见的大跳变
+    #[test]
+    fn nearest_surviving_does_not_cross_light_and_dark() {
+        for id in ["moonwalk", "modus-vivendi-tinted", "modus-operandi-tinted"] {
+            let removed = removed_theme(id).unwrap();
+            let nearest = nearest_surviving(&removed);
+            assert_eq!(is_light(&removed.bg), is_light(&nearest.bg), "{id} 迁去了 {}，深浅色不一致", nearest.id);
+        }
     }
 }

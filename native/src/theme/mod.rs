@@ -135,6 +135,24 @@ pub fn set_theme(id: &str, imported: &[ThemeSource], cx: &mut App) {
     cx.refresh_windows();
 }
 
+/// 一次迁移的结果（#255/#D-2114）：启动后弹一次提示要用到的两个名字
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThemeMigration {
+    pub from_name: String,
+    pub to_id: String,
+    pub to_name: String,
+}
+
+/// `id` 是被撤下的三套主题之一（授权没解决，见 `builtin::REMOVED`）就原地换成色值最接近的现存主题，
+/// 返回迁移结果给调用方弹一次提示；不是被撤下的就什么都不做，`None`。调用方负责把换过的 `id` 存回偏好——
+/// 这个函数本身只改传进来的这一份，不碰持久化
+pub fn migrate_removed_theme(id: &mut String) -> Option<ThemeMigration> {
+    let removed = builtin::removed_theme(id)?;
+    let nearest = builtin::nearest_surviving(&removed);
+    *id = nearest.id.clone();
+    Some(ThemeMigration { from_name: removed.name, to_id: nearest.id, to_name: nearest.name })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +164,23 @@ mod tests {
         let t = Theme::by_id("imported:x", &[imp]);
         assert!(t.light);
         assert_eq!(t.bg, to_hsla("#ffffff"));
+    }
+
+    /// 为什么要测（#255/#D-2114）：选中的是被撤下的主题时要原地换成现存的，不能留着一个 `by_id` 查不到、
+    /// 只能靠默认主题兜底的死 id——那样用户会发现"自己选的主题变成默认的了"却不知道为什么
+    #[test]
+    fn migrate_removed_theme_rewrites_the_id_and_reports_the_names() {
+        let mut id = "moonwalk".to_string();
+        let m = migrate_removed_theme(&mut id).expect("moonwalk 是被撤下的主题之一");
+        assert_eq!(m.from_name, "Moonwalk");
+        assert_eq!(id, m.to_id, "传进去的 id 要被原地改写");
+        assert!(builtin::builtin_themes().iter().any(|t| t.id == id), "改写后的 id 必须是现存主题");
+    }
+
+    #[test]
+    fn migrate_removed_theme_leaves_a_surviving_id_untouched() {
+        let mut id = "embark".to_string();
+        assert_eq!(migrate_removed_theme(&mut id), None);
+        assert_eq!(id, "embark");
     }
 }

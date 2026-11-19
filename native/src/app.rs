@@ -385,12 +385,15 @@ pub fn run() {
         None => log::warn!(target: "resources", "could not read/raise the fd soft limit"),
     }
     Application::new().with_assets(crate::assets::Assets).run(|cx: &mut App| {
-        let prefs = match persist::state_path() {
+        let mut prefs = match persist::state_path() {
             Some(p) => persist::load_or_default(&p),
             None => persist::NativeState::default(),
         };
         crate::i18n::apply(&prefs.language);
         crate::ui_scale::set(prefs.ui_scale);
+        // 选中的主题被撤下了（授权原因，#255/#D-2114）就原地换成色值最接近的现存主题；只有真的在用它
+        // （主动选过）才值得启动后弹一次提示，没主动选过的话 id 只是个没用上的记忆，悄悄纠正就行
+        let theme_notice = crate::theme::migrate_removed_theme(&mut prefs.theme.id).filter(|_| prefs.theme.chosen);
         // 终端主字体 JetBrains Mono 随程序打包（对标 对标产品 / 对标终端，见 terminal/fonts.rs）
         if let Err(e) = cx.text_system().add_fonts(crate::terminal::fonts::embedded_fonts()) {
             log::warn!(target: "font", "failed to load the bundled fonts: {e}");
@@ -433,6 +436,19 @@ pub fn run() {
             )
             .expect("failed to create the window");
         perf::mark("window created");
+        // 选中的主题因授权原因被撤下、已经原地换成最接近的现存主题（#255/#D-2114）：弹一次系统对话框说清楚，
+        // 不是静默换掉——用户选主题是主动行为，换掉却不说一声会显得像个莫名其妙的 bug
+        if let Some(m) = theme_notice {
+            let _ = handle.update(cx, |_, window, cx| {
+                let _ = window.prompt(
+                    gpui::PromptLevel::Info,
+                    &ts!("theme.removed.title"),
+                    Some(&ts!("theme.removed.detail", old = m.from_name, new = m.to_name)),
+                    &[gpui::PromptButton::ok(ts!("common.ok"))],
+                    cx,
+                );
+            });
+        }
         // 窗口失去焦点时记一下位置和大小（#256 A7）。GPUI 没有公开的「移动 / 缩放」监听，所以用失去焦点 + 退出两个时机
         {
             let window_state = state.clone();

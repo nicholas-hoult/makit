@@ -413,6 +413,8 @@
   "theme.import.xml_failed": "XML 解析失败",
   "theme.import.no_colors": "缺少 Background/Foreground Color",
   "theme.import.default_name": "导入的配色",
+  "theme.removed.title": "你用的主题换掉了",
+  "theme.removed.detail": "%{old} 不再随 makit 分发了（它的授权没查清楚）。已经换成色值最接近的 %{new}。",
   "detail.not_found": "找不到 session: %{id}",
   "detail.summary": "%{time} (%{humanize}) · %{users} 条用户消息 · %{msgs} 条对话",
   "search.results": "%{n} 个结果",

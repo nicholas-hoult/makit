@@ -413,6 +413,8 @@
   "theme.import.xml_failed": "Failed to parse the XML",
   "theme.import.no_colors": "Missing Background / Foreground Color",
   "theme.import.default_name": "Imported color scheme",
+  "theme.removed.title": "Your theme was replaced",
+  "theme.removed.detail": "%{old} is no longer bundled with makit (its license wasn't clear enough to keep shipping it). Switched you to %{new}, the closest match.",
   "detail.not_found": "Session not found: %{id}",
   "detail.summary": "%{time} (%{humanize}) · %{users} user messages · %{msgs} messages",
   "search.results": "%{n} results",
