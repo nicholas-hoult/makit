@@ -41,6 +41,7 @@ pub mod pty_prep;
 pub mod recovery;
 pub mod running;
 pub mod scan_cache;
+pub mod search;
 pub mod sessions;
 pub mod transcript;
 pub mod update;
