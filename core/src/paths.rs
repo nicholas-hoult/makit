@@ -9,6 +9,21 @@ pub fn projects_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("projects"))
 }
 
+/// `path` with a leading `home` replaced by `~` (#306: perf.log can name *which* path triggered a slow
+/// `list_sessions_by_paths` run without writing the user's real home directory -- same redaction this project
+/// already does for application logs, just the one substitution this needs rather than the full `logging::redact`).
+/// `path` outside `home` (or an empty `home`) is returned unchanged.
+pub fn tilde(path: &str, home: &str) -> String {
+    if !home.is_empty() {
+        if let Some(rest) = path.strip_prefix(home) {
+            if rest.is_empty() || rest.starts_with('/') {
+                return format!("~{rest}");
+            }
+        }
+    }
+    path.to_string()
+}
+
 // Open a local path on macOS: reveal in Finder by default, open files with the default app.
 // reveal=true -> open -R (highlight in Finder), false -> open (default app)
 pub fn open_path(path: String, reveal: bool) -> Result<(), String> {
@@ -60,6 +75,20 @@ pub fn paths_exist(paths: Vec<String>) -> Vec<bool> {
     match dirs::home_dir() {
         Some(home) => paths_exist_in(&paths, &home),
         None => paths.iter().map(|p| std::path::Path::new(p).exists()).collect(),
+    }
+}
+
+#[cfg(test)]
+mod tilde_tests {
+    use super::tilde;
+
+    #[test]
+    fn replaces_a_leading_home_and_leaves_everything_else_alone() {
+        assert_eq!(tilde("/Users/me/Documents/notes.md", "/Users/me"), "~/Documents/notes.md");
+        assert_eq!(tilde("/Users/me", "/Users/me"), "~");
+        assert_eq!(tilde("/opt/other/path", "/Users/me"), "/opt/other/path", "outside home: unchanged");
+        assert_eq!(tilde("/Users/me/x", ""), "/Users/me/x", "no home known: unchanged, never panics");
+        assert_eq!(tilde("/Users/mealy/x", "/Users/me"), "/Users/mealy/x", "only a real path boundary, not a string prefix");
     }
 }
 

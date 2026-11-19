@@ -12,7 +12,7 @@ use std::time::UNIX_EPOCH;
 
 use crate::ai_provider;
 use crate::archive::load_archived;
-use crate::paths::projects_dir;
+use crate::paths::{projects_dir, tilde};
 use crate::perf;
 use crate::process::{collect_orphan_by_env, collect_process_table, descendants_of, ProcessInfo};
 use crate::running::{load_running_info, RunningInfo};
@@ -724,7 +724,7 @@ pub fn list_sessions_by_paths(
     paths: Vec<String>,
     cwd_mode: Option<String>,
 ) -> Result<Vec<SessionMeta>, String> {
-    let timer = PhaseTimer::new();
+    let mut timer = PhaseTimer::new();
     let now = chrono::Local::now().timestamp();
     // pty_id is obtained in here (one `ps -p` per running session). The frontend relies on it to bind
     // a new session to an already opened tab, so this cost cannot be skipped.
@@ -732,6 +732,9 @@ pub fn list_sessions_by_paths(
     let archived_set = load_archived();
     let mode = cwd_mode.as_deref().unwrap_or("smart");
     let codex_dir = ai_provider::AiTool::Codex.sessions_dir();
+    // #306: which path was slow, not just how many -- home-redacted (`tilde`), the same way application logs
+    // already redact it, since this can land in perf.log
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
 
     let mut git_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut branch_cache: HashMap<String, Option<String>> = HashMap::new();
@@ -745,6 +748,7 @@ pub fn list_sessions_by_paths(
         let path = Path::new(p);
         if opencode_db.as_deref() == Some(path) {
             opencode_changed = true;
+            timer.mark(&tilde(p, &home));
             continue;
         }
         // When the file has been deleted metadata fails, and the parse right after it fails too -> naturally skipped.
@@ -780,6 +784,7 @@ pub fn list_sessions_by_paths(
             }
             out.push(meta);
         }
+        timer.mark(&tilde(p, &home));
     }
 
     if opencode_changed {
