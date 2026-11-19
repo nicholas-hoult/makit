@@ -403,32 +403,41 @@ pub fn capacity_block(cx: &mut App) -> Option<makit_core::link::OpenError> {
 
 /// Resume an ended session asked for through the local-session link (#299, #D-2044). Whether it is already
 /// running is checked by the caller (the `resume` op, before this is even reached) -- this only decides where:
-/// reuse the tab it still has (stopped, or just sitting on its exited terminal) instead of opening a second one,
-/// and only opens a new tab when none exists (`state::binding::decide_link_resume`). Plain `open_session` above
-/// cannot be reused here: its "switch to an existing tab" path only clears `stopped`, which does nothing for a
-/// tab whose terminal simply exited on its own without ever being marked stopped, leaving it sitting dead instead
-/// of actually resuming -- `resume_tab` is the one path that rebuilds the terminal in both cases.
+/// reuse the tab it still has (stopped, or just sitting on its exited terminal) instead of opening a second one
+/// (`state::binding::decide_link_resume`). Plain `open_session` above cannot be reused here: its "switch to an
+/// existing tab" path only clears `stopped`, which does nothing for a tab whose terminal simply exited on its own
+/// without ever being marked stopped, leaving it sitting dead instead of actually resuming -- `resume_tab` is the
+/// one path that rebuilds the terminal in both cases.
+///
+/// Whether to open a *new* tab when there is nothing to reuse is the caller's call, not makit's (#D-2138/#D-2140:
+/// that policy belongs to whoever is orchestrating resumes across sessions -- 总管's own loop, which defaults to
+/// `allow_new_tab: false`). When it is `false` and `decide_link_resume` comes back `OpenNew`, this refuses with
+/// `OpenError::no_tab` and opens nothing.
 ///
 /// Remote-only (called from `link_switch`'s `MainOp::Resume`, which already ran `capacity_block` before this):
 /// the local sidebar/palette resume a stopped tab through `WorkspaceView::resume_tab` directly, uncapped for now
 /// (#D-2090 分期：手动恢复自己已知的某一个标签是一次性、可见的动作，不是这次事故的成因，留作后续)
 ///
-/// Returns the tab id it just revived / opened, or `None` if the session no longer exists -- the caller
-/// (`link_switch::run`) uses it to force that one tab's terminal to actually spawn before replying `ok` (#D-2118:
-/// this used to reply `ok` right after this call returned, while the PTY itself only gets built on the next
-/// render pass, so a fast follow-up `screen` / `input` from the other side saw "session not open in makit").
-pub fn resume_session(session_id: &str, cx: &mut App) -> Option<String> {
+/// Returns the tab id it just revived / opened and which it was -- the caller (`link_switch::run`) uses the id to
+/// force that one tab's terminal to actually spawn before replying `ok` (#D-2118: this used to reply `ok` right
+/// after this call returned, while the PTY itself only gets built on the next render pass, so a fast follow-up
+/// `screen` / `input` from the other side saw "session not open in makit").
+pub fn resume_session(session_id: &str, allow_new_tab: bool, cx: &mut App) -> Result<(String, makit_core::link::ResumeAction), makit_core::link::OpenError> {
+    use makit_core::link::{OpenError, ResumeAction};
     let state = AppState::global(cx);
-    let s = state.read(cx).session(session_id).cloned()?;
-    Some(match decide_link_resume(&state.read(cx).workspace.state.root, session_id) {
+    let Some(s) = state.read(cx).session(session_id).cloned() else {
+        return Err(OpenError::from("session not found"));
+    };
+    match decide_link_resume(&state.read(cx).workspace.state.root, session_id) {
         LinkResumeDecision::Revive { tab_id } => {
-            let Some(h) = host(cx) else { return None };
+            let Some(h) = host(cx) else { return Err(OpenError::from("makit window is not ready")) };
             let ws = h.read(cx).workspace.clone();
             ws.update(cx, |w, cx| w.resume_tab(&tab_id, cx));
-            tab_id
+            Ok((tab_id, ResumeAction::ReusedTab))
         }
-        LinkResumeDecision::OpenNew => do_open_new(&s, cx),
-    })
+        LinkResumeDecision::OpenNew if !allow_new_tab => Err(OpenError::no_tab("no tab for this session and allow_new_tab is false")),
+        LinkResumeDecision::OpenNew => Ok((do_open_new(&s, cx), ResumeAction::OpenedNewTab)),
+    }
 }
 
 /// The tabs bound to this session that can be stopped (#287)

@@ -383,12 +383,12 @@ impl WorkspaceView {
     /// Bring a tab back (#287): a stopped tab, or one whose process exited by itself. Its terminal is rebuilt on the
     /// next frame from the tab's own init command, the same way a tab starts after a restart
     pub fn resume_tab(&mut self, tid: &str, cx: &mut Context<Self>) {
-        let exited = self.terminals.get(tid).is_some_and(|t| t.view.read(cx).exited);
-        let was_stopped = self.state.read(cx).workspace.locate_tab(tid).is_some_and(|(_, t)| t.stopped);
-        if !exited && !was_stopped {
+        let exited = self.terminals.get(tid).map(|t| t.view.read(cx).exited);
+        if !crate::state::binding::needs_revival(exited) {
             return;
         }
-        log::info!(target: "workspace", "resume tab {tid} (stopped: {was_stopped}, exited: {exited})");
+        let was_stopped = self.state.read(cx).workspace.locate_tab(tid).is_some_and(|(_, t)| t.stopped);
+        log::info!(target: "workspace", "resume tab {tid} (stopped: {was_stopped}, terminal exited: {exited:?})");
         let id = tid.to_string();
         self.update_ws(cx, |w| {
             // Resuming from the menu of a background tab also brings it to the front: that's where it runs
@@ -396,7 +396,10 @@ impl WorkspaceView {
                 w.tab_click(&cid, &id);
             }
             w.set_tab_stopped(&id, false);
-            if exited { vec![id.clone()] } else { vec![] }
+            // Only an entry whose terminal actually exited needs tearing down before it is rebuilt; no entry at
+            // all (cold start, or just stopped -- stopping already removes it) has nothing to tear down, and
+            // `ensure_terminal` builds it fresh the moment this becomes the active, non-stopped tab (#D-2137).
+            if exited == Some(true) { vec![id.clone()] } else { vec![] }
         });
         self.focused_tab = None;
         cx.notify();

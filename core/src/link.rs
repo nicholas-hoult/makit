@@ -8,6 +8,11 @@
 //! in a directory, optionally with its first message), `resume` (an ended session), `archive` (a session that is
 //! not running), `update` (`check` is read-only, `install` restarts the app, #D-2122). The writing ops are a
 //! separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
+//!
+//! `resume`'s `allow_new_tab` (#D-2138, bool, default `true`): whether to reuse a tab the session already has
+//! there is always makit's call, but opening a brand-new one when there is nothing to reuse is the caller's --
+//! `false` gets back `{"ok":false,"reason":"no_tab",...}` instead of a tab actually being opened. A successful
+//! `resume` reports which branch it took as `"action"`: `"reused_tab"` or `"opened_new_tab"`.
 //! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
 //!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
@@ -108,31 +113,58 @@ impl CapacityLimitKind {
     }
 }
 
+/// What a successful `resume` actually did (#D-2138): the caller controls whether a new tab may be opened via
+/// `allow_new_tab`, so it gets told which branch was taken instead of just "ok".
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResumeAction {
+    /// Reused a tab the session already had there (a `stopped` placeholder, or one whose terminal simply exited).
+    ReusedTab,
+    /// No tab to reuse; opened a brand-new one (only reachable when `allow_new_tab` was `true`).
+    OpenedNewTab,
+}
+
+impl ResumeAction {
+    /// The `action` field's value in the JSON reply.
+    fn tag(self) -> &'static str {
+        match self {
+            ResumeAction::ReusedTab => "reused_tab",
+            ResumeAction::OpenedNewTab => "opened_new_tab",
+        }
+    }
+}
+
 /// An `open` / `resume` failure. Every other [`Backend`] method keeps the plain `Result<_, String>` it always had --
 /// this richer type exists only where #D-2099 asked for a structured reason, so `message` is still there for every
 /// caller that just wants to display or log something, and `capacity` is `Some` only when a capacity threshold
-/// (rather than, say, "no such directory" or "unknown tool") was the cause.
+/// (rather than, say, "no such directory" or "unknown tool") was the cause. `no_tab` is the same idea for #D-2138:
+/// `resume` with `allow_new_tab: false` refusing because there is nothing to reuse and it is not allowed to open one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenError {
     pub message: String,
     pub capacity: Option<CapacityLimitKind>,
+    pub no_tab: bool,
 }
 
 impl OpenError {
     pub fn capacity(kind: CapacityLimitKind, message: impl Into<String>) -> Self {
-        Self { message: message.into(), capacity: Some(kind) }
+        Self { message: message.into(), capacity: Some(kind), no_tab: false }
+    }
+
+    /// #D-2138: `resume` had `allow_new_tab: false` and this session has no tab to reuse.
+    pub fn no_tab(message: impl Into<String>) -> Self {
+        Self { message: message.into(), capacity: None, no_tab: true }
     }
 }
 
 impl From<String> for OpenError {
     fn from(message: String) -> Self {
-        Self { message, capacity: None }
+        Self { message, capacity: None, no_tab: false }
     }
 }
 
 impl From<&str> for OpenError {
     fn from(message: &str) -> Self {
-        Self { message: message.into(), capacity: None }
+        Self { message: message.into(), capacity: None, no_tab: false }
     }
 }
 
@@ -169,8 +201,12 @@ pub trait Backend: Send + Sync {
     fn open(&self, _cwd: &str, _tool: &str, _text: Option<&str>) -> Result<(), OpenError> {
         Err("open not supported".into())
     }
-    /// Resume an ended session in a tab, in its own directory.
-    fn resume(&self, _session_id: &str) -> Result<(), OpenError> {
+    /// Resume an ended session in its own directory. Whether to reuse a tab the session still has there is
+    /// makit's call either way; whether to open a *new* one when there is nothing to reuse is the caller's
+    /// (#D-2138: that policy belongs to whoever is orchestrating across sessions, not to makit). When
+    /// `allow_new_tab` is `false` and there is no tab to revive, this must return `Err(OpenError::no_tab(..))`
+    /// without opening anything.
+    fn resume(&self, _session_id: &str, _allow_new_tab: bool) -> Result<ResumeAction, OpenError> {
         Err("resume not supported".into())
     }
     /// Archive a session that is not running (same action as the sidebar's archive). Only called after the caller
@@ -621,13 +657,17 @@ fn fail(msg: impl Into<String>) -> String {
     json!({"ok": false, "error": msg.into()}).to_string()
 }
 
-/// Same as [`fail`], plus the structured `capacity_limit` field when the error was the capacity cap (#D-2099).
-/// Added as an extra field only: `hello.ops` and the protocol version do not change, so a caller that does not
-/// look for this field sees exactly the same reply it always did.
+/// Same as [`fail`], plus the structured `capacity_limit` field when the error was the capacity cap (#D-2099),
+/// or `reason: "no_tab"` when it was `resume` refusing to open a new tab (#D-2138). Added as extra fields only:
+/// `hello.ops` and the protocol version do not change, so a caller that does not look for them sees exactly the
+/// same reply it always did.
 fn fail_open(e: OpenError) -> String {
     let mut v = json!({"ok": false, "error": e.message});
     if let Some(k) = e.capacity {
         v.as_object_mut().expect("object").insert("capacity_limit".into(), json!(k.tag()));
+    }
+    if e.no_tab {
+        v.as_object_mut().expect("object").insert("reason".into(), json!("no_tab"));
     }
     v.to_string()
 }
@@ -741,8 +781,12 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             if !backend.session_exists(id) {
                 return fail("session not found");
             }
-            match backend.resume(id) {
-                Ok(()) => json!({"ok": true}).to_string(),
+            // #D-2138: the tab-reuse-vs-open-new policy is the caller's, not makit's; omitted = `true`, so a
+            // caller that does not know about this yet keeps today's behaviour (open one when there is nothing
+            // to reuse) instead of silently losing the ability to resume at all.
+            let allow_new_tab = req.get("allow_new_tab").and_then(Value::as_bool).unwrap_or(true);
+            match backend.resume(id, allow_new_tab) {
+                Ok(action) => json!({"ok": true, "action": action.tag()}).to_string(),
                 Err(e) => fail_open(e),
             }
         }
@@ -1077,7 +1121,10 @@ mod tests {
         written: Mutex<Vec<(String, Vec<u8>)>>,
         /// What `open` received: (cwd, tool, text)
         opened: Mutex<Vec<(String, String, Option<String>)>>,
-        resumed: Mutex<Vec<String>>,
+        /// What `resume` received each time: (session id, `allow_new_tab`)
+        resumed: Mutex<Vec<(String, bool)>>,
+        /// What `resume` returns when not blocked by the capacity cap (#D-2138).
+        resume_result: Mutex<Result<ResumeAction, OpenError>>,
         archived: Mutex<Vec<String>>,
         /// Session ids that exist (so `session_exists` is true for them) but are not in `sessions`, simulating a
         /// session the capped/truncated list leaves out (#D-2078).
@@ -1129,12 +1176,12 @@ mod tests {
             self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string(), text.map(String::from)));
             Ok(())
         }
-        fn resume(&self, id: &str) -> Result<(), OpenError> {
+        fn resume(&self, id: &str, allow_new_tab: bool) -> Result<ResumeAction, OpenError> {
             if let Some(kind) = *self.capacity_block.lock().unwrap() {
                 return Err(OpenError::capacity(kind, "at the cap"));
             }
-            self.resumed.lock().unwrap().push(id.to_string());
-            Ok(())
+            self.resumed.lock().unwrap().push((id.to_string(), allow_new_tab));
+            self.resume_result.lock().unwrap().clone()
         }
         fn archive(&self, id: &str) -> Result<(), String> {
             self.archived.lock().unwrap().push(id.to_string());
@@ -1176,6 +1223,7 @@ mod tests {
             written: Mutex::new(Vec::new()),
             opened: Mutex::new(Vec::new()),
             resumed: Mutex::new(Vec::new()),
+            resume_result: Mutex::new(Ok(ResumeAction::OpenedNewTab)),
             archived: Mutex::new(Vec::new()),
             existing_but_unlisted: Vec::new(),
             capacity_block: Mutex::new(None),
@@ -1630,7 +1678,7 @@ mod tests {
         let r = ask(&b, r#"{"op":"resume","session_id":"s1"}"#);
         assert_eq!((r["ok"].as_bool(), r["already_running"].as_bool()), (Some(true), Some(true)));
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#)["error"], "session not found");
-        assert_eq!(*b.resumed.lock().unwrap(), vec!["s3".to_string()], "the already-running one must not call resume again");
+        assert_eq!(*b.resumed.lock().unwrap(), vec![("s3".to_string(), true)], "the already-running one must not call resume again; allow_new_tab omitted defaults to true");
         // archive: only a session that is not running
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s3"}"#)["ok"], true);
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s1"}"#)["error"], "session running");
@@ -1647,7 +1695,7 @@ mod tests {
         let b = Fake { write_on: true, existing_but_unlisted: vec!["s9".into()], ..fake() };
         assert_eq!(ask(&b, r#"{"op":"sessions"}"#)["sessions"].as_array().unwrap().iter().any(|s| s["session_id"] == "s9"), false, "s9 is not in the list");
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s9"}"#)["ok"], true);
-        assert_eq!(*b.resumed.lock().unwrap(), vec!["s9".to_string()]);
+        assert_eq!(*b.resumed.lock().unwrap(), vec![("s9".to_string(), true)]);
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s9"}"#)["ok"], true);
         assert_eq!(*b.archived.lock().unwrap(), vec!["s9".to_string()]);
     }
@@ -1673,6 +1721,34 @@ mod tests {
         *b.capacity_block.lock().unwrap() = None;
         assert!(ask(&b, r#"{"op":"open","cwd":"/no/such/dir","tool":"claude"}"#).get("capacity_limit").is_none());
         assert!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#).get("capacity_limit").is_none());
+    }
+
+    /// #D-2138/#D-2140: the tab-reuse-vs-open-new policy belongs to the caller (总管's loop), not makit.
+    /// `allow_new_tab` must reach the backend exactly as given (default `true` when omitted, so an old caller
+    /// that has never heard of this keeps today's behaviour), and the reply must say which branch was actually
+    /// taken, or a structured `reason` when refused for lack of a tab to reuse.
+    #[test]
+    fn resume_passes_through_allow_new_tab_and_reports_what_happened() {
+        let b = Fake { write_on: true, ..fake() };
+
+        *b.resume_result.lock().unwrap() = Ok(ResumeAction::ReusedTab);
+        let r = ask(&b, r#"{"op":"resume","session_id":"s3"}"#);
+        assert_eq!((r["ok"].as_bool(), r["action"].as_str()), (Some(true), Some("reused_tab")));
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true)), "omitted allow_new_tab defaults to true");
+
+        *b.resume_result.lock().unwrap() = Ok(ResumeAction::OpenedNewTab);
+        let r = ask(&b, r#"{"op":"resume","session_id":"s3","allow_new_tab":true}"#);
+        assert_eq!(r["action"], "opened_new_tab");
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true)));
+
+        // 总管 defaults to allow_new_tab:false: a session with nothing to reuse comes back as a structured
+        // refusal, and makit must not have opened anything (nothing new in `resumed`'s outcome either -- the
+        // fake's `resume_result` here simulates the backend itself refusing, same as the real one would)
+        *b.resume_result.lock().unwrap() = Err(OpenError::no_tab("no tab for this session and allow_new_tab is false"));
+        let r = ask(&b, r#"{"op":"resume","session_id":"s3","allow_new_tab":false}"#);
+        assert_eq!((r["ok"].as_bool(), r["reason"].as_str()), (Some(false), Some("no_tab")));
+        assert!(r.get("capacity_limit").is_none(), "no_tab must not also look like a capacity refusal");
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), false)), "the false the caller sent must reach the backend unchanged");
     }
 
     #[test]

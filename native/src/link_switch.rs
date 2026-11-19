@@ -46,8 +46,8 @@ pub enum MainOp {
     Screen { session_id: String },
     /// 在目录里开新标签启动工具（已经过 `plan_open` / `validate_open_text` 检查），`text` 是首条消息
     Open { cwd: String, tool: String, text: Option<String> },
-    /// 续接已结束的会话
-    Resume { session_id: String },
+    /// 续接已结束的会话；标签复用策略是调用方的（#D-2138/#D-2140）：`allow_new_tab` 为假且没有标签可复用时不新开，返回结构化拒绝
+    Resume { session_id: String, allow_new_tab: bool },
     /// 本机会话接口的 `update check`（#D-2122）：当前已知的更新状态，不是强制联网重查
     UpdateCheck,
     /// 本机会话接口的 `update install`：装当前已发现的新版本并重启；`after_restart` 是重启后要接上的那个会话
@@ -60,6 +60,8 @@ pub enum MainReply {
     Done,
     Screen(Screen),
     UpdateStatus(UpdateStatus),
+    /// `resume` succeeded: which branch it actually took (#D-2138).
+    Resumed(makit_core::link::ResumeAction),
 }
 
 /// 一次请求：socket 线程发给主线程，`reply` 收回执。错误用 `OpenError`（不是普通 `String`）：`open`/`resume`
@@ -95,7 +97,7 @@ impl NativeBackend {
     fn ask_done(&self, op: MainOp) -> Result<(), OpenError> {
         match self.ask(op)? {
             MainReply::Done => Ok(()),
-            MainReply::Screen(_) | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
+            MainReply::Screen(_) | MainReply::UpdateStatus(_) | MainReply::Resumed(_) => Err("unexpected reply".into()),
         }
     }
 }
@@ -124,7 +126,7 @@ impl Backend for NativeBackend {
     fn screen(&self, session_id: &str) -> Result<Screen, String> {
         match self.ask(MainOp::Screen { session_id: session_id.to_string() })? {
             MainReply::Screen(s) => Ok(s),
-            MainReply::Done | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
+            MainReply::Done | MainReply::UpdateStatus(_) | MainReply::Resumed(_) => Err("unexpected reply".into()),
         }
     }
 
@@ -132,14 +134,17 @@ impl Backend for NativeBackend {
         self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from) })
     }
 
-    fn resume(&self, session_id: &str) -> Result<(), OpenError> {
-        self.ask_done(MainOp::Resume { session_id: session_id.to_string() })
+    fn resume(&self, session_id: &str, allow_new_tab: bool) -> Result<makit_core::link::ResumeAction, OpenError> {
+        match self.ask(MainOp::Resume { session_id: session_id.to_string(), allow_new_tab })? {
+            MainReply::Resumed(action) => Ok(action),
+            MainReply::Done | MainReply::Screen(_) | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
+        }
     }
 
     fn update_check(&self) -> Result<UpdateStatus, String> {
         match self.ask(MainOp::UpdateCheck)? {
             MainReply::UpdateStatus(s) => Ok(s),
-            MainReply::Done | MainReply::Screen(_) => Err("unexpected reply".into()),
+            MainReply::Done | MainReply::Screen(_) | MainReply::Resumed(_) => Err("unexpected reply".into()),
         }
     }
 
@@ -213,12 +218,12 @@ pub fn attach_window(handle: WindowHandle<crate::app::Root>, mut rx: UnboundedRe
     .detach();
 }
 
-/// Forces `tab_id`'s terminal to actually spawn now (not the next render pass) and turns that into the open/resume
-/// reply: `Ok` only once a process is really running, `Err` with a reason otherwise (#D-2118 -- see
-/// `WorkspaceView::force_spawn_now`'s own doc for why this step cannot be skipped).
-fn confirm_spawned(ws: &Entity<crate::workspace::WorkspaceView>, tab_id: &str, window: &mut gpui::Window, cx: &mut gpui::App, what: &str) -> Result<MainReply, OpenError> {
+/// Forces `tab_id`'s terminal to actually spawn now (not the next render pass): `Ok` only once a process is
+/// really running, `Err` with a reason otherwise (#D-2118 -- see `WorkspaceView::force_spawn_now`'s own doc for
+/// why this step cannot be skipped).
+fn confirm_spawned(ws: &Entity<crate::workspace::WorkspaceView>, tab_id: &str, window: &mut gpui::Window, cx: &mut gpui::App, what: &str) -> Result<(), OpenError> {
     if ws.update(cx, |w, cx| w.force_spawn_now(tab_id, window, cx)) {
-        Ok(MainReply::Done)
+        Ok(())
     } else {
         Err(format!("{what} did not start a process").into())
     }
@@ -243,19 +248,20 @@ fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &
             if result.is_ok() {
                 crate::overlays::show_toast(crate::ts!("link.toast.remote_input"), crate::overlays::toast::REMOTE_INPUT, cx);
             }
-            result
+            result.map(|_| MainReply::Done)
         }
-        MainOp::Resume { session_id } => {
+        MainOp::Resume { session_id, allow_new_tab } => {
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
                 return Err("session not found".into());
             }
             if let Some(e) = crate::overlays::session_ops::capacity_block(cx) {
                 return Err(e);
             }
-            let Some(tab_id) = crate::overlays::session_ops::resume_session(&session_id, cx) else {
-                return Err("session not found".into());
-            };
-            confirm_spawned(&ws, &tab_id, window, cx, "resume")
+            // The tab-reuse-vs-open-new policy is the caller's, not makit's (#D-2138/#D-2140): `resume_session`
+            // itself refuses with `OpenError::no_tab` when `allow_new_tab` is false and there is nothing to
+            // reuse, without opening anything.
+            let (tab_id, action) = crate::overlays::session_ops::resume_session(&session_id, allow_new_tab, cx)?;
+            confirm_spawned(&ws, &tab_id, window, cx, "resume").map(|_| MainReply::Resumed(action))
         }
         MainOp::UpdateCheck => {
             let s = crate::update::status(cx);
@@ -373,8 +379,11 @@ mod tests {
             assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "claude".into(), text: Some("hi there".into()) });
             req.reply.send(Ok(MainReply::Done)).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Resume { session_id: "s9".into() });
+            assert_eq!(req.op, MainOp::Resume { session_id: "s9".into(), allow_new_tab: false });
             req.reply.send(Err("session not found".into())).unwrap();
+            let req = next(&mut rx);
+            assert_eq!(req.op, MainOp::Resume { session_id: "s3".into(), allow_new_tab: true });
+            req.reply.send(Ok(MainReply::Resumed(makit_core::link::ResumeAction::OpenedNewTab))).unwrap();
             // A reply of the wrong kind is an error, not a silent success
             let req = next(&mut rx);
             req.reply.send(Ok(MainReply::Done)).unwrap();
@@ -382,7 +391,8 @@ mod tests {
         assert_eq!(b.screen("s1"), Ok(expected));
         assert_eq!(b.open("/Users/me/p", "codex", None), Ok(()));
         assert_eq!(b.open("/Users/me/p", "claude", Some("hi there")), Ok(()));
-        assert_eq!(b.resume("s9"), Err("session not found".into()));
+        assert_eq!(b.resume("s9", false), Err("session not found".into()));
+        assert_eq!(b.resume("s3", true), Ok(makit_core::link::ResumeAction::OpenedNewTab), "allow_new_tab reaches the main thread and the Resumed reply carries the action back");
         assert_eq!(b.screen("s1"), Err("unexpected reply".into()));
         main.join().unwrap();
     }

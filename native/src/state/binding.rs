@@ -94,6 +94,21 @@ pub fn decide_link_resume(root: &LayoutNode, session_id: &str) -> LinkResumeDeci
     LinkResumeDecision::OpenNew
 }
 
+/// Whether `WorkspaceView::resume_tab` has anything to do, given whether that tab currently has a live
+/// `TerminalView` entry and if so whether its process has exited. `terminal_exited` is `None` when there is no
+/// entry at all -- true for every tab right after a cold start (nothing has been rendered yet this launch) and
+/// also right after the tab was explicitly stopped (its entry gets torn down then).
+///
+/// #D-2137: the bug this fixes. The old check was `!exited && !was_stopped` with `exited` defaulting to `false`
+/// when there was no terminal entry -- so "no entry yet" read as "already running fine", and a tab resumed
+/// through the local-session link (or any tab that simply was not the active one in its pane since launch) never
+/// got its terminal built at all: `resume_tab` silently no-opped, `force_spawn_now` then found nothing to spawn,
+/// and every `resume` after a restart came back "did not start a process". Needing revival is really just "is
+/// there *not* a live, still-running terminal for it" -- `None` and `Some(true)` both mean yes.
+pub fn needs_revival(terminal_exited: Option<bool>) -> bool {
+    terminal_exited != Some(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,5 +239,14 @@ mod tests {
     fn link_resume_opens_a_new_tab_only_when_none_matches() {
         let r = root(vec![tab("t1", TabKind::Shell, None), tab("t2", TabKind::Resume, Some("other"))]);
         assert_eq!(decide_link_resume(&r, "s1"), LinkResumeDecision::OpenNew);
+    }
+
+    /// #D-2137: repro for "resume did not start a process" after a restart. No terminal entry yet must mean
+    /// "needs reviving", not "already running fine" -- that was the whole bug.
+    #[test]
+    fn no_terminal_entry_needs_revival_just_like_an_exited_one() {
+        assert!(needs_revival(None), "cold start / just-stopped: no entry at all -- must still revive");
+        assert!(needs_revival(Some(true)), "entry exists but its process exited -- must revive");
+        assert!(!needs_revival(Some(false)), "entry exists and is still alive -- leave it alone");
     }
 }
