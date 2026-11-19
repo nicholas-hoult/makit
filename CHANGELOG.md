@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-11-20
+
+### Added
+- Each session in the local-session link's `sessions` list now carries `has_tab`: whether makit currently has a tab for it at all, so a caller can batch-check which sessions `resume { allow_new_tab: false }` would actually revive without calling it on each one and causing side effects (#299).
+- The local-session link's `open` gained an optional `trust`: pre-accepts Claude Code's own trust-this-directory dialog for a new session's directory, but only when it is under one of the user's own configured auto-trust roots (a new setting, default empty); otherwise it refuses with a structured reason instead of opening anything untrusted. `open` and `resume` both also gained an optional `permission_mode`, passed straight through as Claude Code's own `--permission-mode` (#D-2168).
+- ⌘K's content search is now parallel across CPU cores and debounced off the UI thread, with an incremental, mtime-based refresh instead of rebuilding from scratch (#212).
+
+### Fixed
+- The local-session link's `input` with `kind:"text"` could reply `ok` while the text actually sat unsent in the input box (an Enter landing at the wrong moment got swallowed by the TUI); it now confirms against the session's own conversation before replying, retries once with a bare Enter, and reports a structured reason instead of a false success. Text appended to a session that is busy running a turn skips this check, since it is not expected to show up on any short timescale (#D-2161).
+- The local-session link's `resume` reported "session not found" for a session that was archived but still on disk: the check for whether it existed went through the same list that archiving filters out of, instead of looking the session up on disk directly like it was always supposed to (#D-2188).
+- Updating in place could look stuck for about a minute with no feedback (the "downloading" toast disappeared long before the download actually finished), and if the session driving the update was itself the one waiting to be resumed after the restart, nothing was left alive to ever resume it. Restarting could also silently drop sessions that were running in the restarting instance's own tabs from the next `last_running` snapshot (#D-2149, #D-2150).
+- ⌘K jumping to a search match inside a long conversation could land far from the right spot, because the scroll happened before the list had been laid out once with real row heights (#212).
+
 ## [0.2.21] - 2026-11-19
 
 ### Added
