@@ -2,7 +2,7 @@
 
 本文件由 `native/scripts/third-party-licenses.py` 生成，请勿手改；依赖变更后重新运行脚本。
 
-范围：`makit-native` 的 normal 依赖（目标 x86_64-apple-darwin，不含 dev / build-only），共 455 个 crate；另含随应用打包的非 crate 素材。makit 自身为 MIT OR Apache-2.0。
+范围：`makit-native` 的 normal 依赖（目标 x86_64-apple-darwin，不含 dev / build-only），共 489 个 crate；另含随应用打包的非 crate 素材。makit 自身为 MIT OR Apache-2.0。
 
 ## 需要留意的许可证
 
@@ -103,7 +103,7 @@
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT | https://github.com/rustls/rustls-native-certs |
 | rustls-pemfile | 2.2.0 | Apache-2.0 OR ISC OR MIT | https://github.com/rustls/pemfile |
 
-### Apache-2.0 OR MIT（67）
+### Apache-2.0 OR MIT（68）
 
 | 名称 | 版本 | 许可证 | 仓库 |
 |---|---|---|---|
@@ -144,6 +144,7 @@
 | leak | 0.1.2 | Apache-2.0 OR MIT | https://github.com/jmesmon/leak.git |
 | multiversion_no_op | 1.0.0 | Apache-2.0 OR MIT | https://github.com/hsivonen/multiversion_no_op |
 | no_std_io2 | 0.9.4 | Apache-2.0 OR MIT | https://github.com/wcampbell0x2a/no-std-io2 |
+| nohash-hasher | 0.2.0 | Apache-2.0 OR MIT | https://github.com/paritytech/nohash-hasher |
 | parking | 2.2.1 | Apache-2.0 OR MIT | https://github.com/smol-rs/parking |
 | pin-project | 1.1.13 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project |
 | pin-project-internal | 1.1.13 | Apache-2.0 OR MIT | https://github.com/taiki-e/pin-project |
@@ -251,7 +252,7 @@
 | rustls-webpki | 0.103.15 | ISC | https://github.com/rustls/webpki |
 | untrusted | 0.9.0 | ISC | https://github.com/briansmith/untrusted |
 
-### MIT（90）
+### MIT（98）
 
 | 名称 | 版本 | 许可证 | 仓库 |
 |---|---|---|---|
@@ -259,6 +260,7 @@
 | arg_enum_proc_macro | 0.3.4 | MIT | https://github.com/lu-zero/arg_enum_proc_macro |
 | async_zip | 0.0.17 | MIT | https://github.com/Majored/rs-async-zip |
 | av-scenechange | 0.14.1 | MIT | https://github.com/rust-av/av-scenechange |
+| base62 | 2.2.6 | MIT | https://github.com/fbernier/base62 |
 | block | 0.1.6 | MIT | http://github.com/SSheldon/rust-block |
 | block2 | 0.6.2 | MIT | https://github.com/madsmtm/objc2 |
 | bytes | 1.12.1 | MIT | https://github.com/tokio-rs/bytes |
@@ -276,6 +278,7 @@
 | fontdb | 0.23.0 | MIT | https://github.com/RazrFalcon/fontdb |
 | fsevent-sys | 4.1.0 | MIT | https://github.com/octplane/fsevent-rust/tree/master/fsevent-sys |
 | generic-array | 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git |
+| globwalk | 0.8.1 | MIT | https://github.com/gilnaa/globwalk |
 | grid | 0.18.0 | MIT | https://github.com/becheran/grid |
 | h2 | 0.4.19 | MIT | https://github.com/hyperium/h2 |
 | http-body | 1.1.0 | MIT | https://github.com/hyperium/http-body |
@@ -284,6 +287,7 @@
 | hyper-util | 0.1.21 | MIT | https://github.com/hyperium/hyper-util |
 | imagesize | 0.13.0 | MIT | https://github.com/Roughsketch/imagesize |
 | libm | 0.2.16 | MIT | https://github.com/rust-lang/compiler-builtins |
+| libsqlite3-sys | 0.35.0 | MIT | https://github.com/rusqlite/rusqlite |
 | loop9 | 0.1.5 | MIT | https://gitlab.com/kornelski/loop9.git |
 | malloc_buf | 0.0.6 | MIT | https://github.com/SSheldon/malloc_buf |
 | matchers | 0.2.0 | MIT | https://github.com/hawkw/matchers |
@@ -307,9 +311,13 @@
 | raw-cpuid | 11.6.0 | MIT | https://github.com/gz/rust-cpuid |
 | reborrow | 0.5.5 | MIT | https://github.com/sarah-ek/reborrow/ |
 | rgb | 0.8.53 | MIT | https://github.com/kornelski/rust-rgb |
+| rusqlite | 0.37.0 | MIT | https://github.com/rusqlite/rusqlite |
 | rust-embed | 8.12.0 | MIT | https://pyrossh.dev/repos/rust-embed |
 | rust-embed-impl | 8.12.0 | MIT | https://pyrossh.dev/repos/rust-embed |
 | rust-embed-utils | 8.12.0 | MIT | https://pyrossh.dev/repos/rust-embed |
+| rust-i18n | 4.2.4 | MIT | https://github.com/longbridge/rust-i18n |
+| rust-i18n-macro | 4.2.4 | MIT | https://github.com/longbridge/rust-i18n |
+| rust-i18n-support | 4.2.4 | MIT | https://github.com/longbridge/rust-i18n |
 | rustybuzz | 0.20.1 | MIT | https://github.com/harfbuzz/rustybuzz |
 | schemars | 1.2.2 | MIT | https://github.com/GREsau/schemars |
 | schemars_derive | 1.2.2 | MIT | https://github.com/GREsau/schemars |
@@ -341,17 +349,22 @@
 | try-lock | 0.2.5 | MIT | https://github.com/seanmonstar/try-lock |
 | want | 0.3.1 | MIT | https://github.com/seanmonstar/want |
 | which | 6.0.3 | MIT | https://github.com/harryfei/which-rs.git |
+| winnow | 0.7.15 | MIT | https://github.com/winnow-rs/winnow |
 | xmlwriter | 0.1.0 | MIT | https://github.com/RazrFalcon/xmlwriter |
 | y4m | 0.8.0 | MIT | https://github.com/image-rs/y4m.git |
 | yeslogic-fontconfig-sys | 6.0.1 | MIT | https://github.com/yeslogic/fontconfig-rs |
 | zmij | 1.0.23 | MIT | https://github.com/dtolnay/zmij |
 
-### MIT OR Apache-2.0（207）
+### MIT OR Apache-2.0（229）
 
 | 名称 | 版本 | 许可证 | 仓库 |
 |---|---|---|---|
 | aligned | 0.4.3 | MIT OR Apache-2.0 | https://github.com/rust-embedded-community/aligned |
+| annotate-snippets | 0.12.16 | MIT OR Apache-2.0 | https://github.com/rust-lang/annotate-snippets-rs |
+| anstyle | 1.0.14 | MIT OR Apache-2.0 | https://github.com/rust-cli/anstyle.git |
 | anyhow | 1.0.104 | MIT OR Apache-2.0 | https://github.com/dtolnay/anyhow |
+| arc-swap | 1.9.2 | MIT OR Apache-2.0 | https://github.com/vorner/arc-swap |
+| arraydeque | 0.5.1 | MIT OR Apache-2.0 | https://github.com/andylokandy/arraydeque |
 | arrayvec | 0.7.8 | MIT OR Apache-2.0 | https://github.com/bluss/arrayvec |
 | as-slice | 0.2.1 | MIT OR Apache-2.0 | https://github.com/japaric/as-slice |
 | async-compression | 0.4.48 | MIT OR Apache-2.0 | https://github.com/Nullus157/async-compression |
@@ -402,10 +415,13 @@
 | displaydoc | 0.2.7 | MIT OR Apache-2.0 | https://github.com/yaahc/displaydoc |
 | dyn-clone | 1.0.20 | MIT OR Apache-2.0 | https://github.com/dtolnay/dyn-clone |
 | either | 1.18.0 | MIT OR Apache-2.0 | https://github.com/rayon-rs/either |
+| encoding_rs_io | 0.1.8 | MIT OR Apache-2.0 | https://github.com/BurntSushi/encoding_rs_io |
 | erased-serde | 0.4.10 | MIT OR Apache-2.0 | https://github.com/dtolnay/erased-serde |
 | errno | 0.3.14 | MIT OR Apache-2.0 | https://github.com/lambda-fairy/rust-errno |
 | etagere | 0.2.15 | MIT OR Apache-2.0 | https://github.com/nical/etagere |
 | euclid | 0.22.14 | MIT OR Apache-2.0 | https://github.com/servo/euclid |
+| fallible-iterator | 0.3.0 | MIT OR Apache-2.0 | https://github.com/sfackler/rust-fallible-iterator |
+| fallible-streaming-iterator | 0.1.9 | MIT OR Apache-2.0 | https://github.com/sfackler/fallible-streaming-iterator |
 | fdeflate | 0.3.7 | MIT OR Apache-2.0 | https://github.com/image-rs/fdeflate |
 | filetime | 0.2.29 | MIT OR Apache-2.0 | https://github.com/alexcrichton/filetime |
 | flate2 | 1.1.10 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs |
@@ -424,10 +440,15 @@
 | futures-task | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | futures-util | 0.3.34 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | getrandom | 0.2.17 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
+| getrandom | 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | getrandom | 0.4.3 | MIT OR Apache-2.0 | https://github.com/rust-random/getrandom |
 | gif | 0.14.2 | MIT OR Apache-2.0 | https://github.com/image-rs/image-gif |
+| glob | 0.3.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/glob |
+| granit-parser | 1.3.0 | MIT OR Apache-2.0 | https://github.com/bourumir-wyngs/granit-parser |
 | half | 2.7.1 | MIT OR Apache-2.0 | https://github.com/VoidStarKat/half-rs |
+| hashbrown | 0.15.5 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
 | hashbrown | 0.17.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
+| hashlink | 0.10.0 | MIT OR Apache-2.0 | https://github.com/kyren/hashlink |
 | heck | 0.5.0 | MIT OR Apache-2.0 | https://github.com/withoutboats/heck |
 | home | 0.5.12 | MIT OR Apache-2.0 | https://github.com/rust-lang/cargo |
 | http | 1.5.0 | MIT OR Apache-2.0 | https://github.com/hyperium/http |
@@ -440,6 +461,7 @@
 | inventory | 0.3.24 | MIT OR Apache-2.0 | https://github.com/dtolnay/inventory |
 | io-surface | 0.16.1 | MIT OR Apache-2.0 | https://github.com/servo/core-foundation-rs |
 | ipnet | 2.12.2 | MIT OR Apache-2.0 | https://github.com/krisprice/ipnet |
+| itertools | 0.11.0 | MIT OR Apache-2.0 | https://github.com/rust-itertools/itertools |
 | itertools | 0.14.0 | MIT OR Apache-2.0 | https://github.com/rust-itertools/itertools |
 | itoa | 1.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
 | kv-log-macro | 1.0.7 | MIT OR Apache-2.0 | https://github.com/yoshuawuyts/kv-log-macro |
@@ -456,6 +478,7 @@
 | memmap2 | 0.9.11 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/memmap2-rs |
 | metal | 0.29.0 | MIT OR Apache-2.0 | https://github.com/gfx-rs/metal-rs |
 | mime | 0.3.17 | MIT OR Apache-2.0 | https://github.com/hyperium/mime |
+| normpath | 1.5.2 | MIT OR Apache-2.0 | https://github.com/dylni/normpath |
 | notify-debouncer-mini | 0.4.1 | MIT OR Apache-2.0 | https://github.com/notify-rs/notify.git |
 | num-bigint | 0.4.8 | MIT OR Apache-2.0 | https://github.com/rust-num/num-bigint |
 | num-complex | 0.4.6 | MIT OR Apache-2.0 | https://github.com/rust-num/num-complex |
@@ -502,15 +525,18 @@
 | reqwest | 0.12.28 | MIT OR Apache-2.0 | https://github.com/seanmonstar/reqwest |
 | roxmltree | 0.20.0 | MIT OR Apache-2.0 | https://github.com/RazrFalcon/roxmltree |
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 | https://github.com/rustls/pki-types |
+| rustversion | 1.0.23 | MIT OR Apache-2.0 | https://github.com/dtolnay/rustversion |
 | scopeguard | 1.2.0 | MIT OR Apache-2.0 | https://github.com/bluss/scopeguard |
 | security-framework | 3.7.0 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |
 | security-framework-sys | 2.17.0 | MIT OR Apache-2.0 | https://github.com/kornelski/rust-security-framework |
 | serde | 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
+| serde-saphyr | 1.3.0 | MIT OR Apache-2.0 | https://github.com/bourumir-wyngs/serde-saphyr |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | serde_derive | 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | serde_derive_internals | 0.30.0 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | serde_json | 1.0.151 | MIT OR Apache-2.0 | https://github.com/serde-rs/json |
 | serde_json_lenient | 0.2.4 | MIT OR Apache-2.0 | https://github.com/google/serde_json_lenient |
+| serde_spanned | 0.6.9 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
 | serde_urlencoded | 0.7.1 | MIT OR Apache-2.0 | https://github.com/nox/serde_urlencoded |
 | sha2 | 0.10.9 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes |
 | sha2 | 0.11.0 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes |
@@ -536,6 +562,11 @@
 | thiserror-impl | 2.0.21 | MIT OR Apache-2.0 | https://github.com/dtolnay/thiserror |
 | thread_local | 1.1.10 | MIT OR Apache-2.0 | https://github.com/Amanieu/thread_local-rs |
 | tokio-rustls | 0.26.5 | MIT OR Apache-2.0 | https://github.com/rustls/tokio-rustls |
+| toml | 0.8.23 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
+| toml_datetime | 0.6.11 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
+| toml_edit | 0.22.27 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
+| toml_write | 0.1.2 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
+| triomphe | 0.1.16 | MIT OR Apache-2.0 | https://github.com/Manishearth/triomphe |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 | https://github.com/harfbuzz/ttf-parser |
 | typeid | 1.0.3 | MIT OR Apache-2.0 | https://github.com/dtolnay/typeid |
 | typenum | 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum |
@@ -605,7 +636,7 @@
 | zerovec | 0.11.8 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | zerovec-derive | 0.11.6 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 
-### Unlicense OR MIT（7）
+### Unlicense OR MIT（8）
 
 | 名称 | 版本 | 许可证 | 仓库 |
 |---|---|---|---|
@@ -613,14 +644,17 @@
 | byteorder | 1.5.0 | Unlicense OR MIT | https://github.com/BurntSushi/byteorder |
 | byteorder-lite | 0.1.0 | Unlicense OR MIT | https://github.com/image-rs/byteorder-lite |
 | globset | 0.4.20 | Unlicense OR MIT | https://github.com/BurntSushi/ripgrep/tree/master/crates/globset |
+| ignore | 0.4.33 | Unlicense OR MIT | https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore |
 | memchr | 2.8.3 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
 | same-file | 1.0.6 | Unlicense OR MIT | https://github.com/BurntSushi/same-file |
 | walkdir | 2.5.0 | Unlicense OR MIT | https://github.com/BurntSushi/walkdir |
 
-### Zlib（2）
+### Zlib（4）
 
 | 名称 | 版本 | 许可证 | 仓库 |
 |---|---|---|---|
+| foldhash | 0.1.5 | Zlib | https://github.com/orlp/foldhash |
+| foldhash | 0.2.0 | Zlib | https://github.com/orlp/foldhash |
 | slotmap | 1.1.1 | Zlib | https://github.com/orlp/slotmap |
 | zlib-rs | 0.6.8 | Zlib | https://github.com/trifectatechfoundation/zlib-rs |
 
@@ -638,6 +672,6 @@
 |---|---|---|---|
 | JetBrains Mono 字体 | `native/assets/fonts/*.ttf` | SIL OFL 1.1 | 文本见 `native/assets/fonts/OFL.txt`；版权 2020 The JetBrains Mono Project Authors，<https://github.com/JetBrains/JetBrainsMono> |
 | 内置终端配色（21 套） | `native/src/theme/builtin.rs` | MIT（合集） | 取自 iTerm2-Color-Schemes 合集 <https://github.com/mbadolato/iTerm2-Color-Schemes>（MIT）。合集本身是 MIT，但单个主题原作者的授权未逐个核实 |
-| 应用图标 | `src-tauri/icons/icon.icns` | 待确认 | provenance to be confirmed：仓库内没有记录来源 |
+| 应用图标 | `native/packaging/icon.icns` | 待确认 | provenance to be confirmed：仓库内没有记录来源 |
 | 工具图标（Claude / Codex 的 .ico） | `native/assets/logos/` | 待确认 | provenance to be confirmed：为对应厂商的商标 / 品牌标识，仅用于指示会话所属工具 |
 | 界面 SVG 图标 | `native/assets/icons/*.svg` | 随 makit（MIT OR Apache-2.0） | 从本项目早期前端抽出；来源见各文件头注释，如有外部来源待确认 |
