@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-11-19
+
+### Added
+- A session the capacity cap put to sleep now shows as such in the sidebar (a distinct tooltip and a small badge), instead of looking like a plain manual stop (#316).
+
+### Fixed
+- Resuming a stopped tab (its own button, the "Resume" menu item, Enter, or a terminal's own "press Enter to resume" prompt) and ⌘K's split-open now go through the same capacity cap as opening a fresh session, instead of being able to bypass it (#316).
+
 ## [0.2.18] - 2026-11-19
 
 ### Added
