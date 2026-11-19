@@ -8,6 +8,8 @@
 //!
 //! 为什么单独测：错了在界面上就是侧栏不高亮当前会话、点它提示「正在运行中不能重复启动」、重启后对话丢了。
 
+use std::collections::HashSet;
+
 use makit_core::SessionMeta;
 
 use crate::workspace::model::{collect_containers, LayoutNode, TabKind};
@@ -92,6 +94,13 @@ pub fn decide_link_resume(root: &LayoutNode, session_id: &str) -> LinkResumeDeci
         }
     }
     LinkResumeDecision::OpenNew
+}
+
+/// Every session id that currently has a tab somewhere, regardless of `stopped` (#D-2143): the local-session
+/// link's `sessions` reports this per session as `has_tab` -- a caller can tell, for a whole batch, which
+/// sessions `resume { allow_new_tab: false }` would actually revive without calling it on each one.
+pub fn tabbed_session_ids(root: &LayoutNode) -> HashSet<String> {
+    collect_containers(root).into_iter().flat_map(|c| c.tabs.iter()).filter_map(|t| t.session_id.clone()).collect()
 }
 
 /// Whether `WorkspaceView::resume_tab` has anything to do, given whether that tab currently has a live
@@ -239,6 +248,18 @@ mod tests {
     fn link_resume_opens_a_new_tab_only_when_none_matches() {
         let r = root(vec![tab("t1", TabKind::Shell, None), tab("t2", TabKind::Resume, Some("other"))]);
         assert_eq!(decide_link_resume(&r, "s1"), LinkResumeDecision::OpenNew);
+    }
+
+    /// #D-2143: `sessions`'s `has_tab` field reads straight off this -- a stopped tab and a shell tab with no
+    /// session both count correctly, and the same session bound to two tabs (split) is still just one entry.
+    #[test]
+    fn tabbed_session_ids_collects_every_bound_tab_once_regardless_of_stopped() {
+        let mut stopped = tab("t2", TabKind::Resume, Some("s2"));
+        stopped.stopped = true;
+        let r = root(vec![tab("t1", TabKind::Resume, Some("s1")), stopped, tab("t3", TabKind::Shell, None), tab("t4", TabKind::Resume, Some("s1"))]);
+        let mut ids: Vec<_> = tabbed_session_ids(&r).into_iter().collect();
+        ids.sort();
+        assert_eq!(ids, ["s1", "s2"]);
     }
 
     /// #D-2137: repro for "resume did not start a process" after a restart. No terminal entry yet must mean

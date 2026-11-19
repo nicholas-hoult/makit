@@ -7,6 +7,7 @@
 //!    包括写终端、取屏幕快照、新开会话标签、续接会话；
 //! 3. 会话列表和对话直接用核心的 `CoreBackend`，不经主线程。
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex};
@@ -81,11 +82,13 @@ pub struct NativeBackend {
     write_on: Arc<AtomicBool>,
     tx: UnboundedSender<MainRequest>,
     timeout: Duration,
+    /// 当前有标签的会话 id（#D-2143，`sessions` 的 `has_tab`）；主线程跟着 `WorkspaceChanged` 更新，这里只读，不过主线程
+    tabbed: Arc<Mutex<HashSet<String>>>,
 }
 
 impl NativeBackend {
-    pub fn new(write_on: Arc<AtomicBool>, tx: UnboundedSender<MainRequest>) -> Self {
-        Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT }
+    pub fn new(write_on: Arc<AtomicBool>, tx: UnboundedSender<MainRequest>, tabbed: Arc<Mutex<HashSet<String>>>) -> Self {
+        Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT, tabbed }
     }
 
     fn ask(&self, op: MainOp) -> Result<MainReply, OpenError> {
@@ -104,7 +107,12 @@ impl NativeBackend {
 
 impl Backend for NativeBackend {
     fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String> {
-        self.core.sessions(limit)
+        let mut list = self.core.sessions(limit)?;
+        let tabbed = self.tabbed.lock().unwrap();
+        for s in &mut list {
+            s.has_tab = tabbed.contains(&s.session_id);
+        }
+        Ok(list)
     }
 
     fn transcript(&self, session_id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
@@ -163,15 +171,17 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> UnboundedReceiver<MainReq
     let (tx, rx) = unbounded::<MainRequest>();
     let write_on = Arc::new(AtomicBool::new(false));
     let running: Arc<Mutex<Option<Handle>>> = Arc::new(Mutex::new(None));
+    let tabbed: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(crate::state::binding::tabbed_session_ids(&state.read(cx).workspace.state.root)));
     let sync = {
         let running = running.clone();
         let write_on = write_on.clone();
+        let tabbed = tabbed.clone();
         move |enabled: bool, write: bool| {
             // 只读开关关着时写入一定不可用；接口停了也就没人能调
             write_on.store(enabled && write, Ordering::SeqCst);
             let mut slot = running.lock().expect("link switch lock");
             match decide(enabled, slot.is_some()) {
-                Action::Start => *slot = makit_core::link::start(Arc::new(NativeBackend::new(write_on.clone(), tx.clone()))),
+                Action::Start => *slot = makit_core::link::start(Arc::new(NativeBackend::new(write_on.clone(), tx.clone(), tabbed.clone()))),
                 Action::Stop => {
                     if let Some(h) = slot.take() {
                         h.stop();
@@ -186,11 +196,17 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> UnboundedReceiver<MainReq
         sync(p.link_enabled, p.link_write_enabled);
     }
     let on_prefs = sync.clone();
-    cx.subscribe(state, move |state, ev: &AppEvent, cx| {
-        if matches!(ev, AppEvent::PrefsChanged) {
+    cx.subscribe(state, move |state, ev: &AppEvent, cx| match ev {
+        AppEvent::PrefsChanged => {
             let p = &state.read(cx).prefs;
             on_prefs(p.link_enabled, p.link_write_enabled);
         }
+        // `sessions`' `has_tab` (#D-2143) reads this without hopping to the main thread -- keep it current
+        // whenever the workspace changes instead
+        AppEvent::WorkspaceChanged => {
+            *tabbed.lock().unwrap() = crate::state::binding::tabbed_session_ids(&state.read(cx).workspace.state.root);
+        }
+        AppEvent::SessionsChanged => {}
     })
     .detach();
     cx.on_app_quit(move |_| {
@@ -322,7 +338,7 @@ mod tests {
     // 为什么单独测：写入要穿过线程边界。回执丢了，手机上是一直转圈；回执错了，是「已发送」但终端里什么都没有。
     fn backend(timeout_ms: u64) -> (NativeBackend, UnboundedReceiver<MainRequest>) {
         let (tx, rx) = unbounded();
-        let mut b = NativeBackend::new(Arc::new(AtomicBool::new(true)), tx);
+        let mut b = NativeBackend::new(Arc::new(AtomicBool::new(true)), tx, Arc::new(Mutex::new(HashSet::new())));
         b.timeout = Duration::from_millis(timeout_ms);
         (b, rx)
     }
@@ -356,7 +372,7 @@ mod tests {
     fn write_flag_follows_the_switch() {
         let (tx, _rx) = unbounded();
         let on = Arc::new(AtomicBool::new(false));
-        let b = NativeBackend::new(on.clone(), tx);
+        let b = NativeBackend::new(on.clone(), tx, Arc::new(Mutex::new(HashSet::new())));
         assert!(!b.write_enabled());
         on.store(true, Ordering::SeqCst);
         assert!(b.write_enabled());

@@ -13,6 +13,9 @@
 //! there is always makit's call, but opening a brand-new one when there is nothing to reuse is the caller's --
 //! `false` gets back `{"ok":false,"reason":"no_tab",...}` instead of a tab actually being opened. A successful
 //! `resume` reports which branch it took as `"action"`: `"reused_tab"` or `"opened_new_tab"`.
+//! Each entry in `sessions`' list carries `has_tab` (#D-2143): whether makit currently has a tab for it at all,
+//! so a caller can batch-check which sessions `resume { allow_new_tab: false }` would actually revive without
+//! calling `resume` on each one and causing side effects.
 //! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
 //!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
@@ -73,6 +76,11 @@ pub struct SessionInfo {
     pub pid: u32,
     pub mtime: i64,
     pub last_user_msg: String,
+    /// Whether makit currently has a tab for this session, running or not (#D-2143): lets a caller batch-check,
+    /// with no side effect, which sessions a `resume { allow_new_tab: false }` would actually be able to revive.
+    /// Always `false` from [`CoreBackend`] (it has no notion of tabs); [`Backend::sessions`]'s real implementation
+    /// (makit's own GPUI workspace) fills this in.
+    pub has_tab: bool,
 }
 
 pub struct TranscriptPage {
@@ -929,6 +937,7 @@ impl Backend for CoreBackend {
                 pid: s.pid,
                 mtime: s.mtime,
                 last_user_msg: s.last_user_msg,
+                has_tab: false,
             })
             .collect())
     }
@@ -1152,6 +1161,7 @@ mod tests {
             pid: 7,
             mtime: 100,
             last_user_msg: "hi".into(),
+            has_tab: false,
         }
     }
 
@@ -1271,6 +1281,17 @@ mod tests {
         assert_eq!(first["session_id"], "s1");
         assert_eq!(first["state"], "busy");
         assert_eq!(first["cwd"], "/Users/me/p");
+    }
+
+    /// #D-2143: a batch check, no side effect -- `has_tab` is just whatever the `Backend` reports per session.
+    #[test]
+    fn sessions_reports_has_tab_from_the_backend() {
+        let mut b = fake();
+        b.sessions[0].has_tab = true;
+        let r = ask(&b, r#"{"op":"sessions"}"#);
+        let by_id = |id: &str| r["sessions"].as_array().unwrap().iter().find(|s| s["session_id"] == id).unwrap().clone();
+        assert_eq!(by_id("s1")["has_tab"], true);
+        assert_eq!(by_id("s2")["has_tab"], false);
     }
 
     #[test]
