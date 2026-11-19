@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Dropped Moonwalk and the two Modus Tinted color themes (their upstream licensing wasn't clear enough to keep shipping them): 18 built-in themes now, down from 21. Anyone who had one selected is switched to the closest-looking survivor on next launch, with a one-time notice explaining why (#255).
+
 ## [0.2.19] - 2026-11-19
 
 ### Added
