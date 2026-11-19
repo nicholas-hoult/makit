@@ -104,7 +104,7 @@ pub struct CapacityPrefs {
 impl Default for CapacityPrefs {
     fn default() -> Self {
         let d = crate::state::capacity::CapacityLimits::default();
-        Self { max_active: d.max_active as u32, min_free_mem_percent: (d.min_free_mem_ratio * 100.0).round() as u32, max_load_1m: d.max_load_1m, eviction_policy: "ask".into() }
+        Self { max_active: d.max_active as u32, min_free_mem_percent: (d.min_available_mem_ratio * 100.0).round() as u32, max_load_1m: d.max_load_1m, eviction_policy: "ask".into() }
     }
 }
 

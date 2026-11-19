@@ -3,10 +3,14 @@
 //! pure function tested against real `vm_stat` output; the two platform calls around it are trivial enough that
 //! real-machine behavior is the only meaningful test (same tradeoff the codex `pgrep` binding already makes).
 
-/// Parses `vm_stat`'s page counts into a free-memory ratio (#D-2066). Pure so this is testable without a real
-/// `vm_stat` call; `total` is approximated as free + active + inactive + speculative + wired + compressed, which
-/// covers every page vm_stat accounts for as "real" memory (excluding derived counters like page-in/page-out).
-pub fn parse_vm_stat_free_ratio(output: &str) -> Option<f32> {
+/// Parses `vm_stat`'s page counts into an *available*-memory ratio (#D-2118: the capacity cap used to count only
+/// `Pages free`, which on a machine with a lot of reclaimable cache reads as "almost out" while the system is
+/// nowhere near it -- a real report had 7.5% free rejecting every resume while 78% was actually available). Pure
+/// so this is testable without a real `vm_stat` call. `total` is approximated as free + active + inactive +
+/// speculative + wired + compressed, which covers every page vm_stat accounts for as "real" memory (excluding
+/// derived counters like page-in/page-out); `available` is free + inactive + speculative + purgeable -- the pages
+/// the kernel can hand to a new process without swapping, same reckoning as `memory_pressure`.
+pub fn parse_vm_stat_available_ratio(output: &str) -> Option<f32> {
     let mut pages: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
     for line in output.lines() {
         let Some((label, rest)) = line.split_once(':') else { continue };
@@ -18,22 +22,25 @@ pub fn parse_vm_stat_free_ratio(output: &str) -> Option<f32> {
     }
     let get = |label: &str| pages.get(label).copied().unwrap_or(0);
     let free = get("Pages free");
-    let total = free + get("Pages active") + get("Pages inactive") + get("Pages speculative") + get("Pages wired down") + get("Pages occupied by compressor");
+    let inactive = get("Pages inactive");
+    let speculative = get("Pages speculative");
+    let total = free + get("Pages active") + inactive + speculative + get("Pages wired down") + get("Pages occupied by compressor");
     if total == 0 {
         return None;
     }
-    Some(free as f32 / total as f32)
+    let available = free + inactive + speculative + get("Pages purgeable");
+    Some((available as f32 / total as f32).min(1.0))
 }
 
 /// `None` when `vm_stat` is missing or its output does not parse (platform other than macOS, or the format
 /// changed). Callers that gate on this should fail open (treat "could not tell" as "do not block"): refusing to
 /// open a session everywhere this cannot be read would make the cap itself the outage.
-pub fn free_mem_ratio() -> Option<f32> {
+pub fn available_mem_ratio() -> Option<f32> {
     let output = std::process::Command::new("vm_stat").output().ok()?;
     if !output.status.success() {
         return None;
     }
-    parse_vm_stat_free_ratio(&String::from_utf8_lossy(&output.stdout))
+    parse_vm_stat_available_ratio(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// 1-minute load average via the C library call (no subprocess, works the same on macOS and Linux). `libc` is a
@@ -183,17 +190,34 @@ Swapouts:                                     391537.\n";
 
     #[test]
     fn parses_real_vm_stat_output() {
-        let ratio = parse_vm_stat_free_ratio(SAMPLE).expect("parses");
+        let ratio = parse_vm_stat_available_ratio(SAMPLE).expect("parses");
         let total = 114256 + 3314366 + 3266230 + 30452 + 1122718 + 540151;
-        assert!((ratio - 114256.0 / total as f32).abs() < 1e-6);
-        assert!(ratio < 0.02, "this sample is the night it almost ran out: should read as very low free");
+        let available = 114256 + 3266230 + 30452 + 10691;
+        assert!((ratio - available as f32 / total as f32).abs() < 1e-6);
+    }
+
+    // #D-2118: 用户实测的真实事故 -- 只有 7.5% 是严格意义的 free，但 inactive/speculative/purgeable 合计让
+    // 真正可用的有 78%，旧的只认 free 的算法会把这台机器误判成内存紧张，拒掉所有 resume
+    #[test]
+    fn low_free_but_high_available_reads_as_available_not_low_memory() {
+        let sample = "Pages free:                                   75000.\n\
+Pages active:                                200000.\n\
+Pages inactive:                              600000.\n\
+Pages speculative:                            50000.\n\
+Pages wired down:                             50000.\n\
+Pages purgeable:                              55000.\n\
+Pages occupied by compressor:                 25000.\n";
+        let raw_free: f32 = 75000.0 / 1_000_000.0;
+        let ratio = parse_vm_stat_available_ratio(sample).expect("parses");
+        assert!((raw_free - 0.075).abs() < 1e-6, "sanity: this sample's raw free ratio is ~7.5%");
+        assert!((ratio - 0.78).abs() < 1e-6, "available should read ~78%, not the ~7.5% raw free");
     }
 
     #[test]
     fn garbage_input_does_not_panic_and_reports_unknown() {
-        assert_eq!(parse_vm_stat_free_ratio(""), None);
-        assert_eq!(parse_vm_stat_free_ratio("not vm_stat output at all"), None);
-        assert_eq!(parse_vm_stat_free_ratio("Pages free: not-a-number."), None);
+        assert_eq!(parse_vm_stat_available_ratio(""), None);
+        assert_eq!(parse_vm_stat_available_ratio("not vm_stat output at all"), None);
+        assert_eq!(parse_vm_stat_available_ratio("Pages free: not-a-number."), None);
     }
 
     #[cfg(unix)]

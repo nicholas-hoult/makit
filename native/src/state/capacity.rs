@@ -39,7 +39,8 @@ pub struct ActiveCandidate {
 pub enum CapacityLimit {
     /// At the configured cap on how many sessions may run at once.
     Count,
-    /// Free memory ratio has dropped below the configured floor.
+    /// Available memory ratio (#D-2118: free + reclaimable cache, not just strictly-free pages) has dropped
+    /// below the configured floor.
     LowMemory,
     /// 1-minute load average is above the configured ceiling.
     HighLoad,
@@ -50,24 +51,24 @@ pub enum CapacityLimit {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CapacityLimits {
     pub max_active: usize,
-    pub min_free_mem_ratio: f32,
+    pub min_available_mem_ratio: f32,
     pub max_load_1m: f32,
 }
 
 impl Default for CapacityLimits {
     fn default() -> Self {
-        Self { max_active: 20, min_free_mem_ratio: 0.1, max_load_1m: 8.0 }
+        Self { max_active: 20, min_available_mem_ratio: 0.1, max_load_1m: 8.0 }
     }
 }
 
 /// Would opening one more running session right now hit a limit, and which one (#D-2066)? Checked before `open`
 /// creates a new session or `resume` restarts an ended one's process; resuming a session that is already running
 /// (#D-2044's `already_running` case) never reaches this check, since it starts no new process.
-pub fn capacity_limit(active_count: usize, free_mem_ratio: f32, load_1m: f32, limits: CapacityLimits) -> Option<CapacityLimit> {
+pub fn capacity_limit(active_count: usize, available_mem_ratio: f32, load_1m: f32, limits: CapacityLimits) -> Option<CapacityLimit> {
     if active_count >= limits.max_active {
         return Some(CapacityLimit::Count);
     }
-    if free_mem_ratio < limits.min_free_mem_ratio {
+    if available_mem_ratio < limits.min_available_mem_ratio {
         return Some(CapacityLimit::LowMemory);
     }
     if load_1m > limits.max_load_1m {
@@ -202,7 +203,7 @@ pub fn policy_to_str(p: EvictionPolicy) -> &'static str {
 /// Persisted thresholds (plain numbers, percent instead of a ratio so the settings panel shows whole numbers) ->
 /// the domain type `capacity_limit` actually takes.
 pub fn limits_from_prefs(max_active: u32, min_free_mem_percent: u32, max_load_1m: f32) -> CapacityLimits {
-    CapacityLimits { max_active: max_active as usize, min_free_mem_ratio: (min_free_mem_percent as f32 / 100.0).clamp(0.0, 1.0), max_load_1m }
+    CapacityLimits { max_active: max_active as usize, min_available_mem_ratio: (min_free_mem_percent as f32 / 100.0).clamp(0.0, 1.0), max_load_1m }
 }
 
 #[cfg(test)]
@@ -210,7 +211,7 @@ mod tests {
     use super::*;
 
     fn limits() -> CapacityLimits {
-        CapacityLimits { max_active: 3, min_free_mem_ratio: 0.1, max_load_1m: 8.0 }
+        CapacityLimits { max_active: 3, min_available_mem_ratio: 0.1, max_load_1m: 8.0 }
     }
 
     #[test]
@@ -357,7 +358,7 @@ mod tests {
     #[test]
     fn limits_from_prefs_converts_the_percent_and_clamps_it() {
         let l = limits_from_prefs(20, 10, 8.0);
-        assert_eq!(l, CapacityLimits { max_active: 20, min_free_mem_ratio: 0.1, max_load_1m: 8.0 });
-        assert_eq!(limits_from_prefs(20, 500, 8.0).min_free_mem_ratio, 1.0, "a corrupt percent clamps instead of letting the cap become unreachable");
+        assert_eq!(l, CapacityLimits { max_active: 20, min_available_mem_ratio: 0.1, max_load_1m: 8.0 });
+        assert_eq!(limits_from_prefs(20, 500, 8.0).min_available_mem_ratio, 1.0, "a corrupt percent clamps instead of letting the cap become unreachable");
     }
 }
