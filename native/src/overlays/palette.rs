@@ -97,12 +97,26 @@ impl PaletteView {
         self.input.read(cx).focus_handle(cx)
     }
 
-    fn items(&self, cx: &App) -> Vec<PaletteItem> {
-        let s = self.state.read(cx);
-        build_items(&s.sessions, &s.prefs.pinned_sessions, self.sort)
+    fn items(&self, cx: &mut App) -> Vec<PaletteItem> {
+        let (mut items, session_ids) = {
+            let s = self.state.read(cx);
+            (build_items(&s.sessions, &s.prefs.pinned_sessions, self.sort), s.sessions.iter().map(|m| m.session_id.clone()).collect::<Vec<_>>())
+        };
+        // #212: a second, additive group of content matches -- only worth looking for once there is a query,
+        // and only once the cross-session corpus has been built (lazily, on this very call, the first time).
+        let q = self.query.trim().to_string();
+        if !q.is_empty() {
+            crate::search_index::ensure_built(session_ids, cx);
+            for (sid, hit) in crate::search_index::search(&q, cx) {
+                if let Some(meta) = self.state.read(cx).session(&sid) {
+                    items.push(content_match_item(meta, &hit));
+                }
+            }
+        }
+        items
     }
 
-    fn flat(&self, cx: &App) -> Vec<PaletteItem> {
+    fn flat(&self, cx: &mut App) -> Vec<PaletteItem> {
         let items = self.items(cx);
         let filtered = filter_items(&items, &self.filter, &self.query, now());
         let groups = group_items(filtered, self.sort);
@@ -156,6 +170,11 @@ impl PaletteView {
         self.state.update(cx, |s, cx| s.update_prefs(cx, |p| p.palette.history = hist));
         cx.emit(PaletteEvent::Close);
         let sid = item.session_id.clone();
+        // #212：内容匹配结果不恢复会话，直接跳到详情面板里命中的那一条
+        if item.item_type == CONTENT_MATCH_TYPE {
+            super::open_detail_at(&sid, item.matched_item_id.clone(), window, cx);
+            return;
+        }
         match mode {
             Mode::Default => session_ops::open_session(&sid, window, cx),
             Mode::SplitRight => session_ops::open_session_split(&sid, Dir::V, window, cx),

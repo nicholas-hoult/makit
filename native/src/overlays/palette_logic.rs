@@ -250,6 +250,42 @@ pub struct PaletteItem {
     pub archived: bool,
     pub mtime: i64,
     pub msg_count: u32,
+    /// Set only for a content-match row (#212, item_type `"ContentMatch"`): which message the snippet in
+    /// `subtitle` came from, so activating the row can jump straight to it.
+    pub matched_item_id: Option<String>,
+}
+
+/// `PaletteItem.group`'s label for content-match rows (i18n: 内容匹配 / Content matches)
+pub fn content_match_group() -> String {
+    ts!("palette.content_match_group")
+}
+
+/// `PaletteItem.item_type` for a content-match row (#212); a plain internal tag, never shown to the user.
+pub const CONTENT_MATCH_TYPE: &str = "ContentMatch";
+
+/// One ⌘K content-match row (#212): a session whose messages matched the query, with the matching message's
+/// id and a preview of it. Built from [`makit_core::search::Hit`] + the session it belongs to.
+pub fn content_match_item(session: &SessionMeta, hit: &makit_core::search::Hit) -> PaletteItem {
+    let group = content_match_group();
+    PaletteItem {
+        id: format!("s:{}:{group}", session.session_id),
+        session_id: session.session_id.clone(),
+        title: session_title(&session.display_name, &session.first_user_msg, &session.short_id),
+        subtitle: hit.snippet.clone(),
+        hint: session.humanize.clone(),
+        group,
+        item_type: CONTENT_MATCH_TYPE.into(),
+        project_root: if session.git_root.is_empty() { session.cwd.clone() } else { session.git_root.clone() },
+        status: if session.archived { ItemStatus::Archived } else if session.running { ItemStatus::Idle } else { ItemStatus::Stopped },
+        status_label: String::new(),
+        waiting_for: String::new(),
+        running: session.running,
+        pinned: false,
+        archived: session.archived,
+        mtime: session.mtime,
+        msg_count: session.user_msg_count,
+        matched_item_id: Some(hit.item_id.clone()),
+    }
 }
 
 /// `sortSessions`：置顶永远最前，再按排序键；稳定排序
@@ -329,6 +365,7 @@ pub fn build_items(sessions: &[SessionMeta], pinned: &[String], sort: SortKey) -
             archived: s.archived,
             mtime: s.mtime,
             msg_count: s.user_msg_count,
+            matched_item_id: None,
         });
     };
     for s in sort_sessions(waiting(true), sort, pinned) {
@@ -591,6 +628,33 @@ mod tests {
     }
 
     #[test]
+    fn content_match_item_carries_the_hit_and_lands_in_its_own_group() {
+        let s = with("found", |m| m.display_name = "聊天标题".into());
+        let hit = makit_core::search::Hit { item_id: "it-9".into(), snippet: "…命中片段…".into() };
+        let it = content_match_item(&s, &hit);
+        assert_eq!(it.group, content_match_group());
+        assert_eq!(it.item_type, CONTENT_MATCH_TYPE);
+        assert_eq!(it.title, session_title(&s.display_name, &s.first_user_msg, &s.short_id));
+        assert_eq!(it.subtitle, "…命中片段…", "subtitle 就是命中片段，这样复用现有的筛选 + 高亮");
+        assert_eq!(it.matched_item_id, Some("it-9".to_string()));
+        assert_eq!(it.session_id, s.session_id);
+    }
+
+    #[test]
+    fn content_match_item_survives_the_query_filter_via_its_snippet() {
+        // 标题里完全没有查询词，但因为片段（subtitle）里有，filter_items 原有的 hay 拼接逻辑应该照样放行，
+        // 不用给内容匹配单开一条筛选路径
+        let s = with("found", |m| {
+            m.display_name = "无关标题".into();
+            m.first_user_msg = String::new();
+        });
+        let hit = makit_core::search::Hit { item_id: "it-1".into(), snippet: "...rocket launch...".into() };
+        let items = vec![content_match_item(&s, &hit)];
+        let out = filter_items(&items, &PaletteFilter::default(), "rocket", 0);
+        assert_eq!(out.len(), 1, "标题不含查询词，但片段含，应该保留");
+    }
+
+    #[test]
     fn build_items_group_order_and_status() {
         let items = build_items(&sample(), &[], SortKey::Recent);
         assert_eq!(groups_of(&items), ["等待回答", "等待审批", "进行中", "空闲", "已停止", "已归档"]);
@@ -752,6 +816,7 @@ mod tests {
             archived: false,
             mtime,
             msg_count: cnt,
+            matched_item_id: None,
         };
         let items = vec![
             mk("1", "B", false, 1, 5, "z"),

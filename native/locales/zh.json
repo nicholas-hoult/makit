@@ -185,6 +185,7 @@
   "sidebar.toast.unarchived_n": "已取消归档 %{n} 个 session",
   "sidebar.hover.count": "%{n} 条",
   "palette.placeholder": "搜索 session...  (⌘K)",
+  "palette.content_match_group": "内容匹配",
   "palette.filter.all": "全部",
   "palette.filter.title": "筛选",
   "palette.filter.project": "项目",

@@ -32,6 +32,7 @@ pub mod perf;
 pub mod persist;
 pub mod pulse;
 pub mod scrollbar;
+pub mod search_index;
 pub mod selftest;
 pub mod sidebar;
 pub mod state;

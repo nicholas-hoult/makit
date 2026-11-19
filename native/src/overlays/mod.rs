@@ -102,8 +102,13 @@ pub fn show_searchable_menu(position: Point<Pixels>, placeholder: &str, min_w: O
 
 /// 打开会话详情面板（侧栏右键「查看对话」）
 pub fn open_detail(session_id: &str, window: &mut Window, cx: &mut App) {
+    open_detail_at(session_id, None, window, cx);
+}
+
+/// 同上，但打开后跳到并高亮 `jump_to_item` 这一条消息（⌘K 内容匹配结果，#212）
+pub fn open_detail_at(session_id: &str, jump_to_item: Option<String>, window: &mut Window, cx: &mut App) {
     if let Some(h) = host(cx) {
-        h.update(cx, |h, cx| h.open_detail(session_id, window, cx));
+        h.update(cx, |h, cx| h.open_detail(session_id, jump_to_item, window, cx));
     }
 }
 
@@ -281,13 +286,13 @@ impl OverlayHost {
 
     // ---- 会话详情 ----
 
-    pub fn open_detail(&mut self, session_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_detail(&mut self, session_id: &str, jump_to_item: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
         let prev = match self.detail.take() {
             Some(o) => o.prev,
             None => window.focused(cx),
         };
         let Some(meta) = self.state.read(cx).session(session_id).cloned() else { return };
-        let view = cx.new(|cx| detail::DetailView::new(meta, window, cx));
+        let view = cx.new(|cx| detail::DetailView::new(meta, jump_to_item, window, cx));
         let sub = cx.subscribe_in(&view, window, |this, _, ev: &detail::DetailEvent, window, cx| match ev {
             detail::DetailEvent::Close => close_slot!(this.detail, window, cx),
         });

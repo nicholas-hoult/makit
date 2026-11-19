@@ -59,12 +59,15 @@ pub struct DetailView {
     opened: std::time::Instant,
     /// 后台线程读第一遍文件花的毫秒数
     load_ms: f64,
+    /// 从 ⌘K 内容匹配跳过来时要滚到并高亮的消息（#212）；首次加载完就用掉、清空
+    jump_to_item: Option<String>,
+    highlighted_item: Option<String>,
 }
 
 impl EventEmitter<DetailEvent> for DetailView {}
 
 impl DetailView {
-    pub fn new(session: SessionMeta, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(session: SessionMeta, jump_to_item: Option<String>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let id = session.session_id.clone();
@@ -113,7 +116,20 @@ impl DetailView {
         let list = make_list(false);
         // 列表上面垫着 14px 的 padding（见渲染），轨道要和列表视口对齐
         let scrollbar = cx.new(|_| crate::scrollbar::Scrollbar::new(crate::scrollbar::ScrollSource::List(list.clone())).with_inset_top(14.0));
-        Self { session, load: Load::Loading, items: Rc::default(), expanded: Rc::default(), reversed: false, list, scrollbar, focus, opened: std::time::Instant::now(), load_ms: 0.0 }
+        Self {
+            session,
+            load: Load::Loading,
+            items: Rc::default(),
+            expanded: Rc::default(),
+            reversed: false,
+            list,
+            scrollbar,
+            focus,
+            opened: std::time::Instant::now(),
+            load_ms: 0.0,
+            jump_to_item,
+            highlighted_item: None,
+        }
     }
 
     pub fn focus_handle(&self) -> FocusHandle {
@@ -158,6 +174,16 @@ impl DetailView {
         }
         if initial {
             self.list.reset(p.total);
+            if let Some(id) = self.jump_to_item.take() {
+                let ix = {
+                    let items = self.items.borrow();
+                    items.iter().position(|i| i.id == id).map(|r| if self.reversed { items.len() - 1 - r } else { r })
+                };
+                if let Some(ix) = ix {
+                    self.list.scroll_to_reveal_item(ix);
+                    self.highlighted_item = Some(id);
+                }
+            }
         } else {
             for op in list_ops(&p.changes, prev_len, p.total, self.reversed) {
                 match op {
@@ -216,6 +242,9 @@ impl Render for DetailView {
                 let toggle: Toggle = Rc::new(move |id, _, cx| {
                     let _ = this.update(cx, |d, cx| d.toggle(id, cx));
                 });
+                // #212：从 ⌘K 内容匹配跳过来时，给命中的那一条垫一层柔和底色
+                let highlighted = self.highlighted_item.clone();
+                let accent_soft = theme.accent.alpha(0.18);
                 list(self.list.clone(), move |ix, _, _| {
                     let items = items.borrow();
                     // 列表刚被 reset / splice、渲染还没跟上时，下标可能暂时越界：画个空占位
@@ -223,7 +252,12 @@ impl Render for DetailView {
                         return div().into_any_element();
                     };
                     let open = expanded.borrow().contains(&item.id);
-                    render_item(item, open, &th, &font, &toggle)
+                    let rendered = render_item(item, open, &th, &font, &toggle);
+                    if highlighted.as_deref() == Some(item.id.as_str()) {
+                        div().bg(accent_soft).child(rendered).into_any_element()
+                    } else {
+                        rendered
+                    }
                 })
                 .size_full()
                 .into_any_element()

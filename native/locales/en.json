@@ -185,6 +185,7 @@
   "sidebar.toast.unarchived_n": "Unarchived %{n} session(s)",
   "sidebar.hover.count": "%{n}",
   "palette.placeholder": "Search sessions...  (⌘K)",
+  "palette.content_match_group": "Content matches",
   "palette.filter.all": "All",
   "palette.filter.title": "Filters",
   "palette.filter.project": "Project",
