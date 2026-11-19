@@ -29,6 +29,7 @@ pub mod doctor;
 pub mod environment;
 pub mod fsid;
 pub mod hook;
+pub mod last_running;
 pub mod link;
 pub mod instance;
 pub mod opencode;

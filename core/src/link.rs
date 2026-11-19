@@ -3,10 +3,11 @@
 //! Protocol v1: unix socket `~/.makit/link.sock` (directory 0700, socket 0600), one JSON line in, one JSON line out, then the
 //! connection closes. Stateless, so polling is enough and a restart of either side needs no reconnect logic.
 //! `transcript` takes `after` (items after that index) or `tail` (only the last N, for a first look at a long conversation).
-//! Ops: `hello` / `sessions` / `transcript` / `screen` (read-only) and `input` (reply text, approve, deny, interrupt),
-//! `keys` (whitelisted keys), `open` (new session of a known tool in a directory, optionally with its first message),
-//! `resume` (an ended session), `archive` (a session that is not running). The writing ops are a separate opt-in in
-//! makit's settings and refused while it is off, see [`Backend::write_enabled`].
+//! Ops: `hello` / `sessions` / `transcript` / `screen` / `session_cwds` / `last_running` (all read-only) and
+//! `input` (reply text, approve, deny, interrupt), `keys` (whitelisted keys), `open` (new session of a known tool
+//! in a directory, optionally with its first message), `resume` (an ended session), `archive` (a session that is
+//! not running), `update` (`check` is read-only, `install` restarts the app, #D-2122). The writing ops are a
+//! separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
 //! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
 //!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
@@ -189,6 +190,44 @@ pub trait Backend: Send + Sync {
     fn session_exists(&self, session_id: &str) -> bool {
         self.sessions(MAX_LIMIT).is_ok_and(|list| list.iter().any(|s| s.session_id == session_id))
     }
+    /// The sessions that were running right before makit's last quit (#D-2122). Read-only, no live state behind
+    /// it -- just the on-disk snapshot ([`crate::last_running`]) -- so the default here is the real answer for
+    /// every backend, not a placeholder; `NativeBackend` never needs to override it.
+    fn last_running(&self) -> Vec<crate::last_running::LastRunning> {
+        crate::last_running::read()
+    }
+    /// What the running instance currently knows about a newer release (#D-2122). Not a forced synchronous
+    /// network check: a socket request cannot sit through a GitHub round trip, and the periodic background check
+    /// already keeps this current. May still kick off a fresh check in the background before answering.
+    fn update_check(&self) -> Result<UpdateStatus, String> {
+        Err("update not supported".into())
+    }
+    /// Starts installing the currently-available release and restarting (#D-2122). `after_restart`, when given,
+    /// is what the restarted instance should type into that session once it goes idle again -- 总管's own `/loop`
+    /// uses this to reconnect to itself without hardcoding any session. Errors when there is no update available,
+    /// or this machine cannot apply it in place (homebrew-managed install, dev instance).
+    fn update_install(&self, _after_restart: Option<AfterRestart>) -> Result<(), String> {
+        Err("update not supported".into())
+    }
+}
+
+/// [`Backend::update_check`]'s answer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UpdateStatus {
+    pub current: String,
+    /// "idle" | "checking" | "available" | "installing"
+    pub state: String,
+    pub latest: Option<String>,
+    pub notes: String,
+    pub page_url: String,
+}
+
+/// What to type into which session once the restarted instance sees it go idle (#D-2122's `update install`
+/// parameter of the same name).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AfterRestart {
+    pub session_id: String,
+    pub text: String,
 }
 
 /// A session's directory history, as reported by the `session_cwds` op (#313).
@@ -241,7 +280,7 @@ pub const PASTE_SETTLE_BUSY: Duration = Duration::from_millis(600);
 
 /// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
 /// "type" is not an op of its own: it says `input` takes kind `type` and replies while the session works.
-pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds"];
+pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds", "last_running", "update"];
 
 /// Most keys one `keys` request may carry.
 pub const MAX_KEYS: usize = 16;
@@ -740,6 +779,41 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
                 Err(e) => fail(e),
             }
         }
+        Some("last_running") => {
+            let sessions: Vec<Value> = backend
+                .last_running()
+                .into_iter()
+                .map(|e| json!({"session_id": e.session_id, "name": e.name, "cwd": e.cwd, "last_active": e.last_active}))
+                .collect();
+            json!({"ok": true, "sessions": sessions}).to_string()
+        }
+        Some("update") => match req.get("cmd").and_then(Value::as_str) {
+            Some("check") => match backend.update_check() {
+                Ok(s) => json!({"ok": true, "current": s.current, "state": s.state, "latest": s.latest, "notes": s.notes, "page_url": s.page_url}).to_string(),
+                Err(e) => fail(e),
+            },
+            Some("install") => {
+                if !backend.write_enabled() {
+                    return fail("write disabled");
+                }
+                let after_restart = match req.get("after_restart") {
+                    None | Some(Value::Null) => None,
+                    Some(v) => {
+                        let sid = v.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty());
+                        let text = v.get("text").and_then(Value::as_str).filter(|s| !s.is_empty());
+                        match (sid, text) {
+                            (Some(session_id), Some(text)) => Some(AfterRestart { session_id: session_id.into(), text: text.into() }),
+                            _ => return fail("after_restart needs non-empty session_id and text"),
+                        }
+                    }
+                };
+                match backend.update_install(after_restart) {
+                    Ok(()) => json!({"ok": true}).to_string(),
+                    Err(e) => fail(e),
+                }
+            }
+            _ => fail("cmd must be \"check\" or \"install\""),
+        },
         Some("input") => {
             if !backend.write_enabled() {
                 return fail("write disabled");
@@ -1011,6 +1085,11 @@ mod tests {
         /// Set to simulate `open` / `resume` refusing because of the capacity cap (#D-2099), tagged with which
         /// threshold tripped.
         capacity_block: Mutex<Option<CapacityLimitKind>>,
+        last_running_snapshot: Vec<crate::last_running::LastRunning>,
+        update_check_result: Result<UpdateStatus, String>,
+        update_install_result: Result<(), String>,
+        /// What `update_install` received each time it was called.
+        update_installs: Mutex<Vec<Option<AfterRestart>>>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -1077,6 +1156,16 @@ mod tests {
         fn session_exists(&self, id: &str) -> bool {
             self.sessions.iter().any(|s| s.session_id == id) || self.existing_but_unlisted.iter().any(|s| s == id)
         }
+        fn last_running(&self) -> Vec<crate::last_running::LastRunning> {
+            self.last_running_snapshot.clone()
+        }
+        fn update_check(&self) -> Result<UpdateStatus, String> {
+            self.update_check_result.clone()
+        }
+        fn update_install(&self, after_restart: Option<AfterRestart>) -> Result<(), String> {
+            self.update_installs.lock().unwrap().push(after_restart);
+            self.update_install_result.clone()
+        }
     }
 
     fn fake() -> Fake {
@@ -1090,6 +1179,10 @@ mod tests {
             archived: Mutex::new(Vec::new()),
             existing_but_unlisted: Vec::new(),
             capacity_block: Mutex::new(None),
+            last_running_snapshot: Vec::new(),
+            update_check_result: Err("update not supported".into()),
+            update_install_result: Ok(()),
+            update_installs: Mutex::new(Vec::new()),
         }
     }
 
@@ -1594,10 +1687,60 @@ mod tests {
     }
 
     #[test]
+    fn last_running_reports_the_on_disk_snapshot_as_is() {
+        let b = Fake {
+            last_running_snapshot: vec![
+                crate::last_running::LastRunning { session_id: "s1".into(), name: "总管".into(), cwd: "/Users/me/p".into(), last_active: 100 },
+            ],
+            ..fake()
+        };
+        let r = ask(&b, r#"{"op":"last_running"}"#);
+        assert_eq!(r["ok"], true);
+        assert_eq!(r["sessions"], json!([{"session_id": "s1", "name": "总管", "cwd": "/Users/me/p", "last_active": 100}]));
+    }
+
+    #[test]
+    fn update_check_reports_current_state_and_a_newer_release_when_there_is_one() {
+        let b = Fake {
+            update_check_result: Ok(UpdateStatus { current: "0.2.19".into(), state: "available".into(), latest: Some("0.2.20".into()), notes: "fixes".into(), page_url: "https://example.invalid".into() }),
+            ..fake()
+        };
+        let r = ask(&b, r#"{"op":"update","cmd":"check"}"#);
+        assert_eq!(r["ok"], true);
+        assert_eq!((r["current"].as_str(), r["state"].as_str(), r["latest"].as_str()), (Some("0.2.19"), Some("available"), Some("0.2.20")));
+        assert_eq!(r["notes"], "fixes");
+
+        let unknown = ask(&fake(), r#"{"op":"update","cmd":"nope"}"#);
+        assert_eq!(unknown["error"], "cmd must be \"check\" or \"install\"");
+    }
+
+    #[test]
+    fn update_install_needs_write_enabled_and_validates_after_restart() {
+        let off = fake();
+        assert_eq!(ask(&off, r#"{"op":"update","cmd":"install"}"#)["error"], "write disabled");
+
+        let on = Fake { write_on: true, ..fake() };
+        let r = ask(&on, r#"{"op":"update","cmd":"install"}"#);
+        assert_eq!(r["ok"], true);
+        assert_eq!(on.update_installs.lock().unwrap().as_slice(), [None]);
+
+        let r = ask(&on, r#"{"op":"update","cmd":"install","after_restart":{"session_id":"s1","text":"继续"}}"#);
+        assert_eq!(r["ok"], true);
+        assert_eq!(on.update_installs.lock().unwrap().last().unwrap(), &Some(AfterRestart { session_id: "s1".into(), text: "继续".into() }));
+
+        // half the shape given: refused rather than silently dropping the continuation
+        let r = ask(&on, r#"{"op":"update","cmd":"install","after_restart":{"session_id":"s1"}}"#);
+        assert_eq!(r["error"], "after_restart needs non-empty session_id and text");
+
+        let failing = Fake { write_on: true, update_install_result: Err("no update available".into()), ..fake() };
+        assert_eq!(ask(&failing, r#"{"op":"update","cmd":"install"}"#)["error"], "no update available");
+    }
+
+    #[test]
     fn hello_lists_the_ops_so_the_other_side_can_tell_old_versions() {
         let ops = ask(&fake(), r#"{"op":"hello"}"#)["ops"].clone();
         // "type": input kind `type` (terminal keyboard) and replies accepted while the session works
-        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds"] {
+        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds", "last_running", "update"] {
             assert!(ops.as_array().unwrap().iter().any(|o| o == op), "{op}");
         }
     }

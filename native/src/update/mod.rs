@@ -9,6 +9,7 @@
 //! unwritable install dir, no installer/digest in the release) degrades to "open the release page".
 
 pub mod apply;
+pub mod after_restart;
 
 use std::time::Duration;
 

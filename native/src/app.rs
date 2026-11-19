@@ -477,6 +477,8 @@ pub fn run() {
         crate::notify::attach_window(handle, cx);
         // 本机会话接口的写入（回话、批准）要回到主线程写终端（#299）
         crate::link_switch::attach_window(handle, link_writes, cx);
+        // `update install` 重启后接上总管指定的那个会话（#D-2122）；绝大多数启动这里什么都不做
+        crate::update::after_restart::resume_if_pending(handle, cx);
 
         // 退出前把防抖中的状态写掉
         let quit_state = state.clone();
@@ -484,6 +486,15 @@ pub fn run() {
         cx.on_app_quit(move |cx| {
             // 先记窗口位置再落盘：Cmd-Q 前没有失去焦点，只靠这一下
             let _ = quit_handle.update(cx, |_, window, cx| save_window(&quit_state, window, cx));
+            // 这次退出前在跑的会话快照（#D-2122），退出/重启/升级都走这同一条路：总管靠它决定重启后恢复哪些、按什么顺序
+            let snapshot: Vec<makit_core::last_running::LastRunning> = quit_state
+                .read(cx)
+                .sessions
+                .iter()
+                .filter(|m| m.running)
+                .map(|m| makit_core::last_running::LastRunning { session_id: m.session_id.clone(), name: m.display_name.clone(), cwd: m.cwd.clone(), last_active: m.mtime })
+                .collect();
+            makit_core::last_running::write(&snapshot);
             quit_state.read(cx).flush();
             async {}
         })
