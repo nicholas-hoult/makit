@@ -6,9 +6,12 @@
 
 use crate::tr;
 use gpui::{
-    div, prelude::*, px, relative, svg, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle,
+    div, prelude::*, relative, svg, App, ClickEvent, Context, Entity, EventEmitter, FocusHandle,
     Focusable, FontWeight, HighlightStyle, Hsla, ScrollHandle, SharedString, StyledText, Transformation, Window,
 };
+// #277: no real coordinates in this file (vp.height is only ever used as a bare ratio, never wrapped in px), so
+// every design size here follows the whole-interface scale.
+use crate::ui_scale::px;
 
 use super::palette_logic::*;
 use super::style::*;
