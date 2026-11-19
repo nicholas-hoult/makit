@@ -62,9 +62,11 @@ pub mod text_input;
 pub mod toast;
 
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, Pixels, Point, SharedString, Subscription, Task,
+    div, prelude::*, App, Context, Entity, FocusHandle, Focusable, Global, MouseButton, Pixels, Point, SharedString, Subscription, Task,
     Window,
 };
+// #277: context menu / toast design sizes follow the whole-interface scale, same drop-in as sidebar/render.rs.
+use crate::ui_scale::px;
 
 use crate::actions::overlays as act;
 use text_input::{TextInput, TextInputEvent};
@@ -442,8 +444,12 @@ impl OverlayHost {
         let search_h = if search.is_some() { SEARCH_H } else { 0.0 };
         let selected_item = if search.is_some() { selectable(&items).get(m.sel).copied() } else { None };
         let (w, h) = (menu_width(max_label).max(m.min_w.unwrap_or(0.0)), menu_height(&items) + search_h);
+        // clamp_menu_position compares against the real viewport, so it needs the menu's real on-screen size, not
+        // the unscaled design-unit total `w`/`h` -- otherwise the clamp boundary would be wrong at any zoom level
+        // other than 100% (#277)
+        let (w_scaled, h_scaled) = (crate::ui_scale::scaled(w), crate::ui_scale::scaled(h));
         let vp = window.viewport_size();
-        let (x, y) = clamp_menu_position(f32::from(m.pos.x), f32::from(m.pos.y), w, h, f32::from(vp.width), f32::from(vp.height));
+        let (x, y) = clamp_menu_position(f32::from(m.pos.x), f32::from(m.pos.y), w_scaled, h_scaled, f32::from(vp.width), f32::from(vp.height));
         let host = cx.entity();
         let rows = items.into_iter().enumerate().map(|(i, item)| match item {
             MenuItem::Separator => div().h(px(1.0)).mx(px(6.0)).my(px(4.0)).bg(theme.border).into_any_element(),
@@ -567,10 +573,10 @@ impl OverlayHost {
                         .on_action(cx.listener(|this, _: &act::Confirm, window, cx| this.menu_confirm(window, cx)))
                         .occlude()
                         .absolute()
-                        .left(px(x))
-                        .top(px(y))
-                        .w(px(w))
-                        .max_h((vp.height - px(16.0)).min(px(if searchable { SEARCH_MENU_MAX_H } else { f32::MAX })))
+                        .left(gpui::px(x))
+                        .top(gpui::px(y))
+                        .w(gpui::px(w_scaled))
+                        .max_h((vp.height - px(16.0)).min(if searchable { px(SEARCH_MENU_MAX_H) } else { gpui::px(f32::MAX) }))
                         .flex()
                         .flex_col()
                         .bg(theme.bg_soft)
