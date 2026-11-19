@@ -162,18 +162,18 @@ fn helper_log() -> PathBuf {
 fn launch_helper(job: &Job, work: &Path, staged: &Path) -> Result<(), String> {
     let script = work.join("swap.sh");
     std::fs::write(&script, HELPER).map_err(|e| e.to_string())?;
-    Command::new("/bin/sh")
-        .arg(&script)
-        .arg(std::process::id().to_string())
-        .arg(&job.target)
-        .arg(staged)
-        .arg(helper_log())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    let mut cmd = Command::new("/bin/sh");
+    cmd.arg(&script).arg(std::process::id().to_string()).arg(&job.target).arg(staged).arg(helper_log());
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // #D-2137: its own process group, not makit's -- a child survives its parent exiting either way on Unix, but
+    // staying in makit's group would still let a signal meant for makit's whole group (closing the terminal a
+    // dev instance runs in sends SIGHUP to the group, say) take the helper down with it mid-wait.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
