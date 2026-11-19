@@ -7,9 +7,13 @@ use crate::{tr, ts};
 use std::time::{Duration, Instant};
 
 use gpui::{
-    anchored, canvas, deferred, div, point, prelude::*, px, svg, Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Div,
+    anchored, canvas, deferred, div, point, prelude::*, svg, Animation, AnimationExt, AnyElement, App, BoxShadow, ClickEvent, Div,
     Entity, FontWeight, Hsla, MouseButton, Pixels, Rgba, SharedString, Window,
 };
+// #277: drawer / bell / row design sizes follow the whole-interface scale, same drop-in as sidebar/render.rs.
+// `bell_bounds`-derived positions stay on raw gpui::px (see `drawer`'s `left`) -- they are the bell's real,
+// already-scaled on-screen position, not a design size to scale again.
+use crate::ui_scale::px;
 
 use crate::actions::notify as act;
 use crate::theme::{ActiveTheme, Theme};
@@ -78,7 +82,7 @@ fn drawer(n: Entity<Notifier>, window: &mut Window, cx: &mut App) -> AnyElement 
     let height = vp.height * 0.6667;
     let (left, records, selected, unread, focus, scroll, scrollbar) = {
         let x = n.read(cx);
-        (x.bell_bounds.map(|b| b.origin.x).unwrap_or(px(104.0)), x.book.records.clone(), x.selected, x.unread_count(), x.focus.clone(), x.scroll.clone(), x.scrollbar.clone())
+        (x.bell_bounds.map(|b| b.origin.x).unwrap_or(gpui::px(104.0)), x.book.records.clone(), x.selected, x.unread_count(), x.focus.clone(), x.scroll.clone(), x.scrollbar.clone())
     };
     let now = crate::sidebar::now_secs();
     let count = records.len();
