@@ -1,7 +1,9 @@
 //! 浮层共用的尺寸令牌和小部件（按钮、键帽、勾选框……）。数值一律照 `src/App.css`，
 //! 注释里写着对应的 CSS 选择器，改的时候两边对得上。颜色全部从 `cx.theme()` 取。
 
-use gpui::{div, point, prelude::*, px, BoxShadow, Div, Hsla, Pixels, SharedString};
+use gpui::{div, point, prelude::*, BoxShadow, Div, Hsla, Pixels, SharedString};
+// #277: every size token / widget helper here is a design size, so the whole file follows the scale.
+use crate::ui_scale::px;
 
 use crate::theme::Theme;
 
