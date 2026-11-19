@@ -570,6 +570,21 @@ impl WorkspaceView {
         self.terminals.insert(tab.id.clone(), Term { view, _subs: vec![sub, spawn_sub, input_sub, search_sub] });
     }
 
+    /// Builds `tab_id`'s terminal and forces its PTY to actually spawn right now, instead of waiting for the next
+    /// render pass to lay it out (local-session link `open` / `resume`, #D-2118: replying `ok` before this happened
+    /// let a fast follow-up `screen` / `input` from the other side see "session not open in makit"). `tab_id` must
+    /// already be its container's active tab (true right after `open_session` / `resume_tab`, both of which make
+    /// their tab active). Returns whether a process is actually running.
+    pub fn force_spawn_now(&mut self, tab_id: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let ws = self.state.read(cx).workspace.state.clone();
+        if let Some(c) = collect_containers(&ws.root).into_iter().find(|c| c.active_tab_id == tab_id) {
+            self.ensure_terminal(c, window, cx);
+        }
+        let Some(t) = self.terminals.get(tab_id) else { return false };
+        t.view.update(cx, |v, cx| v.spawn_hidden_fallback(window, cx));
+        t.view.read(cx).child_pid().is_some()
+    }
+
     fn title_of(&self, tab: &model::PaneTab, cx: &App) -> String {
         let s = self.state.read(cx);
         tab_title(tab, tab.session_id.as_deref().and_then(|id| s.session(id)))

@@ -15,7 +15,7 @@ use std::time::Duration;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
 use gpui::{App, Entity, WindowHandle};
-use makit_core::link::{Backend, CoreBackend, Cursor, Handle, OpenError, Screen, SessionInfo, TranscriptPage};
+use makit_core::link::{AfterRestart, Backend, CoreBackend, Cursor, Handle, OpenError, Screen, SessionInfo, TranscriptPage, UpdateStatus};
 
 use crate::state::{AppEvent, AppState};
 
@@ -48,6 +48,10 @@ pub enum MainOp {
     Open { cwd: String, tool: String, text: Option<String> },
     /// 续接已结束的会话
     Resume { session_id: String },
+    /// 本机会话接口的 `update check`（#D-2122）：当前已知的更新状态，不是强制联网重查
+    UpdateCheck,
+    /// 本机会话接口的 `update install`：装当前已发现的新版本并重启；`after_restart` 是重启后要接上的那个会话
+    UpdateInstall { after_restart: Option<AfterRestart> },
 }
 
 /// 主线程的回执。
@@ -55,6 +59,7 @@ pub enum MainOp {
 pub enum MainReply {
     Done,
     Screen(Screen),
+    UpdateStatus(UpdateStatus),
 }
 
 /// 一次请求：socket 线程发给主线程，`reply` 收回执。错误用 `OpenError`（不是普通 `String`）：`open`/`resume`
@@ -90,7 +95,7 @@ impl NativeBackend {
     fn ask_done(&self, op: MainOp) -> Result<(), OpenError> {
         match self.ask(op)? {
             MainReply::Done => Ok(()),
-            MainReply::Screen(_) => Err("unexpected reply".into()),
+            MainReply::Screen(_) | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
         }
     }
 }
@@ -119,7 +124,7 @@ impl Backend for NativeBackend {
     fn screen(&self, session_id: &str) -> Result<Screen, String> {
         match self.ask(MainOp::Screen { session_id: session_id.to_string() })? {
             MainReply::Screen(s) => Ok(s),
-            MainReply::Done => Err("unexpected reply".into()),
+            MainReply::Done | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
         }
     }
 
@@ -129,6 +134,17 @@ impl Backend for NativeBackend {
 
     fn resume(&self, session_id: &str) -> Result<(), OpenError> {
         self.ask_done(MainOp::Resume { session_id: session_id.to_string() })
+    }
+
+    fn update_check(&self) -> Result<UpdateStatus, String> {
+        match self.ask(MainOp::UpdateCheck)? {
+            MainReply::UpdateStatus(s) => Ok(s),
+            MainReply::Done | MainReply::Screen(_) => Err("unexpected reply".into()),
+        }
+    }
+
+    fn update_install(&self, after_restart: Option<AfterRestart>) -> Result<(), String> {
+        Ok(self.ask_done(MainOp::UpdateInstall { after_restart })?)
     }
 
     fn archive(&self, session_id: &str) -> Result<(), String> {
@@ -188,7 +204,7 @@ pub fn attach_window(handle: WindowHandle<crate::app::Root>, mut rx: UnboundedRe
         while let Some(req) = rx.next().await {
             let op = req.op;
             let result = handle
-                .update(cx, move |root, _, cx| run(root, op, cx))
+                .update(cx, move |root, window, cx| run(root, op, window, cx))
                 .unwrap_or_else(|_| Err("makit window is closed".into()));
             // 发请求的一方可能已经超时走了，回不去也无所谓
             let _ = req.reply.send(result);
@@ -197,7 +213,18 @@ pub fn attach_window(handle: WindowHandle<crate::app::Root>, mut rx: UnboundedRe
     .detach();
 }
 
-fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::app::Root>) -> Result<MainReply, OpenError> {
+/// Forces `tab_id`'s terminal to actually spawn now (not the next render pass) and turns that into the open/resume
+/// reply: `Ok` only once a process is really running, `Err` with a reason otherwise (#D-2118 -- see
+/// `WorkspaceView::force_spawn_now`'s own doc for why this step cannot be skipped).
+fn confirm_spawned(ws: &Entity<crate::workspace::WorkspaceView>, tab_id: &str, window: &mut gpui::Window, cx: &mut gpui::App, what: &str) -> Result<MainReply, OpenError> {
+    if ws.update(cx, |w, cx| w.force_spawn_now(tab_id, window, cx)) {
+        Ok(MainReply::Done)
+    } else {
+        Err(format!("{what} did not start a process").into())
+    }
+}
+
+fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &mut gpui::Context<crate::app::Root>) -> Result<MainReply, OpenError> {
     let ws = root.workspace_view();
     match op {
         MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done).map_err(OpenError::from),
@@ -207,12 +234,16 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
                 return Err(e);
             }
             let state = AppState::global(cx);
-            state.update(cx, |s, cx| {
-                s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref());
+            let tab_id = state.update(cx, |s, cx| {
+                let tid = s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref());
                 s.workspace_changed(cx);
+                tid
             });
-            crate::overlays::show_toast(crate::ts!("link.toast.remote_input"), crate::overlays::toast::REMOTE_INPUT, cx);
-            Ok(MainReply::Done)
+            let result = confirm_spawned(&ws, &tab_id, window, cx, "open");
+            if result.is_ok() {
+                crate::overlays::show_toast(crate::ts!("link.toast.remote_input"), crate::overlays::toast::REMOTE_INPUT, cx);
+            }
+            result
         }
         MainOp::Resume { session_id } => {
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
@@ -221,8 +252,37 @@ fn run(root: &mut crate::app::Root, op: MainOp, cx: &mut gpui::Context<crate::ap
             if let Some(e) = crate::overlays::session_ops::capacity_block(cx) {
                 return Err(e);
             }
-            crate::overlays::session_ops::resume_session(&session_id, cx);
-            Ok(MainReply::Done)
+            let Some(tab_id) = crate::overlays::session_ops::resume_session(&session_id, cx) else {
+                return Err("session not found".into());
+            };
+            confirm_spawned(&ws, &tab_id, window, cx, "resume")
+        }
+        MainOp::UpdateCheck => {
+            let s = crate::update::status(cx);
+            let (state, latest, notes, page_url) = match &s {
+                crate::update::Status::Idle => ("idle", None, String::new(), String::new()),
+                crate::update::Status::Checking => ("checking", None, String::new(), String::new()),
+                crate::update::Status::Available(r) => ("available", Some(r.version.clone()), r.notes.clone(), r.page_url.clone()),
+                crate::update::Status::Installing(r) => ("installing", Some(r.version.clone()), r.notes.clone(), r.page_url.clone()),
+            };
+            // 这次回复报的是现在已知的状态；没有在查 / 在装就顺手起一次新的检查，结果留给对方下次 check 再看
+            crate::update::check_now(false, cx);
+            Ok(MainReply::UpdateStatus(UpdateStatus { current: crate::update::current_version().to_string(), state: state.to_string(), latest, notes, page_url }))
+        }
+        MainOp::UpdateInstall { after_restart } => {
+            let Some(release) = crate::update::available(cx) else {
+                return Err("no update available, call update check first".into());
+            };
+            match crate::update::apply::plan(&release, crate::app::is_dev_instance()) {
+                crate::update::apply::Plan::InPlace(_) => {
+                    if let Some(ar) = &after_restart {
+                        crate::update::after_restart::stash(&crate::update::after_restart::Continuation { session_id: ar.session_id.clone(), text: ar.text.clone() });
+                    }
+                    crate::update::install(release, cx);
+                    Ok(MainReply::Done)
+                }
+                _ => Err("this machine cannot update in place (homebrew-managed install or a dev instance): use the in-app update pill instead".into()),
+            }
         }
     }
 }

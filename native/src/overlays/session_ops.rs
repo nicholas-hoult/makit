@@ -272,15 +272,20 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
 }
 
 /// Opens a brand-new tab for `s`, going through the capacity cap first (#D-2090 接线阶段). Shared by the sidebar's
-/// own open (this file) and link.sock's `resume` when it has nowhere to revive (`resume_session` below).
-fn do_open_new(s: &SessionMeta, cx: &mut App) {
+/// own open (this file) and link.sock's `resume` when it has nowhere to revive (`resume_session` below). Returns
+/// the tab id that now holds it, so a remote caller (link.sock) can force its terminal to actually spawn before
+/// replying (#D-2118) -- the local sidebar/⌘K callers just discard it, same as before.
+fn do_open_new(s: &SessionMeta, cx: &mut App) -> String {
     ensure_symlink(s);
     let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
     let state = AppState::global(cx);
     state.update(cx, |st, cx| {
-        let _: Opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s));
+        let opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s));
         st.workspace_changed(cx);
-    });
+        match opened {
+            Opened::New { tab_id } | Opened::Existing { tab_id, .. } => tab_id,
+        }
+    })
 }
 
 /// The capacity cap acting on a **local** trigger (sidebar click / ⌘K / Enter / "恢复"): unlike the remote
@@ -321,7 +326,9 @@ fn with_capacity_check(window: &mut Window, cx: &mut App, action: impl FnOnce(&m
 }
 
 fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
-    with_capacity_check(window, cx, move |cx| do_open_new(&s, cx));
+    with_capacity_check(window, cx, move |cx| {
+        do_open_new(&s, cx);
+    });
 }
 
 /// Puts the eviction queue's victim to sleep (#287's stop-but-keep-tab, via `WorkspaceView::stop_tabs_now`
@@ -353,10 +360,10 @@ pub fn capacity_decision(cx: &App) -> Option<(crate::state::capacity::CapacityLi
     let state = AppState::global(cx);
     let s = state.read(cx);
     let active_count = s.sessions.iter().filter(|m| m.running).count();
-    let free_mem_ratio = crate::state::resources::free_mem_ratio().unwrap_or(1.0);
+    let available_mem_ratio = crate::state::resources::available_mem_ratio().unwrap_or(1.0);
     let load_1m = crate::state::resources::load_1m().unwrap_or(0.0);
     let limits = limits_from_prefs(s.prefs.capacity.max_active, s.prefs.capacity.min_free_mem_percent, s.prefs.capacity.max_load_1m);
-    let limit = capacity_limit(active_count, free_mem_ratio, load_1m, limits)?;
+    let limit = capacity_limit(active_count, available_mem_ratio, load_1m, limits)?;
     let pinned: std::collections::HashSet<String> = s.prefs.pinned_sessions.iter().cloned().collect();
     let focused = focused_session_ids(&s.workspace.state.root);
     let candidates = active_candidates(&s.sessions, &pinned, &focused);
@@ -405,17 +412,23 @@ pub fn capacity_block(cx: &mut App) -> Option<makit_core::link::OpenError> {
 /// Remote-only (called from `link_switch`'s `MainOp::Resume`, which already ran `capacity_block` before this):
 /// the local sidebar/palette resume a stopped tab through `WorkspaceView::resume_tab` directly, uncapped for now
 /// (#D-2090 分期：手动恢复自己已知的某一个标签是一次性、可见的动作，不是这次事故的成因，留作后续)
-pub fn resume_session(session_id: &str, cx: &mut App) {
+///
+/// Returns the tab id it just revived / opened, or `None` if the session no longer exists -- the caller
+/// (`link_switch::run`) uses it to force that one tab's terminal to actually spawn before replying `ok` (#D-2118:
+/// this used to reply `ok` right after this call returned, while the PTY itself only gets built on the next
+/// render pass, so a fast follow-up `screen` / `input` from the other side saw "session not open in makit").
+pub fn resume_session(session_id: &str, cx: &mut App) -> Option<String> {
     let state = AppState::global(cx);
-    let Some(s) = state.read(cx).session(session_id).cloned() else { return };
-    match decide_link_resume(&state.read(cx).workspace.state.root, session_id) {
+    let s = state.read(cx).session(session_id).cloned()?;
+    Some(match decide_link_resume(&state.read(cx).workspace.state.root, session_id) {
         LinkResumeDecision::Revive { tab_id } => {
-            let Some(h) = host(cx) else { return };
+            let Some(h) = host(cx) else { return None };
             let ws = h.read(cx).workspace.clone();
             ws.update(cx, |w, cx| w.resume_tab(&tab_id, cx));
+            tab_id
         }
         LinkResumeDecision::OpenNew => do_open_new(&s, cx),
-    }
+    })
 }
 
 /// The tabs bound to this session that can be stopped (#287)
