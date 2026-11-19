@@ -18,7 +18,10 @@
 //! - 侧栏分隔线高亮（B 侧栏包）：拖 / 悬停侧栏 resizer 时 `cx.set_global(TitlebarResizerHot(true))`
 
 use crate::{tr, ts};
-use gpui::{div, prelude::*, px, svg, AnyElement, App, ClickEvent, Entity, Global, Window};
+use gpui::{div, prelude::*, svg, AnyElement, App, ClickEvent, Entity, Global, Window};
+// #277: design-time sizes go through the whole-interface scale; `sidebar_w` below is a real measured width
+// (the user's own resize drag, already in physical pixels) and stays on `gpui::px`, same split as sidebar/render.rs.
+use crate::ui_scale::px;
 
 use super::labels::titlebar_text;
 use crate::actions::app as app_act;
@@ -90,7 +93,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
             div()
                 .flex_none()
                 .h_full()
-                .w(px(if collapsed { TRAFFIC_LIGHTS_W } else { sidebar_w }))
+                .w(if collapsed { px(TRAFFIC_LIGHTS_W) } else { gpui::px(sidebar_w) })
                 .when(!collapsed, |d| d.bg(t.bg_soft).border_r_1().border_color(t.divider))
                 .when(collapsed, |d| d.bg(t.bg)),
         )
