@@ -7,6 +7,11 @@ All notable changes to makit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- The installed Claude Code hook script hung for ~4s on every single hook event (until Claude Code's own hook timeout killed it): macOS's bundled `nc` never exits once its peer closes the connection. The script now calls a `hook` subcommand on makit's own executable instead (#215).
+
 ## [0.2.20] - 2026-11-19
 
 ### Added

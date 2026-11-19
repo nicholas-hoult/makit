@@ -6,6 +6,11 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 修复
+- 装好的 Claude Code hook 脚本过去每次触发都会挂住约 4 秒（直到 Claude Code 自己的 hook 超时把它杀掉）：macOS 自带的 `nc` 在对方关闭连接后不会退出。脚本现在改成调 makit 自己可执行文件的 `hook` 子命令，不再依赖 `nc`（#215）。
+
 ## [0.2.20] - 2026-11-19
 
 ### 新增
