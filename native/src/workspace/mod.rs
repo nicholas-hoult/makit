@@ -691,7 +691,7 @@ impl WorkspaceView {
                     .map(|m| if !m.last_cwd.is_empty() { m.last_cwd.clone() } else { m.cwd.clone() })
                     .filter(|p| !p.is_empty())
                     .unwrap_or_else(|| tab.cwd.clone());
-                let resume = tab.session_id.as_deref().map(|sid| format!("cd {cwd} && {}", resume_cmd(sid, meta.map(|m| m.tool.as_str()).filter(|t| !t.is_empty()))));
+                let resume = tab.session_id.as_deref().map(|sid| format!("cd {cwd} && {}", resume_cmd(sid, meta.map(|m| m.tool.as_str()).filter(|t| !t.is_empty()), None)));
                 let single = c.tabs.len() <= 1;
                 let (a, b) = (cid.clone(), tid.clone());
                 let w1 = w.clone();

@@ -16,7 +16,7 @@ fn tool_of(s: &SessionMeta) -> Option<&str> {
 
 /// 复制恢复命令：`cd <cwd> && claude -r <id>`（codex 是 `codex resume <id>`）
 pub fn resume_command(s: &SessionMeta) -> String {
-    format!("cd {} && {}", s.cwd, resume_cmd(&s.session_id, tool_of(s)))
+    format!("cd {} && {}", s.cwd, resume_cmd(&s.session_id, tool_of(s), None))
 }
 
 pub fn toggle_pin(session_id: &str, cx: &mut App) {
@@ -275,12 +275,12 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
 /// own open (this file) and link.sock's `resume` when it has nowhere to revive (`resume_session` below). Returns
 /// the tab id that now holds it, so a remote caller (link.sock) can force its terminal to actually spawn before
 /// replying (#D-2118) -- the local sidebar/⌘K callers just discard it, same as before.
-fn do_open_new(s: &SessionMeta, cx: &mut App) -> String {
+fn do_open_new(s: &SessionMeta, permission_mode: Option<&str>, cx: &mut App) -> String {
     ensure_symlink(s);
     let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
     let state = AppState::global(cx);
     state.update(cx, |st, cx| {
-        let opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s));
+        let opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s), permission_mode);
         st.workspace_changed(cx);
         match opened {
             Opened::New { tab_id } | Opened::Existing { tab_id, .. } => tab_id,
@@ -327,7 +327,7 @@ fn with_capacity_check(window: &mut Window, cx: &mut App, action: impl FnOnce(&m
 
 fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
     with_capacity_check(window, cx, move |cx| {
-        do_open_new(&s, cx);
+        do_open_new(&s, None, cx);
     });
 }
 
@@ -422,7 +422,9 @@ pub fn capacity_block(cx: &mut App) -> Option<makit_core::link::OpenError> {
 /// force that one tab's terminal to actually spawn before replying `ok` (#D-2118: this used to reply `ok` right
 /// after this call returned, while the PTY itself only gets built on the next render pass, so a fast follow-up
 /// `screen` / `input` from the other side saw "session not open in makit").
-pub fn resume_session(session_id: &str, allow_new_tab: bool, cx: &mut App) -> Result<(String, makit_core::link::ResumeAction), makit_core::link::OpenError> {
+/// `permission_mode`（#D-2168）只有 `OpenNew` 分支真的新开一个标签时才用得上：`Revive` 分支复用的是已有标签，
+/// 启动命令早就定了，没有新命令可拼，静默忽略——这是架构上的限制，不是漏做
+pub fn resume_session(session_id: &str, allow_new_tab: bool, permission_mode: Option<&str>, cx: &mut App) -> Result<(String, makit_core::link::ResumeAction), makit_core::link::OpenError> {
     use makit_core::link::{OpenError, ResumeAction};
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else {
@@ -436,7 +438,14 @@ pub fn resume_session(session_id: &str, allow_new_tab: bool, cx: &mut App) -> Re
             Ok((tab_id, ResumeAction::ReusedTab))
         }
         LinkResumeDecision::OpenNew if !allow_new_tab => Err(OpenError::no_tab("no tab for this session and allow_new_tab is false")),
-        LinkResumeDecision::OpenNew => Ok((do_open_new(&s, cx), ResumeAction::OpenedNewTab)),
+        LinkResumeDecision::OpenNew => {
+            // claude-only (#D-2168): `tool_arg` returns `None` for claude itself (it's the default everywhere
+            // else matches on it), so `is_none()` here means "this session's tool is claude". codex/opencode's
+            // own flags mean something different, so a `permission_mode` meant for claude is silently dropped
+            // rather than handed to a tool it was never meant for.
+            let permission_mode = permission_mode.filter(|_| tool_of(&s).is_none());
+            Ok((do_open_new(&s, permission_mode, cx), ResumeAction::OpenedNewTab))
+        }
     }
 }
 
@@ -463,7 +472,7 @@ fn do_open_split(s: &SessionMeta, dir: Dir, cx: &mut App) {
     let spec = TabSpec {
         kind: TabKind::Resume,
         cwd: s.cwd.clone(),
-        init_command: Some(resume_init_command(&s.session_id, tool_of(s))),
+        init_command: Some(resume_init_command(&s.session_id, tool_of(s), None)),
         session_id: Some(s.session_id.clone()),
         session_short_id: Some(s.short_id.clone()),
     };

@@ -86,7 +86,7 @@ impl DraggedSession {
         TabSpec {
             kind: TabKind::Resume,
             cwd: self.cwd.clone(),
-            init_command: Some(resume_init_command(&self.session_id, self.tool_opt())),
+            init_command: Some(resume_init_command(&self.session_id, self.tool_opt(), None)),
             session_id: Some(self.session_id.clone()),
             session_short_id: Some(self.short_id.clone()),
         }
@@ -414,7 +414,7 @@ impl SidebarView {
     fn new_session_in(&mut self, cwd: &str, tool: &str, cx: &mut Context<Self>) {
         let tool = makit_core::ai_provider::tool_arg(tool);
         self.state.update(cx, |s, cx| {
-            s.workspace.open_new_session(cwd, tool, None);
+            s.workspace.open_new_session(cwd, tool, None, None);
             s.workspace_changed(cx);
         });
     }
@@ -491,7 +491,7 @@ impl SidebarView {
     /// 复制恢复命令：`cd <cwd> && <恢复命令>`（cwd 优先用 last_cwd）
     fn resume_command_line(m: &SessionMeta) -> String {
         let cwd = if m.last_cwd.is_empty() { &m.cwd } else { &m.last_cwd };
-        format!("cd {cwd} && {}", resume_cmd(&m.session_id, makit_core::ai_provider::tool_arg(&m.tool)))
+        format!("cd {cwd} && {}", resume_cmd(&m.session_id, makit_core::ai_provider::tool_arg(&m.tool), None))
     }
 
     // ---------- 键盘导航（D7）----------

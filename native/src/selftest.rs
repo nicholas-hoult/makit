@@ -225,7 +225,7 @@ pub fn run(mode: String, handle: WindowHandle<Root>, state: Entity<AppState>, cx
             if let Some(sid) = first {
                 let _ = state.update(cx, |s, cx| {
                     let m = s.session(&sid).cloned().expect("刚读到的会话");
-                    s.workspace.open_session(&m.session_id, &m.short_id, &m.cwd, None, None);
+                    s.workspace.open_session(&m.session_id, &m.short_id, &m.cwd, None, None, None);
                     s.workspace_changed(cx);
                 });
                 pause(1500).await;

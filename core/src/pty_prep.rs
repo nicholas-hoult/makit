@@ -240,6 +240,9 @@ mod resume_cwd_tests {
         assert_eq!(resume_session_id("zsh"), None);
         // The id gets spliced into a file path: anything not uuid-shaped is rejected, ruling out ../ and the like
         assert_eq!(resume_session_id("claude -r ../../etc/passwd"), None);
+        // #D-2168: `--permission-mode <mode>` is appended *after* the id by `workspace::model::resume_cmd` for
+        // exactly this reason -- a flag placed before it would be picked up here instead of the real id
+        assert_eq!(resume_session_id(&format!("clear && claude -r {SID} --permission-mode acceptEdits")), Some(SID));
         assert_eq!(resume_session_id("claude -r 73ec5479"), None);
     }
 

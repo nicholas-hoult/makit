@@ -56,7 +56,7 @@ pub fn resume_if_pending(handle: gpui::WindowHandle<crate::app::Root>, cx: &mut 
         // in the first place (总管's own), nothing is left alive after the old process quits to ever make that
         // call, so the wait below always ran out the clock. Resume it here instead: `allow_new_tab: true`
         // because a fresh restart never has an existing tab for anything yet.
-        let result = cx.update(|cx| crate::overlays::session_ops::resume_session(&c.session_id, true, cx));
+        let result = cx.update(|cx| crate::overlays::session_ops::resume_session(&c.session_id, true, None, cx));
         match result {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => log::warn!(target: "update", "after-restart continuation for {}: resume failed: {}", c.session_id, e.message),

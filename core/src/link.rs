@@ -29,6 +29,16 @@
 //! its own transcript entry on any short timescale, so checking for one would misjudge perfectly normal input
 //! as having failed.
 //!
+//! `open`'s `trust` (#D-2168, bool, default `false`, claude only): pre-accept Claude Code's own trust-this-
+//! directory dialog for `cwd`, but only when it is under one of the user's own configured auto-trust roots
+//! (makit's own setting, default empty) -- otherwise `{"ok":false,"reason":"not_trusted_root",...}` and nothing
+//! is opened. `open` and `resume` both also take `permission_mode` (#D-2168, string, claude only): passed
+//! straight through as Claude Code's own `--permission-mode` (see [`crate::claude_config::PERMISSION_MODES`]
+//! for the real choices); omitted keeps today's behavior. Both claude-only params are refused for any other
+//! `tool` with a plain error, not a structured `reason` (no caller has asked for one yet). `resume`'s
+//! `permission_mode` only ever takes effect when a *new* tab actually gets opened -- reviving an existing one
+//! just restarts its own already-fixed launch command, so it is silently ignored there.
+//!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
 //! backend on top of `sessions` / `transcript`; [`start`] / [`start_at`] put it on a socket.
 //! No UI framework and no async runtime, same as `hook`.
@@ -162,28 +172,36 @@ pub struct OpenError {
     pub message: String,
     pub capacity: Option<CapacityLimitKind>,
     pub no_tab: bool,
+    /// #D-2168: `open` had `trust: true` for a directory that is not under any of the user's configured
+    /// auto-trust roots -- refused rather than silently opening untrusted, or quietly ignoring `trust`.
+    pub not_trusted_root: bool,
 }
 
 impl OpenError {
     pub fn capacity(kind: CapacityLimitKind, message: impl Into<String>) -> Self {
-        Self { message: message.into(), capacity: Some(kind), no_tab: false }
+        Self { message: message.into(), capacity: Some(kind), no_tab: false, not_trusted_root: false }
     }
 
     /// #D-2138: `resume` had `allow_new_tab: false` and this session has no tab to reuse.
     pub fn no_tab(message: impl Into<String>) -> Self {
-        Self { message: message.into(), capacity: None, no_tab: true }
+        Self { message: message.into(), capacity: None, no_tab: true, not_trusted_root: false }
+    }
+
+    /// #D-2168: see [`OpenError::not_trusted_root`] field doc.
+    pub fn not_trusted_root(message: impl Into<String>) -> Self {
+        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: true }
     }
 }
 
 impl From<String> for OpenError {
     fn from(message: String) -> Self {
-        Self { message, capacity: None, no_tab: false }
+        Self { message, capacity: None, no_tab: false, not_trusted_root: false }
     }
 }
 
 impl From<&str> for OpenError {
     fn from(message: &str) -> Self {
-        Self { message: message.into(), capacity: None, no_tab: false }
+        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: false }
     }
 }
 
@@ -217,7 +235,14 @@ pub trait Backend: Send + Sync {
     /// Start `tool` in a new tab in `cwd`, typing `text` as its first message when given (so the session writes its
     /// file right away instead of waiting at an empty prompt). Only called after [`plan_open`] / [`validate_open_text`]
     /// accepted the request and the directory exists.
-    fn open(&self, _cwd: &str, _tool: &str, _text: Option<&str>) -> Result<(), OpenError> {
+    ///
+    /// `trust` (#D-2168, claude only): pre-accept Claude Code's own trust-this-directory dialog for `cwd` before
+    /// starting it there -- but only when `cwd` is under one of the caller's own configured auto-trust roots;
+    /// otherwise this must return `Err(OpenError::not_trusted_root(..))` without opening anything. `permission_mode`
+    /// (claude only) is passed straight through as Claude Code's own `--permission-mode`; `None` keeps today's
+    /// behavior. Both are no-ops/unsupported for any other `tool` -- `handle_line` already refuses those before
+    /// a `Backend` ever sees them, so an implementation does not need to re-check `tool` for these two itself.
+    fn open(&self, _cwd: &str, _tool: &str, _text: Option<&str>, _trust: bool, _permission_mode: Option<&str>) -> Result<(), OpenError> {
         Err("open not supported".into())
     }
     /// Resume an ended session in its own directory. Whether to reuse a tab the session still has there is
@@ -225,7 +250,11 @@ pub trait Backend: Send + Sync {
     /// (#D-2138: that policy belongs to whoever is orchestrating across sessions, not to makit). When
     /// `allow_new_tab` is `false` and there is no tab to revive, this must return `Err(OpenError::no_tab(..))`
     /// without opening anything.
-    fn resume(&self, _session_id: &str, _allow_new_tab: bool) -> Result<ResumeAction, OpenError> {
+    ///
+    /// `permission_mode` (#D-2168, claude only, see [`Backend::open`]): only takes effect when a *new* tab ends
+    /// up getting opened -- reviving an existing tab just restarts its own already-fixed launch command, so
+    /// there is nothing to pass it to; implementations may silently ignore it on that path.
+    fn resume(&self, _session_id: &str, _allow_new_tab: bool, _permission_mode: Option<&str>) -> Result<ResumeAction, OpenError> {
         Err("resume not supported".into())
     }
     /// Archive a session that is not running (same action as the sidebar's archive). Only called after the caller
@@ -745,6 +774,9 @@ fn fail_open(e: OpenError) -> String {
     if e.no_tab {
         v.as_object_mut().expect("object").insert("reason".into(), json!("no_tab"));
     }
+    if e.not_trusted_root {
+        v.as_object_mut().expect("object").insert("reason".into(), json!("not_trusted_root"));
+    }
     v.to_string()
 }
 
@@ -812,12 +844,24 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             if !Path::new(cwd).is_dir() {
                 return fail("no such directory");
             }
+            // #D-2168: both claude-only, and makit itself (not the Backend) refuses them for any other tool so
+            // an implementation never has to re-check `tool` for these two.
+            let trust = req.get("trust").and_then(Value::as_bool).unwrap_or(false);
+            let permission_mode = req.get("permission_mode").and_then(Value::as_str);
+            if (trust || permission_mode.is_some()) && tool != "claude" {
+                return fail("trust and permission_mode are only supported for claude");
+            }
+            if let Some(mode) = permission_mode {
+                if !crate::claude_config::is_known_permission_mode(mode) {
+                    return fail(format!("unknown permission_mode: {mode}"));
+                }
+            }
             // Without `text` the new session's id is only known once the tool writes its first record on its own
             // (which can take a while at an empty prompt): the other side picks the newest session of this tool in
             // this directory that started at or after `started_at`. `text` gives the tool something to write right
             // away, so that poll finds it quickly.
             let started_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-            match backend.open(cwd, tool, text.as_deref()) {
+            match backend.open(cwd, tool, text.as_deref(), trust, permission_mode) {
                 Ok(()) => json!({"ok": true, "started_at": started_at}).to_string(),
                 Err(e) => fail_open(e),
             }
@@ -861,7 +905,17 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             // caller that does not know about this yet keeps today's behaviour (open one when there is nothing
             // to reuse) instead of silently losing the ability to resume at all.
             let allow_new_tab = req.get("allow_new_tab").and_then(Value::as_bool).unwrap_or(true);
-            match backend.resume(id, allow_new_tab) {
+            // #D-2168: whether this session's tool is claude isn't known at this layer (only `sessions`'s list
+            // carries `tool`, and fetching the whole list just to check one session isn't worth it) -- the
+            // `Backend` itself silently ignores this when it doesn't apply, same as it already does on the
+            // revive-an-existing-tab path.
+            let permission_mode = req.get("permission_mode").and_then(Value::as_str);
+            if let Some(mode) = permission_mode {
+                if !crate::claude_config::is_known_permission_mode(mode) {
+                    return fail(format!("unknown permission_mode: {mode}"));
+                }
+            }
+            match backend.resume(id, allow_new_tab, permission_mode) {
                 Ok(action) => json!({"ok": true, "action": action.tag()}).to_string(),
                 Err(e) => fail_open(e),
             }
@@ -1222,11 +1276,14 @@ mod tests {
         /// What `write` received: (session id, bytes)
         written: Mutex<Vec<(String, Vec<u8>)>>,
         /// What `open` received: (cwd, tool, text)
-        opened: Mutex<Vec<(String, String, Option<String>)>>,
-        /// What `resume` received each time: (session id, `allow_new_tab`)
-        resumed: Mutex<Vec<(String, bool)>>,
+        /// (cwd, tool, text, trust, permission_mode)
+        opened: Mutex<Vec<(String, String, Option<String>, bool, Option<String>)>>,
+        /// What `resume` received each time: (session id, `allow_new_tab`, `permission_mode`)
+        resumed: Mutex<Vec<(String, bool, Option<String>)>>,
         /// What `resume` returns when not blocked by the capacity cap (#D-2138).
         resume_result: Mutex<Result<ResumeAction, OpenError>>,
+        /// What `open` returns when not blocked by the capacity cap (#D-2168: lets a test simulate `not_trusted_root`).
+        open_result: Mutex<Result<(), OpenError>>,
         archived: Mutex<Vec<String>>,
         /// Session ids that exist (so `session_exists` is true for them) but are not in `sessions`, simulating a
         /// session the capped/truncated list leaves out (#D-2078).
@@ -1275,18 +1332,18 @@ mod tests {
             self.written.lock().unwrap().push((id.to_string(), bytes));
             Ok(())
         }
-        fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), OpenError> {
+        fn open(&self, cwd: &str, tool: &str, text: Option<&str>, trust: bool, permission_mode: Option<&str>) -> Result<(), OpenError> {
             if let Some(kind) = *self.capacity_block.lock().unwrap() {
                 return Err(OpenError::capacity(kind, "at the cap"));
             }
-            self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string(), text.map(String::from)));
-            Ok(())
+            self.opened.lock().unwrap().push((cwd.to_string(), tool.to_string(), text.map(String::from), trust, permission_mode.map(String::from)));
+            self.open_result.lock().unwrap().clone()
         }
-        fn resume(&self, id: &str, allow_new_tab: bool) -> Result<ResumeAction, OpenError> {
+        fn resume(&self, id: &str, allow_new_tab: bool, permission_mode: Option<&str>) -> Result<ResumeAction, OpenError> {
             if let Some(kind) = *self.capacity_block.lock().unwrap() {
                 return Err(OpenError::capacity(kind, "at the cap"));
             }
-            self.resumed.lock().unwrap().push((id.to_string(), allow_new_tab));
+            self.resumed.lock().unwrap().push((id.to_string(), allow_new_tab, permission_mode.map(String::from)));
             self.resume_result.lock().unwrap().clone()
         }
         fn archive(&self, id: &str) -> Result<(), String> {
@@ -1338,6 +1395,7 @@ mod tests {
             opened: Mutex::new(Vec::new()),
             resumed: Mutex::new(Vec::new()),
             resume_result: Mutex::new(Ok(ResumeAction::OpenedNewTab)),
+            open_result: Mutex::new(Ok(())),
             archived: Mutex::new(Vec::new()),
             existing_but_unlisted: Vec::new(),
             capacity_block: Mutex::new(None),
@@ -1852,7 +1910,10 @@ mod tests {
         assert_eq!(r2["ok"], true, "{r2}");
         assert_eq!(
             *b.opened.lock().unwrap(),
-            vec![(dir.to_string_lossy().to_string(), "codex".to_string(), None), (dir.to_string_lossy().to_string(), "claude".to_string(), Some("hello there".to_string()))],
+            vec![
+                (dir.to_string_lossy().to_string(), "codex".to_string(), None, false, None),
+                (dir.to_string_lossy().to_string(), "claude".to_string(), Some("hello there".to_string()), false, None),
+            ],
         );
         assert_eq!(ask(&b, &json!({"op": "open", "cwd": dir, "tool": "claude", "text": ""}).to_string())["error"], "empty text");
         assert_eq!(ask(&b, &json!({"op": "open", "cwd": dir, "tool": "claude", "text": "a\x07b"}).to_string())["error"], "control characters");
@@ -1864,7 +1925,7 @@ mod tests {
         let r = ask(&b, r#"{"op":"resume","session_id":"s1"}"#);
         assert_eq!((r["ok"].as_bool(), r["already_running"].as_bool()), (Some(true), Some(true)));
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"nope"}"#)["error"], "session not found");
-        assert_eq!(*b.resumed.lock().unwrap(), vec![("s3".to_string(), true)], "the already-running one must not call resume again; allow_new_tab omitted defaults to true");
+        assert_eq!(*b.resumed.lock().unwrap(), vec![("s3".to_string(), true, None)], "the already-running one must not call resume again; allow_new_tab omitted defaults to true");
         // archive: only a session that is not running
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s3"}"#)["ok"], true);
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s1"}"#)["error"], "session running");
@@ -1881,7 +1942,7 @@ mod tests {
         let b = Fake { write_on: true, existing_but_unlisted: vec!["s9".into()], ..fake() };
         assert_eq!(ask(&b, r#"{"op":"sessions"}"#)["sessions"].as_array().unwrap().iter().any(|s| s["session_id"] == "s9"), false, "s9 is not in the list");
         assert_eq!(ask(&b, r#"{"op":"resume","session_id":"s9"}"#)["ok"], true);
-        assert_eq!(*b.resumed.lock().unwrap(), vec![("s9".to_string(), true)]);
+        assert_eq!(*b.resumed.lock().unwrap(), vec![("s9".to_string(), true, None)]);
         assert_eq!(ask(&b, r#"{"op":"archive","session_id":"s9"}"#)["ok"], true);
         assert_eq!(*b.archived.lock().unwrap(), vec!["s9".to_string()]);
     }
@@ -1920,12 +1981,12 @@ mod tests {
         *b.resume_result.lock().unwrap() = Ok(ResumeAction::ReusedTab);
         let r = ask(&b, r#"{"op":"resume","session_id":"s3"}"#);
         assert_eq!((r["ok"].as_bool(), r["action"].as_str()), (Some(true), Some("reused_tab")));
-        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true)), "omitted allow_new_tab defaults to true");
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true, None)), "omitted allow_new_tab defaults to true");
 
         *b.resume_result.lock().unwrap() = Ok(ResumeAction::OpenedNewTab);
         let r = ask(&b, r#"{"op":"resume","session_id":"s3","allow_new_tab":true}"#);
         assert_eq!(r["action"], "opened_new_tab");
-        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true)));
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true, None)));
 
         // 总管 defaults to allow_new_tab:false: a session with nothing to reuse comes back as a structured
         // refusal, and makit must not have opened anything (nothing new in `resumed`'s outcome either -- the
@@ -1934,7 +1995,56 @@ mod tests {
         let r = ask(&b, r#"{"op":"resume","session_id":"s3","allow_new_tab":false}"#);
         assert_eq!((r["ok"].as_bool(), r["reason"].as_str()), (Some(false), Some("no_tab")));
         assert!(r.get("capacity_limit").is_none(), "no_tab must not also look like a capacity refusal");
-        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), false)), "the false the caller sent must reach the backend unchanged");
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), false, None)), "the false the caller sent must reach the backend unchanged");
+    }
+
+    /// #D-2168: `trust` and `permission_mode` are claude-only, and `permission_mode`'s value must be one of
+    /// claude's own real `--permission-mode` choices -- both refused by `handle_line` itself, before the
+    /// `Backend` ever sees a bad one.
+    #[test]
+    fn open_rejects_trust_and_permission_mode_for_non_claude_tools_and_unknown_modes() {
+        let b = Fake { write_on: true, ..fake() };
+        let dir = std::env::temp_dir();
+        let dir_s = dir.to_string_lossy();
+
+        let r = ask(&b, &json!({"op": "open", "cwd": &*dir_s, "tool": "codex", "trust": true}).to_string());
+        assert_eq!((r["ok"].as_bool(), r["error"].as_str().is_some()), (Some(false), true), "trust is claude-only");
+        let r = ask(&b, &json!({"op": "open", "cwd": &*dir_s, "tool": "codex", "permission_mode": "acceptEdits"}).to_string());
+        assert_eq!(r["ok"], false, "permission_mode is claude-only");
+        let r = ask(&b, &json!({"op": "open", "cwd": &*dir_s, "tool": "claude", "permission_mode": "default"}).to_string());
+        assert_eq!(r["ok"], false, "\"default\" sounds plausible but is not one of claude's real choices");
+        assert!(b.opened.lock().unwrap().is_empty(), "none of the above should have ever reached the backend");
+
+        let r = ask(&b, &json!({"op": "open", "cwd": &*dir_s, "tool": "claude", "trust": true, "permission_mode": "acceptEdits"}).to_string());
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(b.opened.lock().unwrap().last(), Some(&(dir_s.to_string(), "claude".to_string(), None, true, Some("acceptEdits".to_string()))));
+    }
+
+    /// #D-2168: when the `Backend` itself refuses `trust` (the directory is not under any configured auto-trust
+    /// root), that must surface as the structured `reason:"not_trusted_root"`, the same shape as `no_tab`.
+    #[test]
+    fn open_surfaces_not_trusted_root_as_a_structured_reason() {
+        let b = Fake { write_on: true, ..fake() };
+        *b.open_result.lock().unwrap() = Err(OpenError::not_trusted_root("cwd is not under any configured auto-trust root"));
+        let dir = std::env::temp_dir();
+        let r = ask(&b, &json!({"op": "open", "cwd": dir.to_string_lossy(), "tool": "claude", "trust": true}).to_string());
+        assert_eq!((r["ok"].as_bool(), r["reason"].as_str()), (Some(false), Some("not_trusted_root")));
+        assert!(r.get("capacity_limit").is_none());
+    }
+
+    /// #D-2168: `permission_mode` on `resume` cannot be tool-checked at this layer (only `sessions`'s list
+    /// carries `tool`), so `handle_line` only validates the *value*, and passes a known one straight through.
+    #[test]
+    fn resume_validates_and_passes_through_permission_mode() {
+        let b = Fake { write_on: true, ..fake() };
+        let r = ask(&b, r#"{"op":"resume","session_id":"s3","permission_mode":"not-a-real-mode"}"#);
+        assert_eq!(r["ok"], false);
+        assert!(b.resumed.lock().unwrap().is_empty());
+
+        *b.resume_result.lock().unwrap() = Ok(ResumeAction::OpenedNewTab);
+        let r = ask(&b, r#"{"op":"resume","session_id":"s3","permission_mode":"bypassPermissions"}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(b.resumed.lock().unwrap().last(), Some(&("s3".to_string(), true, Some("bypassPermissions".to_string()))));
     }
 
     #[test]

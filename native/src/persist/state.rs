@@ -49,6 +49,9 @@ pub struct NativeState {
     pub window: Option<SavedWindow>,
     /// 会话资源上限 + 置换策略（#316/#D-2090）
     pub capacity: CapacityPrefs,
+    /// 本机会话接口 `open` 的 `trust: true` 只对这些根目录下面的路径生效（#D-2168）。**默认空**：没有任何目录会被
+    /// 自动标成已信任，用户要自己在设置里加。每一项是一个目录，自动信任覆盖它自己和它下面的所有子目录
+    pub trust_roots: Vec<String>,
 }
 
 /// 保存的窗口位置和大小（逻辑像素，坐标是全局的：外接屏在主屏左边时 x 为负，合法）。
@@ -84,6 +87,7 @@ impl Default for NativeState {
             notifications: Vec::new(),
             window: None,
             capacity: CapacityPrefs::default(),
+            trust_roots: Vec::new(),
         }
     }
 }

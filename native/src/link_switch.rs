@@ -45,10 +45,12 @@ pub enum MainOp {
     Write { session_id: String, bytes: Vec<u8> },
     /// 会话所在终端的屏幕快照
     Screen { session_id: String },
-    /// 在目录里开新标签启动工具（已经过 `plan_open` / `validate_open_text` 检查），`text` 是首条消息
-    Open { cwd: String, tool: String, text: Option<String> },
-    /// 续接已结束的会话；标签复用策略是调用方的（#D-2138/#D-2140）：`allow_new_tab` 为假且没有标签可复用时不新开，返回结构化拒绝
-    Resume { session_id: String, allow_new_tab: bool },
+    /// 在目录里开新标签启动工具（已经过 `plan_open` / `validate_open_text` 检查），`text` 是首条消息；`trust`/
+    /// `permission_mode` 见 #D-2168（只对 claude 生效，调用前 `handle_line` 已经把关过 tool）
+    Open { cwd: String, tool: String, text: Option<String>, trust: bool, permission_mode: Option<String> },
+    /// 续接已结束的会话；标签复用策略是调用方的（#D-2138/#D-2140）：`allow_new_tab` 为假且没有标签可复用时不新开，返回结构化拒绝；
+    /// `permission_mode` 见 #D-2168（只在真的新开标签时才用得上，复用已有标签时静默忽略）
+    Resume { session_id: String, allow_new_tab: bool, permission_mode: Option<String> },
     /// 本机会话接口的 `update check`（#D-2122）：当前已知的更新状态，不是强制联网重查
     UpdateCheck,
     /// 本机会话接口的 `update install`：装当前已发现的新版本并重启；`after_restart` 是重启后要接上的那个会话
@@ -146,12 +148,12 @@ impl Backend for NativeBackend {
         }
     }
 
-    fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), OpenError> {
-        self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from) })
+    fn open(&self, cwd: &str, tool: &str, text: Option<&str>, trust: bool, permission_mode: Option<&str>) -> Result<(), OpenError> {
+        self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from), trust, permission_mode: permission_mode.map(String::from) })
     }
 
-    fn resume(&self, session_id: &str, allow_new_tab: bool) -> Result<makit_core::link::ResumeAction, OpenError> {
-        match self.ask(MainOp::Resume { session_id: session_id.to_string(), allow_new_tab })? {
+    fn resume(&self, session_id: &str, allow_new_tab: bool, permission_mode: Option<&str>) -> Result<makit_core::link::ResumeAction, OpenError> {
+        match self.ask(MainOp::Resume { session_id: session_id.to_string(), allow_new_tab, permission_mode: permission_mode.map(String::from) })? {
             MainReply::Resumed(action) => Ok(action),
             MainReply::Done | MainReply::Screen(_) | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
         }
@@ -253,18 +255,35 @@ fn confirm_spawned(ws: &Entity<crate::workspace::WorkspaceView>, tab_id: &str, w
     }
 }
 
+/// #D-2168: canonicalizes `cwd` (resolves `..` and symlinks -- the same form Claude Code's own `process.cwd()`
+/// ends up recording in `~/.claude.json`, since POSIX `getcwd()` is already symlink-free) and refuses unless it
+/// lands under one of the user's own configured auto-trust roots (also canonicalized), *before* writing
+/// anything. Only then does it mark that directory trusted via [`makit_core::claude_config::trust_directory`].
+fn try_trust_directory(cwd: &str, cx: &gpui::App) -> Result<(), OpenError> {
+    let canonical_cwd = std::fs::canonicalize(cwd).map_err(|e| OpenError::from(format!("cwd: {e}")))?;
+    let roots: Vec<std::path::PathBuf> =
+        AppState::global(cx).read(cx).prefs.trust_roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
+    if !makit_core::claude_config::is_under_trusted_root(&canonical_cwd, &roots) {
+        return Err(OpenError::not_trusted_root("cwd is not under any configured auto-trust root"));
+    }
+    makit_core::claude_config::trust_directory(&canonical_cwd.to_string_lossy()).map_err(OpenError::from)
+}
+
 fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &mut gpui::Context<crate::app::Root>) -> Result<MainReply, OpenError> {
     let ws = root.workspace_view();
     match op {
         MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done).map_err(OpenError::from),
         MainOp::Screen { session_id } => ws.update(cx, |w, cx| w.screen_of_session(&session_id, cx)).map(MainReply::Screen).map_err(OpenError::from),
-        MainOp::Open { cwd, tool, text } => {
+        MainOp::Open { cwd, tool, text, trust, permission_mode } => {
             if let Some(e) = crate::overlays::session_ops::capacity_block(cx) {
                 return Err(e);
             }
+            if trust {
+                try_trust_directory(&cwd, cx)?;
+            }
             let state = AppState::global(cx);
             let tab_id = state.update(cx, |s, cx| {
-                let tid = s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref());
+                let tid = s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref(), permission_mode.as_deref());
                 s.workspace_changed(cx);
                 tid
             });
@@ -274,7 +293,7 @@ fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &
             }
             result.map(|_| MainReply::Done)
         }
-        MainOp::Resume { session_id, allow_new_tab } => {
+        MainOp::Resume { session_id, allow_new_tab, permission_mode } => {
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
                 return Err("session not found".into());
             }
@@ -284,7 +303,7 @@ fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &
             // The tab-reuse-vs-open-new policy is the caller's, not makit's (#D-2138/#D-2140): `resume_session`
             // itself refuses with `OpenError::no_tab` when `allow_new_tab` is false and there is nothing to
             // reuse, without opening anything.
-            let (tab_id, action) = crate::overlays::session_ops::resume_session(&session_id, allow_new_tab, cx)?;
+            let (tab_id, action) = crate::overlays::session_ops::resume_session(&session_id, allow_new_tab, permission_mode.as_deref(), cx)?;
             confirm_spawned(&ws, &tab_id, window, cx, "resume").map(|_| MainReply::Resumed(action))
         }
         MainOp::UpdateCheck => {
@@ -417,26 +436,33 @@ mod tests {
             assert_eq!(req.op, MainOp::Screen { session_id: "s1".into() });
             req.reply.send(Ok(MainReply::Screen(screen))).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "codex".into(), text: None });
+            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "codex".into(), text: None, trust: false, permission_mode: None });
             req.reply.send(Ok(MainReply::Done)).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "claude".into(), text: Some("hi there".into()) });
+            assert_eq!(
+                req.op,
+                MainOp::Open { cwd: "/Users/me/p".into(), tool: "claude".into(), text: Some("hi there".into()), trust: true, permission_mode: Some("acceptEdits".into()) }
+            );
             req.reply.send(Ok(MainReply::Done)).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Resume { session_id: "s9".into(), allow_new_tab: false });
+            assert_eq!(req.op, MainOp::Resume { session_id: "s9".into(), allow_new_tab: false, permission_mode: None });
             req.reply.send(Err("session not found".into())).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Resume { session_id: "s3".into(), allow_new_tab: true });
+            assert_eq!(req.op, MainOp::Resume { session_id: "s3".into(), allow_new_tab: true, permission_mode: Some("acceptEdits".into()) });
             req.reply.send(Ok(MainReply::Resumed(makit_core::link::ResumeAction::OpenedNewTab))).unwrap();
             // A reply of the wrong kind is an error, not a silent success
             let req = next(&mut rx);
             req.reply.send(Ok(MainReply::Done)).unwrap();
         });
         assert_eq!(b.screen("s1"), Ok(expected));
-        assert_eq!(b.open("/Users/me/p", "codex", None), Ok(()));
-        assert_eq!(b.open("/Users/me/p", "claude", Some("hi there")), Ok(()));
-        assert_eq!(b.resume("s9", false), Err("session not found".into()));
-        assert_eq!(b.resume("s3", true), Ok(makit_core::link::ResumeAction::OpenedNewTab), "allow_new_tab reaches the main thread and the Resumed reply carries the action back");
+        assert_eq!(b.open("/Users/me/p", "codex", None, false, None), Ok(()));
+        assert_eq!(b.open("/Users/me/p", "claude", Some("hi there"), true, Some("acceptEdits")), Ok(()));
+        assert_eq!(b.resume("s9", false, None), Err("session not found".into()));
+        assert_eq!(
+            b.resume("s3", true, Some("acceptEdits")),
+            Ok(makit_core::link::ResumeAction::OpenedNewTab),
+            "allow_new_tab and permission_mode reach the main thread and the Resumed reply carries the action back"
+        );
         assert_eq!(b.screen("s1"), Err("unexpected reply".into()));
         main.join().unwrap();
     }

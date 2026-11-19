@@ -254,27 +254,38 @@ pub fn normalize(ws: &mut WorkspaceState) {
     }
 }
 
-/// 恢复一个已有会话要敲的命令。**只在这里拼**（测试会扫源码，别处手拼会红）
-pub fn resume_cmd(session_id: &str, tool: Option<&str>) -> String {
+/// 恢复一个已有会话要敲的命令。**只在这里拼**（测试会扫源码，别处手拼会红）。`permission_mode`（#D-2168，仅
+/// claude；调用方已经确认过 tool 是 claude 才会传）**追加在 session id 后面**——`pty_prep.rs` 解析
+/// `init_command` 时是从 `"claude -r "` 后面切第一个空格前的词当 id，参数必须放在 id 后面，不能在前面
+pub fn resume_cmd(session_id: &str, tool: Option<&str>, permission_mode: Option<&str>) -> String {
     match tool {
         Some("codex") => format!("codex resume {session_id}"),
         Some("opencode") => makit_core::opencode::resume_command(session_id),
-        _ => format!("claude -r {session_id}"),
+        _ => match permission_mode {
+            Some(mode) => format!("claude -r {session_id} --permission-mode {mode}"),
+            None => format!("claude -r {session_id}"),
+        },
     }
 }
 
 /// resume tab 的 initCommand。前面的 clear 是为了不让 shell 自己的 banner 留在会话上方
-pub fn resume_init_command(session_id: &str, tool: Option<&str>) -> String {
-    format!("clear && {}", resume_cmd(session_id, tool))
+pub fn resume_init_command(session_id: &str, tool: Option<&str>, permission_mode: Option<&str>) -> String {
+    format!("clear && {}", resume_cmd(session_id, tool, permission_mode))
 }
 
 /// 新建 AI 会话的 initCommand（`openNewSession`）。带首条消息时拼成 `claude '<文本>'`（单引号转义，
-/// 同拖拽路径用的 [`crate::terminal::drop_paths::quote_for_shell`]）：会话立刻写盘，不用空等第一条消息（#299）
-pub fn new_session_command(tool: Option<&str>, text: Option<&str>) -> String {
+/// 同拖拽路径用的 [`crate::terminal::drop_paths::quote_for_shell`]）：会话立刻写盘，不用空等第一条消息（#299）。
+/// `permission_mode`（#D-2168，仅 claude；调用方已经确认过 tool 是 claude 才会传）放在首条消息前面，和
+/// `claude --help` 示例里「选项在前、位置参数在后」一致
+pub fn new_session_command(tool: Option<&str>, text: Option<&str>, permission_mode: Option<&str>) -> String {
     let tool = tool.unwrap_or("claude");
+    let tool = match permission_mode {
+        Some(mode) => format!("{tool} --permission-mode {mode}"),
+        None => tool.into(),
+    };
     match text {
         Some(t) => format!("{tool} {}", crate::terminal::drop_paths::quote_for_shell(t)),
-        None => tool.into(),
+        None => tool,
     }
 }
 
@@ -286,7 +297,7 @@ pub fn bind_session_to_pane_tab(t: &PaneTab, session_id: &str, short_id: &str, l
         session_id: Some(session_id.into()),
         session_short_id: Some(short_id.into()),
         cwd: session_cwd.filter(|c| !c.is_empty()).map(String::from).unwrap_or_else(|| t.cwd.clone()),
-        init_command: Some(resume_init_command(session_id, None)),
+        init_command: Some(resume_init_command(session_id, None, None)),
         label: match label {
             Some(l) if !l.trim().is_empty() => l.to_string(),
             _ => format!("[{short_id}]"),
@@ -304,7 +315,7 @@ pub fn repair_resume_tabs(ws: &mut WorkspaceState) -> bool {
                 for t in &mut c.tabs {
                     if t.kind == TabKind::Resume && t.init_command.is_none() {
                         if let Some(sid) = t.session_id.clone().filter(|s| !s.is_empty()) {
-                            t.init_command = Some(resume_init_command(&sid, None));
+                            t.init_command = Some(resume_init_command(&sid, None, None));
                             *changed = true;
                         }
                     }
@@ -999,7 +1010,9 @@ impl Workspace {
     }
 
     /// 打开（恢复）会话：已经开着就切过去，否则在当前 container 加一个 resume tab
-    pub fn open_session(&mut self, session_id: &str, short_id: &str, cwd: &str, label: Option<&str>, tool: Option<&str>) -> Opened {
+    /// `permission_mode`（#D-2168）只在真的开新标签时用得上；复用已有标签（`Opened::Existing`）时没有新命令可
+    /// 拼，静默忽略，调用方自己决定要不要告知这个限制
+    pub fn open_session(&mut self, session_id: &str, short_id: &str, cwd: &str, label: Option<&str>, tool: Option<&str>, permission_mode: Option<&str>) -> Opened {
         let hit = collect_containers(&self.state.root).into_iter().find_map(|c| {
             c.tabs.iter().find(|t| t.session_id.as_deref() == Some(session_id)).map(|t| (c.id.clone(), t.id.clone()))
         });
@@ -1015,7 +1028,7 @@ impl Workspace {
             id: make_tab_id(),
             kind: TabKind::Resume,
             cwd: cwd.into(),
-            init_command: Some(resume_init_command(session_id, tool)),
+            init_command: Some(resume_init_command(session_id, tool, permission_mode)),
             session_id: Some(session_id.into()),
             session_short_id: Some(short_id.into()),
             label: label.filter(|l| !l.is_empty()).map(String::from).unwrap_or_else(|| format!("[{short_id}]")),
@@ -1029,13 +1042,13 @@ impl Workspace {
     }
 
     /// 新建 AI 会话（默认 claude，Codex 传 Some("codex")）。`text` 是首条消息（本机会话接口 `open`，#299），
-    /// 侧栏「新建会话」等界面入口传 `None`。返回 tab id
-    pub fn open_new_session(&mut self, cwd: &str, tool: Option<&str>, text: Option<&str>) -> String {
+    /// 侧栏「新建会话」等界面入口传 `None`。`permission_mode`（#D-2168）同理，只有 `open` 会传。返回 tab id
+    pub fn open_new_session(&mut self, cwd: &str, tool: Option<&str>, text: Option<&str>, permission_mode: Option<&str>) -> String {
         let tab = PaneTab {
             id: make_tab_id(),
             kind: TabKind::New,
             cwd: cwd.into(),
-            init_command: Some(new_session_command(tool, text)),
+            init_command: Some(new_session_command(tool, text, permission_mode)),
             session_id: None,
             session_short_id: None,
             label: ts!("workspace.new_session_label").into(),
@@ -1183,19 +1196,32 @@ mod tests {
 
     #[test]
     fn resume_commands() {
-        assert_eq!(resume_cmd(SID, None), format!("claude -r {SID}"));
-        assert_eq!(resume_cmd(SID, Some("codex")), format!("codex resume {SID}"));
-        assert_eq!(resume_cmd("ses_abc", Some("opencode")), "opencode -s ses_abc");
-        assert_eq!(new_session_command(None, None), "claude");
-        assert_eq!(new_session_command(Some("codex"), None), "codex");
-        assert_eq!(new_session_command(Some("opencode"), None), "opencode");
+        assert_eq!(resume_cmd(SID, None, None), format!("claude -r {SID}"));
+        assert_eq!(resume_cmd(SID, Some("codex"), None), format!("codex resume {SID}"));
+        assert_eq!(resume_cmd("ses_abc", Some("opencode"), None), "opencode -s ses_abc");
+        assert_eq!(new_session_command(None, None, None), "claude");
+        assert_eq!(new_session_command(Some("codex"), None, None), "codex");
+        assert_eq!(new_session_command(Some("opencode"), None, None), "opencode");
         // 带首条消息：拼成一个带引号的 shell 参数，这样会话立刻写盘（#299）
-        assert_eq!(new_session_command(None, Some("hello there")), "claude 'hello there'");
-        assert_eq!(new_session_command(Some("codex"), Some("hi")), "codex hi");
+        assert_eq!(new_session_command(None, Some("hello there"), None), "claude 'hello there'");
+        assert_eq!(new_session_command(Some("codex"), Some("hi"), None), "codex hi");
         // 文本本身带单引号：转义成 shell 安全的形式，不能逃出引号去跑别的命令
-        assert_eq!(new_session_command(None, Some("it's me")), "claude 'it'\\''s me'");
-        assert_eq!(resume_init_command(SID, None), format!("clear && claude -r {SID}"));
-        assert_eq!(resume_init_command(SID, Some("codex")), format!("clear && codex resume {SID}"));
+        assert_eq!(new_session_command(None, Some("it's me"), None), "claude 'it'\\''s me'");
+        assert_eq!(resume_init_command(SID, None, None), format!("clear && claude -r {SID}"));
+        assert_eq!(resume_init_command(SID, Some("codex"), None), format!("clear && codex resume {SID}"));
+    }
+
+    #[test]
+    fn permission_mode_is_appended_after_the_session_id_for_resume_and_before_text_for_a_new_session() {
+        // #D-2168: `pty_prep.rs` parses the resume id as the first whitespace token after "claude -r " -- the
+        // flag must come after it, never before, or that parsing breaks
+        assert_eq!(resume_cmd(SID, None, Some("acceptEdits")), format!("claude -r {SID} --permission-mode acceptEdits"));
+        assert_eq!(resume_init_command(SID, None, Some("acceptEdits")), format!("clear && claude -r {SID} --permission-mode acceptEdits"));
+        // codex has its own, different flag vocabulary -- callers must not pass permission_mode for it, and this
+        // just documents that `resume_cmd` itself does not even look at it in that branch
+        assert_eq!(resume_cmd(SID, Some("codex"), Some("acceptEdits")), format!("codex resume {SID}"));
+        assert_eq!(new_session_command(None, None, Some("plan")), "claude --permission-mode plan");
+        assert_eq!(new_session_command(None, Some("hi"), Some("plan")), "claude --permission-mode plan hi");
     }
 
     #[test]
@@ -1503,12 +1529,12 @@ mod tests {
     #[test]
     fn open_session_switches_to_existing_tab_instead_of_duplicating() {
         let mut w = Workspace::default();
-        let Opened::New { tab_id } = w.open_session(SID, "df178096", "/p", None, None) else { panic!() };
+        let Opened::New { tab_id } = w.open_session(SID, "df178096", "/p", None, None, None) else { panic!() };
         let (_, t) = w.locate_tab(&tab_id).unwrap();
         assert_eq!(t.init_command, Some(format!("clear && claude -r {SID}")));
         assert_eq!(t.label, "[df178096]");
         w.new_shell_in(&w.state.active_container_id.clone());
-        let again = w.open_session(SID, "df178096", "/p", None, None);
+        let again = w.open_session(SID, "df178096", "/p", None, None, None);
         assert!(matches!(again, Opened::Existing { tab_id: ref id, .. } if *id == tab_id));
         assert_eq!(w.active_tab().unwrap().id, tab_id);
         assert_eq!(collect_all_tab_ids(&w.state.root).len(), 2);
@@ -1519,7 +1545,7 @@ mod tests {
     #[test]
     fn tab_of_session_finds_the_bound_tab_only() {
         let mut w = Workspace::default();
-        let Opened::New { tab_id } = w.open_session(SID, "df178096", "/p", None, None) else { panic!() };
+        let Opened::New { tab_id } = w.open_session(SID, "df178096", "/p", None, None, None) else { panic!() };
         w.new_shell_in(&w.state.active_container_id.clone());
         assert_eq!(w.tab_of_session(SID), Some(tab_id));
         assert_eq!(w.tab_of_session("another-session"), None);
@@ -1553,7 +1579,7 @@ mod tests {
         assert_eq!(cs.len(), 2);
         assert_eq!(cs[0].tabs[0].id, "b", "Before：新 container 在左");
         assert_eq!(w.state.active_container_id, cs[0].id);
-        let spec = TabSpec { kind: TabKind::Resume, cwd: "/p".into(), init_command: Some(resume_init_command(SID, None)), session_id: Some(SID.into()), session_short_id: Some("df178096".into()) };
+        let spec = TabSpec { kind: TabKind::Resume, cwd: "/p".into(), init_command: Some(resume_init_command(SID, None, None)), session_id: Some(SID.into()), session_short_id: Some("df178096".into()) };
         let t = w.split_with_session("C1", Dir::H, Side::After, &spec);
         let (c, tab) = w.locate_tab(&t).unwrap();
         assert_eq!(tab.label, "[df178096]");
