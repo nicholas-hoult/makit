@@ -7,7 +7,14 @@ All notable changes to makit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.20] - 2026-11-19
+
+### Added
+- The local-session link gained two ops: `last_running` (a lightweight, read-only snapshot of the sessions that were running right before the last quit -- id, name, cwd, last active time) and `update` (`check` reports what the running instance currently knows about a newer release; `install` restarts into it, with an optional `after_restart: {session_id, text}` to type something into a session once it goes idle again after the restart) (#318).
+
+### Fixed
+- The local-session link's `resume` and `open` used to reply `ok` before the terminal actually finished starting, so a fast follow-up `screen` or `input` request could see "session not open in makit" even though the reply said success; they now wait for the process to really be running before replying, and report a real error when it fails to start (#318).
+- The capacity cap's memory check only counted strictly-free pages, which misread a machine with a lot of reclaimable cache as critically low on memory and refused every `resume` / `open`; it now counts available memory (free plus reclaimable cache), matching what `memory_pressure` reports (#318).
 
 ### Changed
 - Dropped Moonwalk and the two Modus Tinted color themes (their upstream licensing wasn't clear enough to keep shipping them): 18 built-in themes now, down from 21. Anyone who had one selected is switched to the closest-looking survivor on next launch, with a one-time notice explaining why (#255).

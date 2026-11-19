@@ -6,7 +6,14 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.2.20] - 2026-11-19
+
+### 新增
+- 本机会话接口新增两个 op：`last_running`（轻量只读快照：退出前在跑的会话 id、名称、cwd、最后活跃时间）和 `update`（`check` 报告当前已知的更新状态；`install` 装好重启，可带可选的 `after_restart: {session_id, text}`，重启后那个会话一旦空闲就把 `text` 输进去）（#318）。
+
+### 修复
+- 本机会话接口的 `resume` / `open` 过去在终端真正起来之前就回了 `ok`，紧跟着的 `screen` 或 `input` 有时会看到「session not open in makit」；现在会等进程真的起来才回复，起不来就回真实的错误原因（#318）。
+- 会话容量上限的内存检查过去只认严格意义上的空闲页，会把缓存很多但压力正常的机器误判成内存紧张，拒掉所有 `resume` / `open`；现在按可用内存算（空闲 + 可回收的缓存），和 `memory_pressure` 的口径一致（#318）。
 
 ### 变更
 - 撤下了 Moonwalk 和两套 Modus Tinted 内置配色主题（上游授权没查清楚，不再分发）：内置主题从 21 套变成 18 套。之前选用了它们的用户下次启动会自动换成色值最接近的现存主题，并看到一次提示说明原因（#255）。
