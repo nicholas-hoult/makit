@@ -18,6 +18,17 @@
 //! calling `resume` on each one and causing side effects.
 //! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
 //!
+//! `input` with `kind: "text"` while the session sits idle at its prompt (#D-2161): a successful write to the
+//! PTY does not mean Claude Code's TUI actually pulled it into a real turn -- an Enter that lands at the wrong
+//! moment (mid-repaint, TUI still settling a paste) gets swallowed and the text sits unsent in the input box,
+//! with the earlier reply already having said `ok`. This now confirms against the session's own transcript
+//! tail before replying: if the sent text has not shown up as a new user message after a short poll, it
+//! retries once with one more bare Enter; if that still does not confirm, the reply is
+//! `{"ok":false,"error":"...","reason":"not_submitted"}` instead of a false `ok`. Text sent to a *busy* session
+//! (appended into the turn that is already running) skips this confirmation: it is not expected to show up as
+//! its own transcript entry on any short timescale, so checking for one would misjudge perfectly normal input
+//! as having failed.
+//!
 //! Layout: [`handle_line`] is a pure function over a [`Backend`] (tests use a fake one); [`CoreBackend`] is the real
 //! backend on top of `sessions` / `transcript`; [`start`] / [`start_at`] put it on a socket.
 //! No UI framework and no async runtime, same as `hook`.
@@ -601,6 +612,63 @@ fn run_write_steps(backend: &dyn Backend, session_id: &str, steps: Vec<WriteStep
     Ok(())
 }
 
+/// How often to re-check the transcript after writing a text reply, and how many times, before concluding it
+/// did not submit and retrying with one more bare Enter (#D-2161). 8 × 150ms = 1.2s of budget per attempt --
+/// long enough for Claude Code to notice the Enter and write the new line to its own transcript file, short
+/// enough that a genuinely swallowed Enter does not leave the caller hanging for long before it hears back.
+const SUBMIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
+const SUBMIT_POLL_ATTEMPTS: u32 = 8;
+
+/// What [`submit_text_and_confirm`] actually managed.
+enum SubmitOutcome {
+    Submitted,
+    /// Wrote (possibly retried once), but the transcript never showed the text as a new user message.
+    NotSubmitted,
+    /// A write itself failed (session closed, PTY gone, ...) -- not a submission question at all.
+    WriteFailed(String),
+}
+
+/// Pure: does `after`'s transcript tail show `sent` as a message that was not there in `before_total`'s snapshot
+/// (#D-2161)? Split out from the polling loop below so the judgment itself -- what counts as "it submitted" --
+/// can be tested without paying for a single real sleep.
+fn text_submitted(before_total: usize, after: &TranscriptPage, sent: &str) -> bool {
+    after.total > before_total && after.items.last().is_some_and(|v| v["kind"] == "user" && v["text"].as_str().is_some_and(|t| t.trim() == sent.trim()))
+}
+
+/// Writes `steps` (from [`plan_input`] for an `InputKind::Text`), then confirms against the session's own
+/// transcript that the text actually became a new user message -- not just that the bytes reached the PTY
+/// (#D-2161). Retries with one bare Enter if the first attempt never confirms. `poll_interval` / `poll_attempts`
+/// are parameters (not the `SUBMIT_POLL_*` constants directly) so tests can shrink the real sleeps to near zero
+/// without touching the retry logic itself.
+fn submit_text_and_confirm(backend: &dyn Backend, session_id: &str, steps: Vec<WriteStep>, text: &str, poll_interval: Duration, poll_attempts: u32) -> SubmitOutcome {
+    let before_total = backend.transcript(session_id, Cursor::Tail(1)).map(|p| p.total).unwrap_or(0);
+    if let Err(e) = run_write_steps(backend, session_id, steps) {
+        return SubmitOutcome::WriteFailed(e);
+    }
+    let confirmed = |backend: &dyn Backend| {
+        for _ in 0..poll_attempts {
+            std::thread::sleep(poll_interval);
+            if let Ok(page) = backend.transcript(session_id, Cursor::Tail(1)) {
+                if text_submitted(before_total, &page, text) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+    if confirmed(backend) {
+        return SubmitOutcome::Submitted;
+    }
+    // 没确认提交：可能是那次 Enter 被吞了，补一次单独的回车重试
+    if let Err(e) = backend.write(session_id, b"\r".to_vec()) {
+        return SubmitOutcome::WriteFailed(e);
+    }
+    if confirmed(backend) {
+        return SubmitOutcome::Submitted;
+    }
+    SubmitOutcome::NotSubmitted
+}
+
 /// `bytes` then Enter. A paste needs [`PASTE_SETTLE`] in between: without it, Enter can land before Claude Code's
 /// TUI has pulled the pasted text into its input box and gets swallowed, so the message never submits. `busy` picks
 /// [`PASTE_SETTLE_BUSY`] instead (#312): a busy TUI reads our input later than an idle one.
@@ -885,7 +953,32 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             let Some((state, waiting_for)) = backend.session_state(id) else {
                 return fail("session not found");
             };
-            match plan_input(&state, &waiting_for, &kind).and_then(|steps| run_write_steps(backend, id, steps)) {
+            let steps = match plan_input(&state, &waiting_for, &kind) {
+                Ok(s) => s,
+                Err(e) => return fail(e),
+            };
+            // 只有真正的回话文字、且会话是坐在空 prompt 前（idle）时才需要确认提交（#D-2161）：approve/deny/
+            // interrupt/type 各自的字节一次写进去就是完整的动作，没有"写进去了但没当成一次真正提交"这个中间
+            // 状态；busy 时追加的文字是塞进正在跑的那一轮里（`plan_input` 文档里写的"the tool takes it into
+            // the running turn"），不会立刻单独变成一条 transcript 里能看到的 user 消息，用短轮询去确认只会把
+            // 这种本来就正常的输入错判成"没提交"再去补一次多余的回车——这正是两条既有回归测试
+            // （`a_multiline_reply_to_a_busy_session_settles_longer_end_to_end` 等）第一次改的时候被破坏、后来
+            // 揭出来的问题
+            if let InputKind::Text(text) = &kind {
+                let (settled_state, _) = crate::running::settle_prompt_wait(&state, &waiting_for);
+                if settled_state == "idle" {
+                    return match submit_text_and_confirm(backend, id, steps, text, SUBMIT_POLL_INTERVAL, SUBMIT_POLL_ATTEMPTS) {
+                        SubmitOutcome::Submitted => json!({"ok": true}).to_string(),
+                        SubmitOutcome::NotSubmitted => {
+                            let mut v = json!({"ok": false, "error": "text did not submit (the Enter may have been swallowed)"});
+                            v.as_object_mut().expect("object").insert("reason".into(), json!("not_submitted"));
+                            v.to_string()
+                        }
+                        SubmitOutcome::WriteFailed(e) => fail(e),
+                    };
+                }
+            }
+            match run_write_steps(backend, id, steps) {
                 Ok(()) => json!({"ok": true}).to_string(),
                 Err(e) => fail(e),
             }
@@ -1146,6 +1239,9 @@ mod tests {
         update_install_result: Result<(), String>,
         /// What `update_install` received each time it was called.
         update_installs: Mutex<Vec<Option<AfterRestart>>>,
+        /// #D-2161：会话 "sub" 的 transcript 要在收到这么多次 `write` 之后，tail 里才"冒出"那条用户消息
+        /// （`None` = 一直不冒出，模拟回车被吞死连重试也没用）；写入次数看 `written`，不是真的解析字节内容
+        submits_after_write_n: Mutex<Option<usize>>,
     }
 
     fn info(id: &str, state: &str) -> SessionInfo {
@@ -1198,6 +1294,14 @@ mod tests {
             Ok(())
         }
         fn transcript(&self, id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
+            if id == "sub" {
+                let writes = self.written.lock().unwrap().iter().filter(|(sid, _)| sid == "sub").count();
+                let submitted = self.submits_after_write_n.lock().unwrap().is_some_and(|n| writes >= n);
+                let items: Vec<Value> = if submitted { vec![json!({"kind": "user", "text": "hi there", "id": "u1", "time": null})] } else { vec![] };
+                let total = items.len();
+                let from = cursor_start(total, cursor);
+                return Ok(TranscriptPage { total, from, items: items[from..].to_vec() });
+            }
             if id != "s1" {
                 return Err("session not found".into());
             }
@@ -1241,6 +1345,7 @@ mod tests {
             update_check_result: Err("update not supported".into()),
             update_install_result: Ok(()),
             update_installs: Mutex::new(Vec::new()),
+            submits_after_write_n: Mutex::new(None),
         }
     }
 
@@ -1506,6 +1611,66 @@ mod tests {
             *b.written.lock().unwrap(),
             vec![("s1".to_string(), b"\x1b[200~line one\nline two\x1b[201~".to_vec()), ("s1".to_string(), b"\r".to_vec())],
         );
+    }
+
+    #[test]
+    fn text_submitted_needs_a_new_matching_user_message_not_just_a_bigger_total() {
+        let page = |total: usize, last: Option<Value>| TranscriptPage { total, from: 0, items: last.into_iter().collect() };
+        assert!(text_submitted(0, &page(1, Some(json!({"kind": "user", "text": "hi there"}))), "hi there"), "new, matches, counts as submitted");
+        assert!(text_submitted(0, &page(1, Some(json!({"kind": "user", "text": "  hi there  "}))), "hi there"), "whitespace around it doesn't matter");
+        assert!(!text_submitted(1, &page(1, Some(json!({"kind": "user", "text": "hi there"}))), "hi there"), "total didn't grow: this is the same old message, not a new one");
+        assert!(!text_submitted(0, &page(1, Some(json!({"kind": "assistant", "text": "hi there"}))), "hi there"), "wrong kind");
+        assert!(!text_submitted(0, &page(1, Some(json!({"kind": "user", "text": "something else"}))), "hi there"), "a new message, but not ours");
+        assert!(!text_submitted(0, &page(0, None), "hi there"), "nothing there at all");
+    }
+
+    /// #D-2161: 复现——`write` 把字节送进 PTY 这件事本身就回 ok，不代表 Claude Code 真的把它当一次提交；这组用
+    /// `submit_text_and_confirm` 直接测（注入极短的轮询参数，不用真等 150ms × 8），覆盖三种结果
+    #[test]
+    fn submit_text_and_confirm_covers_first_try_retry_and_giving_up() {
+        let tiny = (Duration::from_millis(1), 3);
+        // 第一次就提交：不用补那次重试回车
+        let b = Fake { sessions: vec![info("sub", "idle")], submits_after_write_n: Mutex::new(Some(1)), ..fake() };
+        let steps = plan_input("idle", "", &InputKind::Text("hi there".into())).unwrap();
+        assert!(matches!(submit_text_and_confirm(&b, "sub", steps, "hi there", tiny.0, tiny.1), SubmitOutcome::Submitted));
+        assert_eq!(b.written.lock().unwrap().len(), 1, "一次写入就确认了，没有补发回车");
+
+        // 第一次的回车被吞了（transcript 一直没冒出来），补一次回车后才确认
+        let b = Fake { sessions: vec![info("sub", "idle")], submits_after_write_n: Mutex::new(Some(2)), ..fake() };
+        let steps = plan_input("idle", "", &InputKind::Text("hi there".into())).unwrap();
+        assert!(matches!(submit_text_and_confirm(&b, "sub", steps, "hi there", tiny.0, tiny.1), SubmitOutcome::Submitted));
+        assert_eq!(*b.written.lock().unwrap(), vec![("sub".to_string(), b"hi there\r".to_vec()), ("sub".to_string(), b"\r".to_vec())], "补发的是单独一个回车，不是整句话重打一遍");
+
+        // 两次都没能确认：老实报没提交，不是假的 ok
+        let b = Fake { sessions: vec![info("sub", "idle")], submits_after_write_n: Mutex::new(None), ..fake() };
+        let steps = plan_input("idle", "", &InputKind::Text("hi there".into())).unwrap();
+        assert!(matches!(submit_text_and_confirm(&b, "sub", steps, "hi there", tiny.0, tiny.1), SubmitOutcome::NotSubmitted));
+    }
+
+    /// 走完整的 `handle_line` 路径，确认 `reason:"not_submitted"` 这个额外字段真的接上了，不只是在帮手函数里对
+    #[test]
+    fn input_text_reports_a_structured_reason_when_it_never_confirms() {
+        let b = Fake { write_on: true, sessions: vec![info("sub", "idle")], submits_after_write_n: Mutex::new(None), ..fake() };
+        let r = ask(&b, r#"{"op":"input","session_id":"sub","kind":"text","text":"hi there"}"#);
+        assert_eq!((r["ok"].as_bool(), r["reason"].as_str()), (Some(false), Some("not_submitted")));
+        assert!(r["error"].as_str().is_some_and(|e| !e.is_empty()));
+        // approve / deny / interrupt / type 不走这条确认逻辑，没有理由因为同一个假后端的 transcript 一直是空的而失败
+        let b2 = Fake { write_on: true, sessions: vec![info("sub", "waiting")], submits_after_write_n: Mutex::new(None), ..fake() };
+        assert_eq!(ask(&b2, r#"{"op":"input","session_id":"sub","kind":"approve"}"#)["ok"], true);
+    }
+
+    /// 回归：busy 会话追加文字也不走确认逻辑（第一版把所有 text 都套上确认流程，误伤了这个本来就正常的场景，
+    /// 靠这条测试和下面两条既有的 multiline 测试一起发现、补上）。用"sub"这个 transcript 永远不会"冒出"新消息
+    /// 的假后端：如果误判成走了确认流程，这里一定会失败或多补一次裸回车
+    #[test]
+    fn input_text_to_a_busy_session_skips_the_confirmation_entirely() {
+        let b = Fake { write_on: true, sessions: vec![info("sub", "busy")], submits_after_write_n: Mutex::new(None), ..fake() };
+        let r = ask(&b, r#"{"op":"input","session_id":"sub","kind":"text","text":"hi there"}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        // A single-line text with no Enter settle wait is the text plus `\r` written in one step (`enter_after`
+        // with `pasted: false`); the point of this assertion is that there is no *extra* bare `\r` tacked on
+        // afterward by the confirmation path's retry, which is what would happen if busy wrongly went through it
+        assert_eq!(*b.written.lock().unwrap(), vec![("sub".to_string(), b"hi there\r".to_vec())]);
     }
 
     #[test]
