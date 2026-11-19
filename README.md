@@ -427,6 +427,8 @@ Dual-licensed, at your option:
 
 Unless you explicitly state otherwise, any contribution you submit to this project is released under the dual license above, with no additional terms.
 
+Third-party licenses: [Rust dependencies](THIRD_PARTY_LICENSES.md), [built-in color themes](THIRD_PARTY_THEMES.md).
+
 ## Acknowledgements
 
 - [GPUI](https://www.gpui.rs/), [alacritty_terminal](https://github.com/alacritty/alacritty) — the foundation of this app

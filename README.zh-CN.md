@@ -425,6 +425,8 @@ cargo test --manifest-path core/Cargo.toml     # 会话扫描、恢复等核心
 
 除非你另外明确说明，你提交到本项目的任何贡献，都按上述双许可发布，不附加其他条款。
 
+第三方授权：[Rust 依赖](THIRD_PARTY_LICENSES.md)、[内置配色主题](THIRD_PARTY_THEMES.md)。
+
 ## 致谢
 
 - [GPUI](https://www.gpui.rs/)、[alacritty_terminal](https://github.com/alacritty/alacritty) —— 这个 app 的地基

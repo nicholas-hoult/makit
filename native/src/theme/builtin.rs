@@ -1,7 +1,9 @@
 //! 内置 21 套主题的源色（#248）：深色 11 套（Embark 在最前，是默认）+ 浅色 10 套。
 //!
 //! 来源：<https://github.com/mbadolato/iTerm2-Color-Schemes>（MIT）里的 `.itermcolors`，经 `itermcolors::parse_itermcolors`
-//! 解析（P3 已换算成 sRGB）得到的十六进制。合集本身是 MIT，但**单个主题的原作者授权没有逐个核实**（站上标 SPDX 不明），发布前的授权梳理见 #255。
+//! 解析（P3 已换算成 sRGB）得到的十六进制。合集本身是 MIT，但合集自己的 LICENSE 原文写明这只覆盖仓库整体，不覆盖单个主题；
+//! 每套主题的真实上游项目和授权见 `THIRD_PARTY_THEMES.md`（已逐个核实，#255）。Modus Vivendi/Operandi Tinted 的上游是
+//! GPL-3.0-or-later、Moonwalk 的上游没有 LICENSE 文件，这两条的授权风险目前尚未解决，怎么处理待定。
 //! 挑选标准：六种主色色相正确且不发灰、12 个常用文字色对比度 ≥ 3:1、正文 ≥ 7:1（`tests::every_builtin_theme_is_readable` 守着）。
 //! 切换前的旧 25 套留在 `legacy_fixture.rs`（仅测试用，给 Tauri 版推导结果对照）。
 
