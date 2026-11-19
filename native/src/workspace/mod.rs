@@ -539,12 +539,13 @@ impl WorkspaceView {
         let tid = tab_id.clone();
         let tid_input = tab_id.clone();
         let tid_resume = tab_id.clone();
-        let sub = cx.subscribe(&view, move |this: &mut Self, _, ev: &TerminalEvent, cx| match ev {
+        let sub = cx.subscribe_in(&view, window, move |_: &mut Self, _, ev: &TerminalEvent, window, cx| match ev {
             // 进程退出不关标签（同 Tauri）：终端里已经写了「[进程已退出]」，留着能看 claude 最后的输出，用户自己 ⌘W 关
             TerminalEvent::Exited => cx.notify(),
             TerminalEvent::TitleChanged => cx.notify(),
-            // Enter in a terminal whose process has exited: run it again in place (#287)
-            TerminalEvent::ResumeRequested => this.resume_tab(&tid_resume, cx),
+            // Enter in a terminal whose process has exited: run it again in place (#287). Capacity-checked like a
+            // fresh open (#D-2106): needs `window` for the confirm dialog, hence `subscribe_in` and not `subscribe`
+            TerminalEvent::ResumeRequested => crate::overlays::session_ops::resume_known_tab(&tid_resume, window, cx),
         });
         // 启动目录：不在了 → D 的恢复对话框；按会话起始目录校正了 → 写回标签的 cwd
         let spawn_sub = cx.subscribe_in(&view, window, move |this: &mut Self, _, ev: &TerminalSpawnEvent, window, cx| match ev {
@@ -698,8 +699,8 @@ impl WorkspaceView {
                 let exited = self.terminals.get(tid).is_some_and(|t| t.view.read(cx).exited);
                 let stop_others = model::tabs_to_stop(&c.tabs, tid);
                 let run_item = if tab.stopped || exited {
-                    let (b, w) = (tid.clone(), w.clone());
-                    OM::action(tr!("workspace.menu.resume"), move |_, cx| drop(w.update(cx, |v, cx| v.resume_tab(&b, cx))))
+                    let b = tid.clone();
+                    OM::action(tr!("workspace.menu.resume"), move |window, cx| crate::overlays::session_ops::resume_known_tab(&b, window, cx))
                 } else {
                     let (b, w) = (tid.clone(), w.clone());
                     OM::action(tr!("workspace.menu.stop"), move |window, cx| drop(w.update(cx, |v, cx| v.stop_tabs(vec![b.clone()], window, cx))))
@@ -1176,7 +1177,7 @@ impl WorkspaceView {
                     .cursor_pointer()
                     .hover(|d| d.bg(theme.bg_hover))
                     .child(tr!("workspace.stopped.resume"))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.resume_tab(&t2, cx))),
+                    .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| crate::overlays::session_ops::resume_known_tab(&t2, window, cx))),
             )
             .into_any_element()
     }
@@ -1447,12 +1448,12 @@ impl Render for WorkspaceView {
             .id("workspace")
             .key_context("Workspace")
             .track_focus(&self.focus)
-            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, window, cx| {
                 // Enter on a stopped tab's page resumes it (#287). Only when the root itself is focused: a terminal
                 // or an overlay with focus handles its own keys
                 let stopped = this.state.read(cx).workspace.active_tab().filter(|t| t.stopped).map(|t| t.id.clone());
                 if let Some(tid) = stopped.filter(|_| ev.keystroke.key == "enter") {
-                    this.resume_tab(&tid, cx);
+                    crate::overlays::session_ops::resume_known_tab(&tid, window, cx);
                     cx.stop_propagation();
                 }
             }))

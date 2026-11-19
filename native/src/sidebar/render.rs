@@ -235,6 +235,10 @@ impl SidebarView {
         let multi = nav && self.multi.contains(&m.session_id);
         let selected = selected && (self.multi.is_empty() || multi);
         let rs = meta_state(&m);
+        // 被容量上限的置换队列休眠的（#D-2106），和用户自己 #287 停止的区分开：状态点的 tooltip 换一句话，
+        // 标题行再加一个小徽标——只有 tooltip 不够，得一眼看出来
+        let evicted = rs == RunState::Stopped && s.is_evicted(&m.session_id);
+        let status_title = if evicted { ts!("status.hint.evicted") } else { rs.title() };
         let title = session_title(&m.display_name, &m.first_user_msg, &m.short_id);
         let project = super::groups::basename(if m.git_root.is_empty() { &m.cwd } else { &m.git_root });
         let sid = m.session_id.clone();
@@ -252,7 +256,7 @@ impl SidebarView {
                 (None, "codex") => tool_text_badge("CX", brand_codex(), mix(brand_codex(), 0.18)),
                 _ => div().size(px(12.)).into_any_element(),
             };
-            Some(div().id(SharedString::from(format!("st-{uid}"))).tooltip(tip(rs.title())).child(status_icon::identity(rs, logo_el, t)).into_any_element())
+            Some(div().id(SharedString::from(format!("st-{uid}"))).tooltip(tip(status_title.clone())).child(status_icon::identity(rs, logo_el, t)).into_any_element())
         } else {
             show_status.then(|| {
                 div()
@@ -263,7 +267,7 @@ impl SidebarView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .tooltip(tip(rs.title()))
+                    .tooltip(tip(status_title.clone()))
                     .child(status_icon::render(rs, 12., t))
                     .into_any_element()
             })
@@ -289,6 +293,19 @@ impl SidebarView {
                         .text_size(px(9.))
                         .line_height(px(13.))
                         .child(waiting_label(&m.waiting_for)),
+                )
+            })
+            .when(evicted, |d| {
+                d.child(
+                    div()
+                        .flex_none()
+                        .px(px(5.))
+                        .rounded_full()
+                        .bg(mix(t.warning, 0.2))
+                        .text_color(t.warning)
+                        .text_size(px(9.))
+                        .line_height(px(13.))
+                        .child(ts!("status.hint.evicted_badge")),
                 )
             })
             // `.tree-session-time`：10px、定宽右列 26、右对齐。可在「显示选项」里隐藏（#238）。
@@ -554,14 +571,14 @@ impl Render for SidebarView {
                     this.open_session(&m.session_id, window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &act::OpenSelectedSplitRight, _, cx| {
+            .on_action(cx.listener(|this, _: &act::OpenSelectedSplitRight, window, cx| {
                 if let Some((_, m)) = this.selected_meta(cx) {
-                    this.open_split(&m.session_id, Dir::V, cx);
+                    this.open_split(&m.session_id, Dir::V, window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &act::OpenSelectedSplitDown, _, cx| {
+            .on_action(cx.listener(|this, _: &act::OpenSelectedSplitDown, window, cx| {
                 if let Some((_, m)) = this.selected_meta(cx) {
-                    this.open_split(&m.session_id, Dir::H, cx);
+                    this.open_split(&m.session_id, Dir::H, window, cx);
                 }
             }))
             .on_action(cx.listener(|this, _: &act::ToggleHoverCard, window, cx| this.toggle_hover_for_selected(window, cx)))

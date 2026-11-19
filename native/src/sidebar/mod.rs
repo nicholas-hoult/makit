@@ -43,7 +43,7 @@ use crate::ui_scale::px;
 use makit_core::SessionMeta;
 
 use crate::state::{AppEvent, AppState};
-use crate::workspace::model::{opened_order, resume_cmd, resume_init_command, Dir, Side, TabKind, TabSpec};
+use crate::workspace::model::{opened_order, resume_cmd, resume_init_command, Dir, TabKind, TabSpec};
 use groups::{day_buckets, filter_sessions, meta_state, project_groups, session_title, status_groups, RunState, SortKey};
 use search_input::{SearchEvent, SearchInput};
 use tree::{flatten, GroupRef, Tree, TreeGroup, TreeInput, TreeProject};
@@ -405,15 +405,10 @@ impl SidebarView {
         crate::overlays::session_ops::open_session(id, window, cx);
     }
 
-    /// ⌘Enter 左右 / ⇧Enter 上下分屏打开（同 treeOnOpenSessionInSplit：在当前 pane 后面分出一个）
-    fn open_split(&mut self, id: &str, dir: Dir, cx: &mut Context<Self>) {
-        let Some(m) = self.state.read(cx).session(id).cloned() else { return };
-        let spec = DraggedSession::from_meta(&m).tab_spec();
-        self.state.update(cx, |s, cx| {
-            let cid = s.workspace.state.active_container_id.clone();
-            s.workspace.split_with_session(&cid, dir, Side::After, &spec);
-            s.workspace_changed(cx);
-        });
+    /// ⌘Enter 左右 / ⇧Enter 上下分屏打开（同 treeOnOpenSessionInSplit：在当前 pane 后面分出一个）。走
+    /// `session_ops::open_session_split`（和 ⌘K 的分屏打开共用一份，#D-2106 顺手把这里重复的 `TabSpec` 拼装去掉）
+    fn open_split(&mut self, id: &str, dir: Dir, window: &mut Window, cx: &mut Context<Self>) {
+        crate::overlays::session_ops::open_session_split(id, dir, window, cx);
     }
 
     fn new_session_in(&mut self, cwd: &str, tool: &str, cx: &mut Context<Self>) {

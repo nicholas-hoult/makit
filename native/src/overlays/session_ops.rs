@@ -283,20 +283,22 @@ fn do_open_new(s: &SessionMeta, cx: &mut App) {
     });
 }
 
-/// The capacity cap acting on a **local** open (sidebar click / ⌘K / Enter): unlike the remote link.sock path, the
-/// person triggering this is sitting right at the machine, so `AskEachTime` gets an actual confirm dialog here
-/// instead of degrading to a refusal (#D-2090; see `capacity_block` below for the remote side of that split).
-fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
+/// The capacity cap acting on a **local** trigger (sidebar click / ⌘K / Enter / "恢复"): unlike the remote
+/// link.sock path, the person triggering this is sitting right at the machine, so `AskEachTime` gets an actual
+/// confirm dialog here instead of degrading to a refusal (#D-2090; see `capacity_block` below for the remote side
+/// of that split). `action` is the thing to actually do once there is room -- opening a new tab, a split, or
+/// reviving a stopped one are otherwise identical from here on (#D-2106 added the second and third).
+fn with_capacity_check(window: &mut Window, cx: &mut App, action: impl FnOnce(&mut App) + 'static) {
     use crate::state::capacity::EvictionDecision;
     match capacity_decision(cx) {
-        None => do_open_new(&s, cx),
+        None => action(cx),
         Some((limit, EvictionDecision::Blocked(_))) => show_toast(limit.reason().to_string(), toast::CAPACITY_BLOCKED, cx),
         Some((_, EvictionDecision::AutoSleep { session_id })) => {
             sleep_eviction_victim(&session_id, cx);
-            do_open_new(&s, cx);
+            action(cx);
         }
         Some((_, EvictionDecision::AskToSleep { session_id: victim })) => {
-            let label = AppState::global(cx).read(cx).session(&victim).map(|m| m.short_id.clone()).unwrap_or(victim.clone());
+            let label = AppState::global(cx).read(cx).session(&victim).map(|m| m.short_id.clone()).unwrap_or_else(|| victim.clone());
             let rx = window.prompt(
                 PromptLevel::Warning,
                 &ts!("capacity.ask_evict.title"),
@@ -310,12 +312,16 @@ fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
                 }
                 let _ = cx.update(|cx| {
                     sleep_eviction_victim(&victim, cx);
-                    do_open_new(&s, cx);
+                    action(cx);
                 });
             })
             .detach();
         }
     }
+}
+
+fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
+    with_capacity_check(window, cx, move |cx| do_open_new(&s, cx));
 }
 
 /// Puts the eviction queue's victim to sleep (#287's stop-but-keep-tab, via `WorkspaceView::stop_tabs_now`
@@ -331,6 +337,11 @@ fn sleep_eviction_victim(session_id: &str, cx: &mut App) {
         return;
     }
     ws.update(cx, |w, cx| w.stop_tabs_now(&tids, cx));
+    // Marks it for the sidebar (#D-2106): "put to sleep by the cap", not "the user stopped it". `sessions_changed`
+    // self-heals this the moment the session is seen running again, from any resume path.
+    AppState::global(cx).update(cx, |s, _| {
+        s.evicted_sessions.insert(session_id.to_string());
+    });
 }
 
 /// The live capacity decision (#D-2090 接线阶段): resource readings + the active session list + the user's chosen
@@ -425,23 +436,45 @@ pub fn stop_session_tabs(session_id: &str, window: &mut Window, cx: &mut App) {
     ws.update(cx, |w, cx| w.stop_tabs(tids, window, cx));
 }
 
-/// ⌘Enter / ⌘⇧Enter：在当前 pane 旁边分屏打开（`handleSplitWithSession`，dir V = 左右、H = 上下）
-pub fn open_session_split(session_id: &str, dir: Dir, cx: &mut App) {
-    let state = AppState::global(cx);
-    let Some(s) = state.read(cx).session(session_id).cloned() else { return };
-    ensure_symlink(&s);
+fn do_open_split(s: &SessionMeta, dir: Dir, cx: &mut App) {
+    ensure_symlink(s);
     let spec = TabSpec {
         kind: TabKind::Resume,
         cwd: s.cwd.clone(),
-        init_command: Some(resume_init_command(&s.session_id, tool_of(&s))),
+        init_command: Some(resume_init_command(&s.session_id, tool_of(s))),
         session_id: Some(s.session_id.clone()),
         session_short_id: Some(s.short_id.clone()),
     };
+    let state = AppState::global(cx);
     state.update(cx, |st, cx| {
         let cid = st.workspace.state.active_container_id.clone();
         st.workspace.split_with_session(&cid, dir, Side::After, &spec);
         st.workspace_changed(cx);
     });
+}
+
+/// ⌘K 分屏打开（`handleSplitWithSession`，dir V = 左右、H = 上下）：capacity-checked like `open_session` (#D-2106 --
+/// #D-2090 left this one unchecked, and 总管 asked for it to close the gap)
+pub fn open_session_split(session_id: &str, dir: Dir, window: &mut Window, cx: &mut App) {
+    let Some(s) = AppState::global(cx).read(cx).session(session_id).cloned() else { return };
+    with_capacity_check(window, cx, move |cx| do_open_split(&s, dir, cx));
+}
+
+fn do_resume_tab(tab_id: &str, cx: &mut App) {
+    let Some(h) = host(cx) else { return };
+    let ws = h.read(cx).workspace.clone();
+    ws.update(cx, |w, cx| w.resume_tab(tab_id, cx));
+}
+
+/// Resumes a tab the user already knows about: a stopped tab's own "恢复" button, the sidebar's right-click "恢复",
+/// Enter on a stopped tab, or a terminal whose process exited on its own offering "press Enter to resume" (#287).
+/// Capacity-checked like `open_session` (#D-2106 -- #D-2090 left this one unchecked: a one-off, visible action on a
+/// tab the user already has, not the automated mass-open that caused the original incident -- but 总管 asked for
+/// it anyway, closing the gap). The victim `eviction_victim` might pick is never this same tab: it only ever
+/// considers *running* sessions, and a tab worth resuming is by definition not one.
+pub fn resume_known_tab(tab_id: &str, window: &mut Window, cx: &mut App) {
+    let tab_id = tab_id.to_string();
+    with_capacity_check(window, cx, move |cx| do_resume_tab(&tab_id, cx));
 }
 
 #[cfg(test)]

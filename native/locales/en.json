@@ -132,6 +132,8 @@
   "status.hint.busy": "Running: the process is alive and producing output",
   "status.hint.idle": "Idle: the process is alive, open it to carry on right away",
   "status.hint.stopped": "Stopped: the process is gone, opening it resumes the previous context",
+  "status.hint.evicted": "Asleep: put to sleep automatically to free up resources while the machine was stretched thin; resuming it carries on the previous context",
+  "status.hint.evicted_badge": "asleep",
   "sidebar.group.other": "Other",
   "time.just_now": "just now",
   "sidebar.reveal.located": "Session located",

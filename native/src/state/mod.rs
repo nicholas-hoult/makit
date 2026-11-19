@@ -73,6 +73,10 @@ pub struct AppState {
     pub prefs: NativeState,
     /// 正在归档写盘的会话（这期间增量结果不覆盖它，同 TS 版的 archivingRef）
     pub archiving: HashSet<String>,
+    /// 被容量上限的置换队列挑中休眠的会话（#D-2106，侧栏用来和"用户自己 #287 停止的"区分开）。不持久化、不去记"为什么"
+    /// 停的——只要这个会话又在跑了（不管是被这几条 resume 路径恢复、还是用户在别的终端自己 `claude -r` 起来的），
+    /// `sessions_changed` 就会把它从这个集合里摘掉，自愈，不依赖每条 resume 路径都记得清理
+    pub evicted_sessions: HashSet<String>,
     saver: Option<Saver>,
     /// 上次读 `~/.claude/sessions/*.json` 绑标签的时间（running-changed 活跃时每 500ms 一发，2s 节流，同 Tauri）
     last_bind_attempt: Option<std::time::Instant>,
@@ -103,6 +107,7 @@ impl AppState {
                 workspace,
                 prefs,
                 archiving: HashSet::new(),
+                evicted_sessions: HashSet::new(),
                 saver,
                 last_bind_attempt: None,
                 load_error: None,
@@ -251,6 +256,13 @@ impl AppState {
         self.prefs.pinned_sessions.iter().any(|p| p == id)
     }
 
+    /// Whether the sidebar should show this session as "put to sleep by the capacity cap" rather than plain
+    /// "stopped" (#D-2106). Only meaningful while it is actually not running -- `sessions_changed` prunes a
+    /// session out of `evicted_sessions` the moment it sees it running again, from any resume path.
+    pub fn is_evicted(&self, id: &str) -> bool {
+        self.evicted_sessions.contains(id)
+    }
+
     pub fn toggle_pin(&mut self, id: &str, cx: &mut Context<Self>) {
         self.update_prefs(cx, |p| {
             if let Some(i) = p.pinned_sessions.iter().position(|x| x == id) {
@@ -267,6 +279,11 @@ impl AppState {
         // 只在还没有会话时刷新检测（有会话就不会显示提示；几次 stat，很便宜）
         if self.sessions.is_empty() {
             self.tools = detect_tools();
+        }
+        // 自愈：不管是哪条路径让它又跑起来了，都不该再顶着"休眠"的标记（#D-2106）
+        if !self.evicted_sessions.is_empty() {
+            let sessions = &self.sessions;
+            self.evicted_sessions.retain(|id| sessions.iter().find(|m| &m.session_id == id).is_none_or(|m| !m.running));
         }
         cx.emit(AppEvent::SessionsChanged);
         cx.notify();

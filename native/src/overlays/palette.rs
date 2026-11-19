@@ -155,8 +155,8 @@ impl PaletteView {
         let sid = item.session_id.clone();
         match mode {
             Mode::Default => session_ops::open_session(&sid, window, cx),
-            Mode::SplitRight => session_ops::open_session_split(&sid, Dir::V, cx),
-            Mode::SplitDown => session_ops::open_session_split(&sid, Dir::H, cx),
+            Mode::SplitRight => session_ops::open_session_split(&sid, Dir::V, window, cx),
+            Mode::SplitDown => session_ops::open_session_split(&sid, Dir::H, window, cx),
         }
     }
 
