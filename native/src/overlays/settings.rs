@@ -8,9 +8,12 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, AsyncApp, ClickEvent, Context, Entity, EventEmitter, FocusHandle, FontWeight, Global, PathPromptOptions,
+    div, prelude::*, App, AsyncApp, ClickEvent, Context, Entity, EventEmitter, FocusHandle, FontWeight, Global, PathPromptOptions,
     PromptButton, PromptLevel, SharedString, Window,
 };
+// #277: design sizes follow the whole-interface scale; `open_theme_menu`'s own real-bounds math stays in real
+// pixels explicitly, see the comment there.
+use crate::ui_scale::px;
 
 use super::shortcuts::{shortcut_groups, ShortcutRow};
 use super::style::*;
@@ -151,7 +154,11 @@ impl SettingsView {
         let state = self.state.clone();
         // 贴着选择框展开：左边对齐、紧挨下方、宽度和选择框一致（最宽 THEME_MENU_MAX_W）；拿不到位置才退回鼠标点的地方
         let (pos, min_w) = match self.theme_select.get() {
-            Some(b) => (gpui::point(b.origin.x, b.origin.y + b.size.height + px(2.0)), Some(f32::from(b.size.width).min(THEME_MENU_MAX_W))),
+            // `b` is the select box's real on-screen bounds; `pos` stays in that same real-pixel space (plus a
+            // scaled gap), but `min_w` feeds into render_menu's own menu_width(...).max(min_w) -- which the caller
+            // scales exactly once -- so it has to come back out of real pixels into the same unscaled design units
+            // menu_width already works in (#277), or the select box's own width would get scaled a second time.
+            Some(b) => (gpui::point(b.origin.x, b.origin.y + b.size.height + px(2.0)), Some((f32::from(b.size.width) / crate::ui_scale::get()).min(THEME_MENU_MAX_W))),
             None => (ev.position(), None),
         };
         super::show_searchable_menu(pos, &tr!("settings.theme.search"), min_w, window, cx, move |cx| {
