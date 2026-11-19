@@ -8,7 +8,7 @@
 
 use crate::ts;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -72,6 +72,44 @@ pub fn start_at(_path: &Path, _on_line: impl Fn(String) + Send + Sync + 'static)
     Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the hook channel is not implemented on this platform yet"))
 }
 
+/// The client half of the hook protocol (#215 第 1 期): forwards all of `input` to `sock` as the one line
+/// `handle_conn` reads, half-closes the write side the moment it is done (so the server's `read_line` sees EOF
+/// right away), then copies the reply back to `out`. This is what the `hook` subcommand below runs, replacing the
+/// installed script's old `cat | nc -U "$SOCK"`: macOS's bundled `/usr/bin/nc` never exits once the peer closes
+/// its end (no "exit on EOF" flag exists for it), so every single hook invocation used to hang for ~4s until
+/// Claude Code's own hook timeout killed it. A real client that closes its own write side does not have that
+/// problem -- confirmed against this exact server in `hook_client_does_not_hang_the_way_the_old_nc_script_did`.
+#[cfg(unix)]
+pub fn run_hook_client(mut input: impl Read, sock: &Path, mut out: impl Write) -> std::io::Result<()> {
+    let mut line = String::new();
+    input.read_to_string(&mut line)?;
+    let mut stream = UnixStream::connect(sock)?;
+    stream.write_all(line.as_bytes())?;
+    if !line.ends_with('\n') {
+        stream.write_all(b"\n")?;
+    }
+    stream.shutdown(std::net::Shutdown::Write)?;
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply)?;
+    out.write_all(reply.as_bytes())
+}
+
+#[cfg(not(unix))]
+pub fn run_hook_client(_input: impl Read, _sock: &Path, _out: impl Write) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the hook channel is not implemented on this platform yet"))
+}
+
+/// Entry point for `makit hook [socket-path]` (the installed script's replacement for `cat | nc -U`, #215 第 1 期).
+/// Always exits `0`: Claude Code must never see this plumbing itself fail a hook, and the install script's own
+/// `|| echo '{}'` wrapper (added where `install_claude_hook_in` registers the command) is the real fallback if
+/// connecting fails. `sock_arg` lets the generated script pin the exact socket it was written for, rather than
+/// relying on `socket_path()` recomputing the same `$HOME` at call time.
+pub fn hook_cli(sock_arg: Option<&str>) -> i32 {
+    let Some(sock) = sock_arg.map(PathBuf::from).or_else(socket_path) else { return 0 };
+    let _ = run_hook_client(std::io::stdin(), &sock, std::io::stdout());
+    0
+}
+
 /// Claude Code hook events makit uses: `Notification` (awaiting approval / an answer), `Stop` (task finished, carrying Claude's own words as the banner body),
 /// `UserPromptSubmit` / `SessionEnd` (clear unread). With only Notification installed, "task finished" has no body text and no banner can be shown
 pub const HOOK_EVENTS: [&str; 4] = ["Notification", "Stop", "UserPromptSubmit", "SessionEnd"];
@@ -90,10 +128,19 @@ pub fn install_claude_hook_in(home: &Path) -> Result<String, String> {
     fs::create_dir_all(&hooks_dir).map_err(|e| e.to_string())?;
     let hook_script = hooks_dir.join("makit-hook.sh");
     let sock_path = home.join(".claude").join("makit").join("hook.sock");
-    let script = format!(
-        "#!/bin/sh\nSOCK=\"{}\"\nif [ -S \"$SOCK\" ]; then\n    cat | nc -U \"$SOCK\" 2>/dev/null\nelse\n    echo '{{}}'\nfi\n",
-        sock_path.display()
-    );
+    // `current_exe()` is the running makit's own path -- that binary carries the `hook` subcommand (#215 第 1 期)
+    // that replaced the old `cat | nc -U "$SOCK"`, which macOS's bundled `nc` hangs on for ~4s every single time
+    // (it never exits once the peer closes its end). Missing/unreadable only on a very unusual setup; the script
+    // falls back to a plain `{}` reply the same way it already does when the socket itself is not there.
+    let exe = std::env::current_exe().ok();
+    let script = match exe {
+        Some(exe) => format!(
+            "#!/bin/sh\nSOCK=\"{}\"\nEXE=\"{}\"\nif [ -S \"$SOCK\" ] && [ -x \"$EXE\" ]; then\n    \"$EXE\" hook \"$SOCK\"\nelse\n    echo '{{}}'\nfi\n",
+            sock_path.display(),
+            exe.display()
+        ),
+        None => "#!/bin/sh\necho '{}'\n".to_string(),
+    };
     fs::write(&hook_script, &script).map_err(|e| e.to_string())?;
     #[cfg(unix)]
     {
@@ -228,8 +275,48 @@ mod tests {
         let script = home.join(".claude/hooks/makit-hook.sh");
         let body = fs::read_to_string(&script).unwrap();
         assert!(body.contains(&home.join(".claude/makit/hook.sock").display().to_string()), "脚本指向本机的 socket");
+        assert!(body.contains("hook \"$SOCK\""), "走 makit 自己的 hook 子命令");
+        assert!(!body.contains("nc -U"), "不能再用 macOS 自带 nc 会挂住的那条路（#215）");
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(fs::metadata(&script).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+
+    // #215 第 1 期：这就是旧脚本 `cat | nc -U "$SOCK"` 挂住的根因所在之处——macOS 自带的 `nc` 在对方关闭连接
+    // 后不退出。用和 `handle_conn` 完全相同的服务端，跑真正的客户端函数，钉住「正常的几分之一秒内就要有回复」，
+    // 不是「4 秒后被杀」。
+    #[test]
+    fn hook_client_does_not_hang_the_way_the_old_nc_script_did() {
+        let dir = PathBuf::from(format!("/tmp/mk-hook-client-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("h.sock");
+        start_at(&sock, |_| {}).expect("bind 失败");
+
+        let started = std::time::Instant::now();
+        let mut out = Vec::new();
+        run_hook_client(std::io::Cursor::new(b"{\"hook_event_name\":\"Stop\"}".to_vec()), &sock, &mut out).unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1), "不该像旧的 nc 脚本那样等上几秒");
+        assert_eq!(out, b"{}\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hook_client_without_a_trailing_newline_still_gets_one_line_to_the_server() {
+        let dir = PathBuf::from(format!("/tmp/mk-hook-client-nl-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("h.sock");
+        let (tx, rx) = mpsc::channel::<String>();
+        let tx = std::sync::Mutex::new(tx);
+        start_at(&sock, move |l| {
+            let _ = tx.lock().unwrap().send(l);
+        })
+        .expect("bind 失败");
+
+        let mut out = Vec::new();
+        run_hook_client(std::io::Cursor::new(b"{\"n\":1}".to_vec()), &sock, &mut out).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap(), "{\"n\":1}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
