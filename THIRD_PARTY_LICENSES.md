@@ -670,8 +670,8 @@
 
 | 素材 | 位置 | 许可证 | 说明 |
 |---|---|---|---|
-| JetBrains Mono 字体 | `native/assets/fonts/*.ttf` | SIL OFL 1.1 | 文本见 `native/assets/fonts/OFL.txt`；版权 2020 The JetBrains Mono Project Authors，<https://github.com/JetBrains/JetBrainsMono> |
-| 内置终端配色（21 套） | `native/src/theme/builtin.rs` | MIT（合集） | 取自 iTerm2-Color-Schemes 合集 <https://github.com/mbadolato/iTerm2-Color-Schemes>（MIT）。合集本身是 MIT，但单个主题原作者的授权未逐个核实 |
-| 应用图标 | `native/packaging/icon.icns` | 待确认 | provenance to be confirmed：仓库内没有记录来源 |
-| 工具图标（Claude / Codex 的 .ico） | `native/assets/logos/` | 待确认 | provenance to be confirmed：为对应厂商的商标 / 品牌标识，仅用于指示会话所属工具 |
-| 界面 SVG 图标 | `native/assets/icons/*.svg` | 随 makit（MIT OR Apache-2.0） | 从本项目早期前端抽出；来源见各文件头注释，如有外部来源待确认 |
+| JetBrains Mono 字体 | `native/assets/fonts/*.ttf` | SIL OFL 1.1 | 文本见 `native/assets/fonts/OFL.txt`；版权 2020 The JetBrains Mono Project Authors，<https://github.com/JetBrains/JetBrainsMono>。项目内唯一随包分发的字体——界面其余文字用系统字体，不随包 |
+| 内置终端配色（18 套） | `native/src/theme/builtin.rs` | MIT（合集） | 原为 21 套，2026-11-19 撤下 Moonwalk（上游无 LICENSE）和两套 Modus Tinted（GPL-3.0），详见 `THIRD_PARTY_THEMES.md`。剩余 18 套取自 iTerm2-Color-Schemes 合集 <https://github.com/mbadolato/iTerm2-Color-Schemes>（MIT），逐个核实过真实上游 |
+| 应用图标 | `native/packaging/icon.icns`（官网 favicon `site/assets/favicon.png` 是同一张图） | 待确认 | 从旧 Tauri 版 `src-tauri/icons/icon.icns` 原样搬过来的占位图标；仓库历史里找不到它最初的来源（早于现有提交记录），不是靠查证能解决的事。#151 排期设计一版原创图标替换它，在那之前这个占位图标（以及用它生成的官网 favicon）的授权风险都没有解除 |
+| 工具图标（Claude / Codex 的 .ico） | `native/assets/logos/` | 厂商商标 | 源码注释（`native/src/assets.rs`）记录了来源：claude.ico 来自 anthropic.com 官方 favicon，codex.ico 来自 openai.com 官方 favicon，原样未修改，只在侧栏 / 标签上标识会话所属的工具（只读身份指示），不暗示 Anthropic / OpenAI 为本项目背书或与本项目有关联——对第三方商标的指代性使用（nominative use），不是开源授权意义上的素材 |
+| 界面 SVG 图标 | `native/assets/icons/*.svg` | 原创 | 逐个核对过文件头注释：全部来自本项目早期 React/Tauri 前端自己画的简单几何图形（线条 / 圆 / 弧），不是从任何外部图标库（Font Awesome、Material Icons 等）抽出来的，没有外部来源要核实 |
