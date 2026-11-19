@@ -409,6 +409,27 @@ pub fn run() {
         crate::state::resources::start_fd_monitor(cx);
         let saver = persist::state_path().map(persist::Saver::new);
         let state = AppState::init(prefs, saver, cx);
+        // #D-2149: registered here, before anything that shuts a terminal down on quit (`WorkspaceView`'s own
+        // on_app_quit, registered once `Root`/the window exist, below) -- GPUI runs on_app_quit handlers in
+        // registration order, so this snapshot of "what was actually running" is taken before `shutdown_all`
+        // kills those sessions' PTYs and flips `running` to false. Registering it any later (as it used to be,
+        // alongside `save_window`) meant every session that was running in one of *this* instance's own tabs had
+        // already gone `running: false` by the time this read happened -- only sessions running somewhere makit
+        // never touches (a separate terminal, say) ever made it into the snapshot.
+        let snapshot_state = state.clone();
+        cx.on_app_quit(move |cx| {
+            // 退出 / 重启 / 升级都走这同一条路：总管靠它决定重启后恢复哪些、按什么顺序（#D-2122）
+            let snapshot: Vec<makit_core::last_running::LastRunning> = snapshot_state
+                .read(cx)
+                .sessions
+                .iter()
+                .filter(|m| m.running)
+                .map(|m| makit_core::last_running::LastRunning { session_id: m.session_id.clone(), name: m.display_name.clone(), cwd: m.cwd.clone(), last_active: m.mtime })
+                .collect();
+            makit_core::last_running::write(&snapshot);
+            async {}
+        })
+        .detach();
         crate::notify::Notifier::init(state.clone(), cx);
         // 本机会话接口（#299）：默认关，设置里开；开关即时生效
         let link_writes = crate::link_switch::init(&state, cx);
@@ -480,21 +501,12 @@ pub fn run() {
         // `update install` 重启后接上总管指定的那个会话（#D-2122）；绝大多数启动这里什么都不做
         crate::update::after_restart::resume_if_pending(handle, cx);
 
-        // 退出前把防抖中的状态写掉
+        // 退出前把防抖中的状态写掉（last_running 快照已经提前注册过了，见上面 #D-2149 的注释）
         let quit_state = state.clone();
         let quit_handle = handle;
         cx.on_app_quit(move |cx| {
             // 先记窗口位置再落盘：Cmd-Q 前没有失去焦点，只靠这一下
             let _ = quit_handle.update(cx, |_, window, cx| save_window(&quit_state, window, cx));
-            // 这次退出前在跑的会话快照（#D-2122），退出/重启/升级都走这同一条路：总管靠它决定重启后恢复哪些、按什么顺序
-            let snapshot: Vec<makit_core::last_running::LastRunning> = quit_state
-                .read(cx)
-                .sessions
-                .iter()
-                .filter(|m| m.running)
-                .map(|m| makit_core::last_running::LastRunning { session_id: m.session_id.clone(), name: m.display_name.clone(), cwd: m.cwd.clone(), last_active: m.mtime })
-                .collect();
-            makit_core::last_running::write(&snapshot);
             quit_state.read(cx).flush();
             async {}
         })

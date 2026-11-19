@@ -163,7 +163,14 @@ pub fn install(release: ReleaseInfo, cx: &mut App) {
         }
         apply::Plan::InPlace(job) => {
             set(Status::Installing(release.clone()), cx);
-            crate::overlays::show_toast(ts!("update.toast.downloading", version = release.version.clone()), 4000, cx);
+            // #D-2149/#D-2150: 4000ms used to be plenty for a toast that's about to say something else anyway
+            // -- except downloading + verifying + mounting + copying the dmg can easily run well past that on
+            // an ordinary connection, and this one disappearing with nothing replacing it for the rest of that
+            // time looked exactly like the update had silently frozen (真实一次实测：从这里到真正退出重启约
+            // 1 分钟). The titlebar pill stays on "installing" the whole time regardless, but it is small and
+            // easy to miss; this just has to outlast the realistic worst case so it only ever gets replaced,
+            // never timed out while still the only real progress updates have.
+            crate::overlays::show_toast(ts!("update.toast.downloading", version = release.version.clone()), 120_000, cx);
             cx.spawn(async move |cx| {
                 let result = cx.background_executor().spawn(async move { apply::stage_and_launch(&job) }).await;
                 let _ = cx.update(|cx| match result {
