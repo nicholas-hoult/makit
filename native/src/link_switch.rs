@@ -127,6 +127,14 @@ impl Backend for NativeBackend {
         self.core.session_state(session_id)
     }
 
+    /// #D-2188: must not inherit the default (`self.sessions(MAX_LIMIT)`, which `CoreBackend::sessions` filters
+    /// to non-archived and caps) -- `resume` on an archived-but-still-on-disk session needs this to say it
+    /// exists, same as `CoreBackend::session_exists` itself already correctly does by looking the file up on
+    /// disk directly.
+    fn session_exists(&self, session_id: &str) -> bool {
+        self.core.session_exists(session_id)
+    }
+
     fn write(&self, session_id: &str, bytes: Vec<u8>) -> Result<(), String> {
         Ok(self.ask_done(MainOp::Write { session_id: session_id.to_string(), bytes })?)
     }
@@ -319,6 +327,26 @@ mod tests {
         assert_eq!(decide(false, true), Action::Stop);
         assert_eq!(decide(true, true), Action::Keep);
         assert_eq!(decide(false, false), Action::Keep);
+    }
+
+    /// #D-2188: `Backend::session_exists`'s default implementation goes through `self.sessions(MAX_LIMIT)` --
+    /// which `CoreBackend::sessions` filters to non-archived sessions and caps at `MAX_LIMIT` -- so it is wrong
+    /// for any backend whose `sessions()` can leave sessions out for a reason that has nothing to do with
+    /// whether they still exist (archived, or simply past the cap). `CoreBackend` itself gets this right
+    /// (`session_exists` looks the file up on disk directly, ignoring `archived` and any cap) but
+    /// `NativeBackend` wraps one and must not silently fall back to the broken default: it has to override
+    /// `session_exists` to defer to its own `core`'s correct one. A missing override here is exactly how this
+    /// bug slipped in once already (real repro: a session archived via the sidebar, still on disk, made
+    /// `resume` reply `{"ok":false,"error":"session not found"}` on this machine on 2026-11-20) -- scanning the
+    /// source for the override, rather than only asserting behavior, is what actually catches "someone deleted
+    /// the override" the next time, since a real-disk assertion can't be made deterministic in a unit test.
+    #[test]
+    fn session_exists_is_overridden_to_defer_to_core_not_the_capped_sessions_list() {
+        let src = include_str!("link_switch.rs");
+        let impl_start = src.find("impl Backend for NativeBackend").expect("the impl block itself");
+        let impl_block = &src[impl_start..];
+        let impl_end = impl_block.find("\n}\n").map(|i| i + 1).unwrap_or(impl_block.len());
+        assert!(impl_block[..impl_end].contains("fn session_exists"), "NativeBackend must override session_exists, not inherit the default");
     }
 
     #[test]
