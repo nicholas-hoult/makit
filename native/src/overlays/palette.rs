@@ -120,8 +120,10 @@ impl PaletteView {
         items
     }
 
-    /// #212/#D-2134：真的去搜「内容匹配」，等停止打字 [`CONTENT_DEBOUNCE_MS`] 之后才做。顺带把跨会话索引的缓存
-    /// 保持新鲜（`ensure_fresh`：第一次真的全量建，之后只重新解析 mtime 变了的会话）
+    /// #212/#D-2134/#D-2146：真的去搜「内容匹配」，等停止打字 [`CONTENT_DEBOUNCE_MS`] 之后才做，而且连那一下
+    /// 搜索本身（50-70ms 单线程；并行到这台机器的 4 个物理核之后约 15-20ms，见 `search_index::Handle::search`）
+    /// 也挪到后台线程，不占主线程哪怕一次。顺带把跨会话索引的缓存保持新鲜（`ensure_fresh`：第一次真的全量建，
+    /// 之后只重新解析 mtime 变了的会话）
     fn schedule_content_search(&mut self, cx: &mut Context<Self>) {
         self.content_seq += 1;
         let seq = self.content_seq;
@@ -131,17 +133,23 @@ impl PaletteView {
         }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(std::time::Duration::from_millis(CONTENT_DEBOUNCE_MS)).await;
-            let _ = this.update(cx, |this, cx| {
+            let Ok(Some((q, handle))) = this.update(cx, |this, cx| {
                 if this.content_seq != seq {
-                    return; // 这期间又打了字，这次结果已经过期
+                    return None; // 这期间又打了字，这次不用搜了
                 }
                 let q = this.query.trim().to_string();
                 let sessions: Vec<(String, i64)> = this.state.read(cx).sessions.iter().map(|m| (m.session_id.clone(), m.mtime)).collect();
                 crate::search_index::ensure_fresh(sessions, cx);
-                this.content_matches = crate::search_index::search(&q, cx)
-                    .into_iter()
-                    .filter_map(|(sid, hit)| this.state.read(cx).session(&sid).map(|meta| content_match_item(meta, &hit)))
-                    .collect();
+                Some((q, crate::search_index::handle(cx)))
+            }) else {
+                return;
+            };
+            let hits = cx.background_executor().spawn(async move { handle.search(&q) }).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.content_seq != seq {
+                    return; // 搜的这几十毫秒里又打字了，这次结果已经过期，不能覆盖新的
+                }
+                this.content_matches = hits.into_iter().filter_map(|(sid, hit)| this.state.read(cx).session(&sid).map(|meta| content_match_item(meta, &hit))).collect();
                 cx.notify();
             });
         })

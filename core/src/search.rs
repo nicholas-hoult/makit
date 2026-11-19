@@ -169,6 +169,21 @@ mod tests {
         assert!(s.chars().count() > 0 && std::str::from_utf8(s.as_bytes()).is_ok());
     }
 
+    /// 真实对话里最常见的形状：中文句子里混着英文术语（函数名、issue 号、工具名）。既要在混排文本里按大小写不敏感
+    /// 搜到英文词，也要搜中文词时不受旁边英文的影响；片段必须是合法 UTF-8、不切坏任何一边
+    #[test]
+    fn mixed_chinese_and_english_matches_either_script_without_corrupting_the_other() {
+        let text = "总管说这次的任务是修复 Resume 这个 Bug，顺便看一下 #212 的 ⌘K search 要不要一起改，改完 cargo test 要全绿";
+        for (needle, must_contain) in [("bug", "Bug"), ("RESUME", "Resume"), ("总管", "总管"), ("cargo test", "cargo test"), ("#212", "#212")] {
+            let s = snippet_around(text, &lower_chars(needle)).expect(needle);
+            assert!(s.contains(must_contain), "query {needle:?} -> {s:?} should still contain {must_contain:?}");
+            assert!(std::str::from_utf8(s.as_bytes()).is_ok(), "query {needle:?} produced invalid utf8: {s:?}");
+        }
+        // 贴着中英文边界的词：确认边界两侧都完整
+        let s = snippet_around(text, &lower_chars("务是修复 Resume 这个")).unwrap();
+        assert!(s.contains("务是修复 Resume 这个"));
+    }
+
     #[test]
     fn match_at_the_very_start_or_end_has_no_ellipsis_on_that_side() {
         let short = "fox";

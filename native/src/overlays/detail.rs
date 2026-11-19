@@ -180,8 +180,23 @@ impl DetailView {
                     items.iter().position(|i| i.id == id).map(|r| if self.reversed { items.len() - 1 - r } else { r })
                 };
                 if let Some(ix) = ix {
-                    self.list.scroll_to_reveal_item(ix);
                     self.highlighted_item = Some(id);
+                    self.list.scroll_to_reveal_item(ix);
+                    // #212/#D-2146：这一刻 `self.list` 还从没真的量过任何一行的高度（`Load::Loading` 时渲染的是
+                    // 文字，不是这个 list），所以这一下用的是全员同一个估计高度，命中靠后的消息很可能滚过头或不够。
+                    // 等真实渲染量出每行高度后再补几次同样的调用，位置会跟着修正——不是优雅的做法，但不用去啃
+                    // GPUI `ListState` 内部什么时候完成测量这件事
+                    let list = self.list.clone();
+                    cx.spawn(async move |this, cx| {
+                        for delay_ms in [50, 200, 500] {
+                            cx.background_executor().timer(std::time::Duration::from_millis(delay_ms)).await;
+                            list.scroll_to_reveal_item(ix);
+                            if this.update(cx, |_, cx| cx.notify()).is_err() {
+                                break; // 面板已经关了
+                            }
+                        }
+                    })
+                    .detach();
                 }
             }
         } else {

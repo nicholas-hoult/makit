@@ -128,17 +128,66 @@ pub fn ensure_fresh(sessions: Vec<(String, i64)>, cx: &mut App) {
     .detach();
 }
 
-/// One hit per session that has any (#212 一期 shows one snippet per session, not every message in it), in no
-/// particular order; empty (never `None`) while the index has not finished building yet. Stops after
-/// [`MAX_CONTENT_MATCHES`] sessions.
-pub fn search(query: &str, cx: &mut App) -> Vec<(String, Hit)> {
-    let m = model(cx);
-    let c = m.lock().unwrap();
-    if c.state != BuildState::Ready {
-        return Vec::new();
+/// A handle to the corpus that does not touch `cx` again (#D-2146): get it on the main thread (cheap, just
+/// clones an `Arc`), then call [`Handle::search`] from the background executor so the actual scan -- 50-70ms on
+/// a real ~3.7 GB history -- never sits on the render path, not even behind a debounce timer.
+#[derive(Clone)]
+pub struct Handle(Arc<Mutex<Corpus>>);
+
+pub fn handle(cx: &mut App) -> Handle {
+    Handle(model(cx))
+}
+
+impl Handle {
+    /// One hit per session that has any (#212 一期 shows one snippet per session, not every message in it), in
+    /// no particular order; empty (never blocks) while the index has not finished building yet. Stops after
+    /// [`MAX_CONTENT_MATCHES`] sessions. Splits the corpus across a few threads (#D-2146: measured 50-70ms single
+    /// threaded on a real ~3.7 GB / 217-session history, ~15-20ms split across this machine's 4 physical cores) --
+    /// sessions are independent of each other, there is nothing to coordinate beyond merging each thread's hits.
+    pub fn search(&self, query: &str) -> Vec<(String, Hit)> {
+        let c = self.0.lock().unwrap();
+        if c.state != BuildState::Ready {
+            return Vec::new();
+        }
+        search_parallel(&c.by_session, query)
     }
+}
+
+/// How many pieces to split the corpus into. Below this many sessions per piece, splitting would just add
+/// thread-spawn overhead for no real gain -- `parallel_pieces` picks the largest number of pieces (capped at the
+/// number of cores) that still leaves each one at least this big.
+const MIN_SESSIONS_PER_PIECE: usize = 16;
+
+/// Pure: how many pieces to split `total` sessions into, given `cores` available (#D-2146, tested without
+/// needing real session data or real threads).
+fn parallel_pieces(total: usize, cores: usize) -> usize {
+    cores.max(1).min((total / MIN_SESSIONS_PER_PIECE).max(1))
+}
+
+fn search_parallel(by_session: &HashMap<String, (i64, Vec<Indexed>)>, query: &str) -> Vec<(String, Hit)> {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let pieces = parallel_pieces(by_session.len(), cores);
+    if pieces <= 1 {
+        return scan(by_session.iter(), query);
+    }
+    let entries: Vec<(&String, &(i64, Vec<Indexed>))> = by_session.iter().collect();
+    let chunk_size = entries.len().div_ceil(pieces);
+    let mut out = std::thread::scope(|scope| {
+        entries
+            .chunks(chunk_size)
+            .map(|chunk| scope.spawn(|| scan(chunk.iter().copied(), query)))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .flat_map(|h| h.join().unwrap())
+            .collect::<Vec<_>>()
+    });
+    out.truncate(MAX_CONTENT_MATCHES);
+    out
+}
+
+fn scan<'a>(entries: impl Iterator<Item = (&'a String, &'a (i64, Vec<Indexed>))>, query: &str) -> Vec<(String, Hit)> {
     let mut out = Vec::new();
-    for (id, (_, items)) in c.by_session.iter() {
+    for (id, (_, items)) in entries {
         if let Some(hit) = search_indexed(items, query).into_iter().next() {
             out.push((id.clone(), hit));
             if out.len() >= MAX_CONTENT_MATCHES {
@@ -147,4 +196,18 @@ pub fn search(query: &str, cx: &mut App) -> Vec<(String, Hit)> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parallel_pieces;
+
+    #[test]
+    fn parallel_pieces_never_leaves_a_piece_too_small_or_exceeds_the_core_count() {
+        assert_eq!(parallel_pieces(217, 4), 4, "217/4 ≈ 54 per piece, comfortably above the minimum");
+        assert_eq!(parallel_pieces(217, 8), 8, "real machine: 4 physical / 8 logical cores");
+        assert_eq!(parallel_pieces(10, 8), 1, "too few sessions to bother splitting at all");
+        assert_eq!(parallel_pieces(0, 8), 1, "empty corpus: never divide by zero, never spawn zero threads");
+        assert_eq!(parallel_pieces(1000, 1), 1, "single-core machine: never spawn more threads than cores");
+    }
 }
