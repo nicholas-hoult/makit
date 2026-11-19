@@ -10,7 +10,9 @@
 //! 工作区下一帧按新 cwd 重新起（= Tauri 版的 retrySpawn）。
 
 use crate::ts;
-use gpui::{div, prelude::*, px, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, FontWeight, PathPromptOptions, Window};
+use gpui::{div, prelude::*, App, AsyncApp, Context, Entity, EventEmitter, FocusHandle, FontWeight, PathPromptOptions, Window};
+// #277: no real coordinates in this file; every design size follows the whole-interface scale.
+use crate::ui_scale::px;
 
 use super::recover_logic::{check_relink_target, choices, friendly_error, remembered_dir, step, Choice, RelinkCheck};
 use super::style::*;

@@ -16,7 +16,10 @@
 use crate::ts;
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, svg, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Global, Pixels, Window};
+use gpui::{div, prelude::*, svg, App, Bounds, Context, Entity, EventEmitter, FocusHandle, Global, Pixels, Window};
+// #277: the anchor-relative gaps (px(4.0)/px(8.0)) and the no-anchor fallback position are both design choices,
+// not real measurements, so they follow the whole-interface scale; `b`/`vp.width` themselves stay untouched.
+use crate::ui_scale::px;
 
 use super::icons;
 use super::search_count::{format_search_count, SearchProgress};

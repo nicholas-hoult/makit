@@ -10,7 +10,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gpui::{div, list, prelude::*, px, Context, Entity, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
+use gpui::{div, list, prelude::*, Context, Entity, EventEmitter, FocusHandle, FontWeight, ListAlignment, ListState, Window};
+// #277: window.viewport_size() below is only ever used as a bare ratio, never wrapped in px -- every design
+// size in this file follows the whole-interface scale, no exceptions.
+use crate::ui_scale::px;
 use makit_core::transcript::Item;
 use makit_core::SessionMeta;
 
