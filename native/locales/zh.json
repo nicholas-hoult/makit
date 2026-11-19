@@ -447,7 +447,7 @@
   "settings.doctor.running": "检查中…",
   "settings.doctor.copy": "复制检查结果",
   "settings.doctor.copied": "检查结果已复制",
-  "settings.doctor.hint": "只读：检查工具、PATH、代理变量、hook、数据目录和会话目录，告诉你哪里要手动处理，不会改任何东西。复制的结果可以贴进 issue，家目录已替换成 ~。",
+  "settings.doctor.hint": "只读：检查工具、PATH、代理变量、hook、数据目录、会话目录和到 API 服务的网络连通性，告诉你哪里要手动处理，不会改任何东西。复制的结果可以贴进 issue，家目录已替换成 ~。",
   "link.toast.remote_input": "收到本机其他程序的输入",
   "capacity.ask_evict.title": "要腾位置给这个会话吗？",
   "capacity.ask_evict.detail": "已经到会话上限。要把 %{session}（空闲中，标签会留着）换下来休眠，好继续这个会话吗？",

@@ -7,6 +7,7 @@
 //! Not checked on purpose (see the issue): exit IP / region / locale consistency, request-side "does it look like the official client".
 //! Nothing is ever repaired here; the fix is text for the user.
 
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -83,6 +84,24 @@ pub enum DataDir {
     ReadOnly,
 }
 
+/// One domain's reachability (#283 范围 6): a plain TCP connect to port 443, not a full TLS handshake or an HTTP
+/// request -- that is enough to tell "this network cannot reach it at all" apart from everything else, and it is
+/// what the response-header / certificate check (范围 7, still not implemented -- needs its own dependency
+/// evaluation) would build on if it reaches a point where a connection exists to inspect.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetworkProbe {
+    pub domain: &'static str,
+    /// `None` = connected; `Some(reason)` = why it did not (DNS, refused, timed out ...), already a short string
+    /// safe to show as-is (it comes from `std::io::Error`'s own `Display`, which never carries a file path or
+    /// anything else that would need redaction)
+    pub error: Option<String>,
+}
+
+/// The two API domains the tools makit manages (`claude`, `codex`) actually talk to. Checked here on makit's own
+/// behalf only to tell the user "your network cannot reach it" apart from "something else is wrong" -- makit
+/// itself never calls these.
+pub const NETWORK_PROBE_DOMAINS: &[&str] = &["api.anthropic.com", "api.openai.com"];
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Snapshot {
     /// PATH of this process (what an app started from the Dock gets)
@@ -92,6 +111,7 @@ pub struct Snapshot {
     /// Proxy variables that are set: (name, value)
     pub proxy_env: Vec<(String, String)>,
     pub tools: Vec<ToolProbe>,
+    pub network: Vec<NetworkProbe>,
     pub data_dir: DataDir,
     pub hook_socket: SocketProbe,
     pub hook_config: HookConfig,
@@ -108,6 +128,7 @@ pub fn run_checks(s: &Snapshot) -> Vec<Check> {
     let mut v = check_tools(&s.tools);
     v.push(check_path(&s.gui_path, s.login_path.as_deref(), &s.tools));
     v.push(check_proxy(&s.proxy_env));
+    v.push(check_network(&s.network));
     v.push(check_data_dir(s.data_dir));
     v.push(check_hook_socket(s.hook_socket));
     v.push(check_hook_config(s.hook_config));
@@ -233,6 +254,23 @@ pub fn check_proxy(env: &[(String, String)]) -> Check {
     }
     let all: Vec<&(String, String)> = env.iter().collect();
     check("proxy", Level::Pass, title, ts!("doctor.proxy.set", list = show(&all)), String::new())
+}
+
+pub fn check_network(probes: &[NetworkProbe]) -> Check {
+    let title = ts!("doctor.network.title");
+    if probes.is_empty() {
+        return check("network", Level::Unknown, title, ts!("doctor.network.unknown"), String::new());
+    }
+    let show = |items: &[&NetworkProbe]| items.iter().map(|p| format!("{} ({})", p.domain, p.error.as_deref().unwrap_or(""))).collect::<Vec<_>>().join(", ");
+    let failed: Vec<&NetworkProbe> = probes.iter().filter(|p| p.error.is_some()).collect();
+    if failed.is_empty() {
+        let list = probes.iter().map(|p| p.domain).collect::<Vec<_>>().join(", ");
+        check("network", Level::Pass, title, ts!("doctor.network.ok", list = list), String::new())
+    } else if failed.len() == probes.len() {
+        check("network", Level::Fail, title, ts!("doctor.network.all_failed", list = show(&failed)), ts!("doctor.network.fix"))
+    } else {
+        check("network", Level::Warn, title, ts!("doctor.network.some_failed", list = show(&failed)), ts!("doctor.network.fix"))
+    }
 }
 
 pub fn check_data_dir(d: DataDir) -> Check {
@@ -368,6 +406,20 @@ fn probe_tool(name: &'static str, dirs: &[PathBuf]) -> ToolProbe {
     ToolProbe { name, path, version }
 }
 
+/// Plain TCP connect to `domain:443` within `timeout` (#283 范围 6): no TLS handshake, no HTTP request -- just
+/// "can this machine's network reach it at all". DNS resolution happens as part of `to_socket_addrs` and is not
+/// separately timed; a DNS server that itself hangs is rare enough that telling it apart from "the connect hung"
+/// would not change what the user is told to do about it.
+fn probe_network(domain: &'static str, timeout: Duration) -> NetworkProbe {
+    let error = (|| -> Result<(), String> {
+        let addr = (domain, 443u16).to_socket_addrs().map_err(|e| e.to_string())?.next().ok_or("could not resolve")?;
+        TcpStream::connect_timeout(&addr, timeout).map_err(|e| e.to_string())?;
+        Ok(())
+    })()
+    .err();
+    NetworkProbe { domain, error }
+}
+
 fn probe_data_dir(dir: &Path) -> DataDir {
     if !dir.is_dir() {
         return DataDir::Missing;
@@ -469,6 +521,7 @@ pub fn collect() -> Snapshot {
         login_path: login_shell_path(),
         proxy_env,
         tools: ["claude", "codex", "opencode"].into_iter().map(|n| probe_tool(n, &dirs)).collect(),
+        network: NETWORK_PROBE_DOMAINS.iter().map(|d| probe_network(d, Duration::from_secs(5))).collect(),
         data_dir: probe_data_dir(&makit_dir),
         hook_socket: probe_socket(&makit_dir.join("hook.sock")),
         hook_config: hook_config_of(settings.as_deref()),
@@ -497,6 +550,7 @@ mod tests {
             login_path: Some("/usr/bin:/bin".into()),
             proxy_env: vec![],
             tools: vec![tool("claude", Some("/usr/local/bin/claude"), Some("2.1.0")), tool("codex", None, None), tool("opencode", None, None)],
+            network: vec![NetworkProbe { domain: "api.anthropic.com", error: None }, NetworkProbe { domain: "api.openai.com", error: None }],
             data_dir: DataDir::Writable,
             hook_socket: SocketProbe::Listening,
             hook_config: HookConfig::Installed(4),
@@ -575,6 +629,24 @@ mod tests {
         assert!(mismatch.detail.contains("HTTP_PROXY") && mismatch.detail.contains("http_proxy"));
         let same = check_proxy(&[("HTTP_PROXY".into(), "http://a:1".into()), ("http_proxy".into(), "http://a:1".into())]);
         assert_eq!(same.level, Level::Pass);
+    }
+
+    /// Why: one domain down (likely a regional block / this one API's own outage) reads differently from the
+    /// whole network being unreachable (the common case: no network at all, or a proxy eating everything).
+    #[test]
+    fn network_check_levels() {
+        let ok = |d| NetworkProbe { domain: d, error: None };
+        let down = |d| NetworkProbe { domain: d, error: Some("connection refused".into()) };
+        assert_eq!(check_network(&[]).level, Level::Unknown);
+        let all_ok = check_network(&[ok("api.anthropic.com"), ok("api.openai.com")]);
+        assert_eq!(all_ok.level, Level::Pass);
+        let one_down = check_network(&[ok("api.anthropic.com"), down("api.openai.com")]);
+        assert_eq!(one_down.level, Level::Warn);
+        assert!(one_down.detail.contains("api.openai.com") && one_down.detail.contains("connection refused"));
+        assert!(!one_down.detail.contains("api.anthropic.com"), "only the failing one is named: {one_down:?}");
+        let all_down = check_network(&[down("api.anthropic.com"), down("api.openai.com")]);
+        assert_eq!(all_down.level, Level::Fail);
+        assert!(!all_down.fix.is_empty());
     }
 
     #[test]
