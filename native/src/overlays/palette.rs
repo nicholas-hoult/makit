@@ -48,7 +48,15 @@ pub struct PaletteView {
     scroll: ScrollHandle,
     scrollbar: Entity<crate::scrollbar::Scrollbar>,
     scroll_to_active: bool,
+    /// #212/#D-2134：「内容匹配」结果，防抖算出来后缓存在这里；每次按键都现搜一遍在真实数据上要 50-70ms，
+    /// 直接挂在渲染路径上会卡手感，所以搜索本身延后到停止打字 CONTENT_DEBOUNCE_MS 之后才做一次
+    content_matches: Vec<PaletteItem>,
+    /// 每次 query 变化自增；防抖到期时核对还是不是当前这次输入，不是就丢掉结果（旧查询的回包不能覆盖新查询）
+    content_seq: u64,
 }
+
+/// 停止打字多久之后才真的搜一次内容（#D-2134）：真实数据上单次搜索 50-70ms，直接跟手会卡；防抖之后只在停手时花这一下
+const CONTENT_DEBOUNCE_MS: u64 = 120;
 
 impl EventEmitter<PaletteEvent> for PaletteView {}
 
@@ -59,6 +67,7 @@ impl PaletteView {
             this.query = input.read(cx).text().to_string();
             this.active = 0;
             this.scroll_to_active = true;
+            this.schedule_content_search(cx);
             cx.notify();
         })
         .detach();
@@ -81,6 +90,8 @@ impl PaletteView {
             scroll,
             scrollbar,
             scroll_to_active: true,
+            content_matches: Vec::new(),
+            content_seq: 0,
         }
     }
 
@@ -97,26 +108,47 @@ impl PaletteView {
         self.input.read(cx).focus_handle(cx)
     }
 
-    fn items(&self, cx: &mut App) -> Vec<PaletteItem> {
-        let (mut items, session_ids) = {
-            let s = self.state.read(cx);
-            (build_items(&s.sessions, &s.prefs.pinned_sessions, self.sort), s.sessions.iter().map(|m| m.session_id.clone()).collect::<Vec<_>>())
-        };
-        // #212: a second, additive group of content matches -- only worth looking for once there is a query,
-        // and only once the cross-session corpus has been built (lazily, on this very call, the first time).
-        let q = self.query.trim().to_string();
-        if !q.is_empty() {
-            crate::search_index::ensure_built(session_ids, cx);
-            for (sid, hit) in crate::search_index::search(&q, cx) {
-                if let Some(meta) = self.state.read(cx).session(&sid) {
-                    items.push(content_match_item(meta, &hit));
-                }
-            }
+    fn items(&self, cx: &App) -> Vec<PaletteItem> {
+        let s = self.state.read(cx);
+        let mut items = build_items(&s.sessions, &s.prefs.pinned_sessions, self.sort);
+        // #212: a second, additive group of content matches, already computed (debounced, #D-2134) by
+        // `schedule_content_search` -- never searched inline here, that cost (50-70ms on real data) must not
+        // sit on every render.
+        if !self.query.trim().is_empty() {
+            items.extend(self.content_matches.iter().cloned());
         }
         items
     }
 
-    fn flat(&self, cx: &mut App) -> Vec<PaletteItem> {
+    /// #212/#D-2134：真的去搜「内容匹配」，等停止打字 [`CONTENT_DEBOUNCE_MS`] 之后才做。顺带把跨会话索引的缓存
+    /// 保持新鲜（`ensure_fresh`：第一次真的全量建，之后只重新解析 mtime 变了的会话）
+    fn schedule_content_search(&mut self, cx: &mut Context<Self>) {
+        self.content_seq += 1;
+        let seq = self.content_seq;
+        if self.query.trim().is_empty() {
+            self.content_matches.clear();
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(CONTENT_DEBOUNCE_MS)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.content_seq != seq {
+                    return; // 这期间又打了字，这次结果已经过期
+                }
+                let q = this.query.trim().to_string();
+                let sessions: Vec<(String, i64)> = this.state.read(cx).sessions.iter().map(|m| (m.session_id.clone(), m.mtime)).collect();
+                crate::search_index::ensure_fresh(sessions, cx);
+                this.content_matches = crate::search_index::search(&q, cx)
+                    .into_iter()
+                    .filter_map(|(sid, hit)| this.state.read(cx).session(&sid).map(|meta| content_match_item(meta, &hit)))
+                    .collect();
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn flat(&self, cx: &App) -> Vec<PaletteItem> {
         let items = self.items(cx);
         let filtered = filter_items(&items, &self.filter, &self.query, now());
         let groups = group_items(filtered, self.sort);
@@ -587,6 +619,9 @@ impl Render for PaletteView {
                     .gap(px(12.0))
                     .child(if q.is_empty() {
                         div().text_color(theme.fg_muted).text_size(px(13.0)).child(tr!("palette.empty"))
+                    } else if crate::search_index::is_building(cx) {
+                        // #D-2134：正文索引还在后台建，这时候「没有匹配」是假的——不是真没有，是还没搜完
+                        div().text_color(theme.fg_muted).text_size(px(13.0)).child(tr!("palette.indexing"))
                     } else {
                         div()
                             .flex()

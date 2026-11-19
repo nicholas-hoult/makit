@@ -196,6 +196,7 @@
   "palette.filter.clear_all": "清除全部筛选",
   "palette.history": "搜索历史",
   "palette.empty": "这里什么都没有",
+  "palette.indexing": "正在建立内容索引，请稍候…",
   "palette.no_match_before": "没有匹配 ",
   "palette.no_match_after": " 的结果",
   "palette.filter.active_hint": "当前有筛选生效，点这里清除",

@@ -196,6 +196,7 @@
   "palette.filter.clear_all": "Clear all filters",
   "palette.history": "Search history",
   "palette.empty": "Nothing here",
+  "palette.indexing": "Building the content index, one moment…",
   "palette.no_match_before": "No results for ",
   "palette.no_match_after": ".",
   "palette.filter.active_hint": "Filters are active, click here to clear them",
