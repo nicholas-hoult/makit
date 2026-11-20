@@ -46,8 +46,9 @@ pub fn match_running<'a>(pending: &[PendingTab], sessions: &'a [SessionMeta]) ->
 pub enum OpenDecision {
     /// 它已经在本软件的某个标签里：切过去
     Switch { container_id: String, tab_id: String },
-    /// 它在**别的终端**里跑着（不是本软件）：不能重复启动，提示 PID
-    BlockedExternal { pid: u32 },
+    /// 它在**别的终端**里跑着（不是本软件）：不能重复启动，提示 PID + 目录（#319：光有 PID 不够帮用户去哪个
+    /// 窗口找到它，`cwd` 已经是 `SessionMeta` 现成的字段，不用额外查 `ps`）
+    BlockedExternal { pid: u32, cwd: String },
     /// 没在跑：新开 resume 标签
     OpenNew,
 }
@@ -69,7 +70,7 @@ pub fn decide_open(root: &LayoutNode, s: &SessionMeta) -> OpenDecision {
         }
     }
     if s.running && s.pid != 0 {
-        return OpenDecision::BlockedExternal { pid: s.pid };
+        return OpenDecision::BlockedExternal { pid: s.pid, cwd: s.cwd.clone() };
     }
     OpenDecision::OpenNew
 }
@@ -205,9 +206,9 @@ mod tests {
     #[test]
     fn running_in_another_terminal_is_blocked_with_its_pid() {
         let r = root(vec![tab("t1", TabKind::Shell, None)]);
-        assert_eq!(decide_open(&r, &running("s2", 4242, "")), OpenDecision::BlockedExternal { pid: 4242 }, "没有 pty_id = 不是本软件开的");
+        assert_eq!(decide_open(&r, &running("s2", 4242, "")), OpenDecision::BlockedExternal { pid: 4242, cwd: "/p".into() }, "没有 pty_id = 不是本软件开的");
         // pty_id 指向一个已经不存在的标签（上次的残留）：也是外部
-        assert_eq!(decide_open(&r, &running("s2", 4242, "t_gone")), OpenDecision::BlockedExternal { pid: 4242 });
+        assert_eq!(decide_open(&r, &running("s2", 4242, "t_gone")), OpenDecision::BlockedExternal { pid: 4242, cwd: "/p".into() });
     }
 
     #[test]

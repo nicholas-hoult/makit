@@ -252,7 +252,7 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     let decision = decide_open(&state.read(cx).workspace.state.root, &s);
     log::info!(target: "session", "open session {}: {}", s.short_id, match &decision {
         OpenDecision::Switch { .. } => ts!("session.decision.switch").to_string(),
-        OpenDecision::BlockedExternal { pid } => ts!("session.decision.external", pid = pid),
+        OpenDecision::BlockedExternal { pid, cwd } => ts!("session.decision.external", pid = pid, cwd = cwd),
         OpenDecision::OpenNew => ts!("session.decision.open_new").to_string(),
     });
     match decision {
@@ -264,8 +264,8 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
                 st.workspace_changed(cx);
             });
         }
-        OpenDecision::BlockedExternal { pid } => {
-            show_toast(ts!("sidebar.toast.already_running", pid = pid), toast::ALREADY_RUNNING, cx);
+        OpenDecision::BlockedExternal { pid, cwd } => {
+            show_toast(ts!("sidebar.toast.already_running", pid = pid, cwd = cwd), toast::ALREADY_RUNNING, cx);
         }
         OpenDecision::OpenNew => open_new_session(s, window, cx),
     }
