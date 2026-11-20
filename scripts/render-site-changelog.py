@@ -55,17 +55,26 @@ def stable_releases(items):
     return kept
 
 def fetch_release_list(url):
+    # Unauthenticated requests are capped at 60/hour and share that cap across everyone on the runner's IP --
+    # easy to exhaust by accident (hit this for real on 2026-11-20, a v0.2.23 release run failed with a plain
+    # 403 rate limit exceeded and nothing else wrong). GITHUB_TOKEN raises it to 5000/hour; the release workflow
+    # passes its own job token in as GITHUB_TOKEN, but this also works for a human re-running the script locally
+    # with `GITHUB_TOKEN=$(gh auth token)` or similar.
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "makit-site-build",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer %s" % token
     items = []
     seen = 0
     while url:
         seen += 1
         if seen > 10:
             raise SystemExit("GitHub Releases API returned more than 10 pages")
-        req = urllib.request.Request(url, headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "makit-site-build",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 raw = resp.read()
