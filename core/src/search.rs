@@ -243,4 +243,69 @@ mod tests {
         assert_eq!(search_indexed(std::slice::from_ref(&m), "总管").len(), 1);
         assert_eq!(search_indexed(std::slice::from_ref(&m), "没有的词").len(), 0);
     }
+
+    /// #212 验收标准："Claude 和 Codex 的会话都能搜到"——一直只在代码路径上说得通（`open_transcript`/
+    /// `TranscriptReader` 两种工具通用），没有拿真实 Codex 会话跑过。`#[ignore]`，和 `transcript` 模块自己那条
+    /// 真实文件测试一个套路：测的是本机真实 `~/.codex/sessions`，不是 fixture，不进 CI。
+    /// 跑：`cargo test --manifest-path core/Cargo.toml codex_session_content_is_searchable -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn codex_session_content_is_searchable_on_real_data() {
+        use crate::transcript::{Tool, TranscriptReader};
+        use std::path::PathBuf;
+
+        let Some(home) = dirs::home_dir() else { return };
+        let codex_dir = home.join(".codex").join("sessions");
+        if !codex_dir.exists() {
+            return;
+        }
+        let mut files: Vec<PathBuf> = Vec::new();
+        fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else { return };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                    out.push(p);
+                }
+            }
+        }
+        walk(&codex_dir, &mut files);
+        if files.is_empty() {
+            return;
+        }
+
+        // 每个会话都扫一遍：只要有任意一个会话能搜到任意一个在它自己正文里真实出现过的词，就证明
+        // Codex 的内容确实进得了 search_items 这条路径，不是只在 Claude 侧测过
+        let mut sessions_checked = 0usize;
+        let mut found_any_hit = false;
+        for path in &files {
+            let mut reader = TranscriptReader::new(path.clone(), Tool::Codex);
+            if reader.poll().is_err() {
+                continue;
+            }
+            let items: Vec<_> = (0..reader.len()).map(|i| reader.item(i).clone()).collect();
+            if items.is_empty() {
+                continue;
+            }
+            sessions_checked += 1;
+            // 从这个会话自己的 user 文本里挑一个真实出现过的词（取第一个够长的词），用它反过来搜索这同一个会话
+            let word = items.iter().find_map(|it| match &it.kind {
+                ItemKind::User(t) => t.split_whitespace().find(|w| w.chars().count() >= 4),
+                _ => None,
+            });
+            if let Some(w) = word {
+                let hits = search_items(&items, w);
+                if !hits.is_empty() {
+                    found_any_hit = true;
+                    println!("codex session {:?}: query {:?} -> {} hit(s)", path.file_name().unwrap(), w, hits.len());
+                    break;
+                }
+            }
+        }
+        println!("checked {sessions_checked} real codex sessions, found_any_hit={found_any_hit}");
+        assert!(sessions_checked > 0, "no codex session on this machine could be read at all");
+        assert!(found_any_hit, "none of the {sessions_checked} codex sessions checked produced a self-match -- search_items may not actually work on codex's own Item shapes");
+    }
 }
