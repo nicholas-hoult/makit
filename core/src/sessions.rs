@@ -1099,3 +1099,75 @@ pub fn read_session_meta(session_id: String) -> Result<Option<SessionMeta>, Stri
     }
     Ok(None)
 }
+
+/// #320: does `list_sessions` paying to fully parse archived sessions' jsonl (not just their mtime) actually
+/// cost anything measurable, or is this a non-issue? `#[ignore]`d like `transcript`'s own real-files test --
+/// this measures *this machine's* real `~/.claude/projects`, not a fixture, so it is not run in CI; run with
+/// `cargo test --manifest-path core/Cargo.toml archived_scan_cost -- --ignored --nocapture`.
+#[cfg(test)]
+mod archived_scan_cost {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    #[ignore]
+    fn archived_vs_active_parse_cost_on_real_data() {
+        let Some(dir) = projects_dir() else { return };
+        if !dir.exists() {
+            return;
+        }
+        let archived_set = load_archived();
+        let now = chrono::Local::now().timestamp();
+        let running_info = load_running_info();
+
+        let mut archived_files: Vec<(PathBuf, i64)> = Vec::new();
+        let mut active_files: Vec<(PathBuf, i64)> = Vec::new();
+        for proj in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if !proj.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            for f in fs::read_dir(proj.path()).into_iter().flatten().flatten() {
+                if !is_scannable_jsonl(&f) {
+                    continue;
+                }
+                let p = f.path();
+                let Some(sid) = p.file_stem().and_then(|s| s.to_str()) else { continue };
+                let mtime = f
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                if archived_set.contains(sid) {
+                    archived_files.push((p, mtime));
+                } else {
+                    active_files.push((p, mtime));
+                }
+            }
+        }
+
+        let mut git_cache: HashMap<String, Option<String>> = HashMap::new();
+        let t0 = Instant::now();
+        for (p, m) in &active_files {
+            parse_session(p, *m, now, &running_info, &mut git_cache, "smart");
+        }
+        let active_elapsed = t0.elapsed();
+
+        let t1 = Instant::now();
+        for (p, m) in &archived_files {
+            parse_session(p, *m, now, &running_info, &mut git_cache, "smart");
+        }
+        let archived_elapsed = t1.elapsed();
+
+        println!(
+            "active: {} files in {:?} ({:.2}ms/file) | archived: {} files in {:?} ({:.2}ms/file)",
+            active_files.len(),
+            active_elapsed,
+            active_elapsed.as_secs_f64() * 1000.0 / active_files.len().max(1) as f64,
+            archived_files.len(),
+            archived_elapsed,
+            archived_elapsed.as_secs_f64() * 1000.0 / archived_files.len().max(1) as f64,
+        );
+    }
+}
