@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.22] - 2026-11-20
+## [0.2.23] - 2026-11-20
 
 ### Added
 - Each session in the local-session link's `sessions` list now carries `has_tab`: whether makit currently has a tab for it at all, so a caller can batch-check which sessions `resume { allow_new_tab: false }` would actually revive without calling it on each one and causing side effects (#299).
