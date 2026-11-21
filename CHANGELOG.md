@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.25] - 2026-11-21
+
+### Added
+- The local-session link gained `stop` (kill the session's tab's process, keep the tab itself, marked stopped -- the same thing the sidebar's own "Stop" does) and `close` (kill the process and drop the tab outright, same as the sidebar's "Close"). Both refuse a session that is busy or waiting for approval with a structured reason unless the caller passes `force: true`, since a remote caller has no confirm dialog to answer. Each entry in `sessions` now also carries `tab_state` ("open" / "stopped" / "none") so a caller can tell which of the two even applies.
+
 ## [0.2.24] - 2026-11-20
 
 ### Added
