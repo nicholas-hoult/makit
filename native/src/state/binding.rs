@@ -104,6 +104,20 @@ pub fn tabbed_session_ids(root: &LayoutNode) -> HashSet<String> {
     collect_containers(root).into_iter().flat_map(|c| c.tabs.iter()).filter_map(|t| t.session_id.clone()).collect()
 }
 
+/// Per-session tab state (#D-2300): `"open"` (has a tab, running) or `"stopped"` (has a tab, explicitly
+/// stopped) -- a session with no tab at all is simply absent from this map. Lets the local-session link's
+/// `sessions` tell a caller whether `stop` (process running, tab stays) or `close` (tab gone too) is the one
+/// that applies, without guessing from `has_tab` alone. If a session somehow has more than one tab (not
+/// supposed to happen -- this protocol assumes one tab per session, same as `tab_of_session`), the last one
+/// collected into the map wins; not worth resolving since it should not occur.
+pub fn tab_states(root: &LayoutNode) -> std::collections::HashMap<String, &'static str> {
+    collect_containers(root)
+        .into_iter()
+        .flat_map(|c| c.tabs.iter())
+        .filter_map(|t| t.session_id.clone().map(|sid| (sid, if t.stopped { "stopped" } else { "open" })))
+        .collect()
+}
+
 /// Whether `WorkspaceView::resume_tab` has anything to do, given whether that tab currently has a live
 /// `TerminalView` entry and if so whether its process has exited. `terminal_exited` is `None` when there is no
 /// entry at all -- true for every tab right after a cold start (nothing has been rendered yet this launch) and
@@ -261,6 +275,19 @@ mod tests {
         let mut ids: Vec<_> = tabbed_session_ids(&r).into_iter().collect();
         ids.sort();
         assert_eq!(ids, ["s1", "s2"]);
+    }
+
+    /// #D-2300: `sessions`'s `tab_state` reads straight off this -- unlike `tabbed_session_ids`, `stopped` is the
+    /// whole point here (it is what tells a caller whether `stop` or `close` is the applicable one).
+    #[test]
+    fn tab_states_distinguishes_open_from_stopped_and_omits_sessions_with_no_tab() {
+        let mut stopped = tab("t2", TabKind::Resume, Some("s2"));
+        stopped.stopped = true;
+        let r = root(vec![tab("t1", TabKind::Resume, Some("s1")), stopped, tab("t3", TabKind::Shell, None)]);
+        let states = tab_states(&r);
+        assert_eq!(states.get("s1"), Some(&"open"));
+        assert_eq!(states.get("s2"), Some(&"stopped"));
+        assert_eq!(states.get("s3"), None, "a session with no tab is absent, not \"none\" literally");
     }
 
     /// #D-2137: repro for "resume did not start a process" after a restart. No terminal entry yet must mean

@@ -6,8 +6,9 @@
 //! Ops: `hello` / `sessions` / `transcript` / `screen` / `session_cwds` / `last_running` (all read-only) and
 //! `input` (reply text, approve, deny, interrupt), `keys` (whitelisted keys), `open` (new session of a known tool
 //! in a directory, optionally with its first message), `resume` (an ended session), `archive` (a session that is
-//! not running), `update` (`check` is read-only, `install` restarts the app, #D-2122). The writing ops are a
-//! separate opt-in in makit's settings and refused while it is off, see [`Backend::write_enabled`].
+//! not running), `stop` / `close` (#D-2299/#D-2300, see below), `update` (`check` is read-only, `install` restarts
+//! the app, #D-2122). The writing ops are a separate opt-in in makit's settings and refused while it is off, see
+//! [`Backend::write_enabled`].
 //!
 //! `resume`'s `allow_new_tab` (#D-2138, bool, default `true`): whether to reuse a tab the session already has
 //! there is always makit's call, but opening a brand-new one when there is nothing to reuse is the caller's --
@@ -17,6 +18,14 @@
 //! so a caller can batch-check which sessions `resume { allow_new_tab: false }` would actually revive without
 //! calling `resume` on each one and causing side effects.
 //! `subscribe` is the one op that keeps its connection open: it pushes the ids of sessions that changed.
+//!
+//! `stop` (#D-2299, same action as the sidebar's "Stop") kills the session's tab's process but keeps the tab
+//! itself, marked stopped; `close` (#D-2300, same action as the sidebar's "Close") kills the process *and* drops
+//! the tab outright. Both take an optional `force` (bool, default `false`): a session that is busy or waiting
+//! for approval is refused with `{"ok":false,"reason":"needs_force",...}` unless `force` is `true` -- the UI's
+//! own equivalent asks with a confirm dialog first, which a remote caller could never answer, so it is refused
+//! outright instead. Each entry in `sessions`' list also carries `tab_state` (#D-2300): `"open"` / `"stopped"` /
+//! `"none"`, so a caller can tell which of `stop` or `close` even applies without guessing from `has_tab` alone.
 //!
 //! `input` with `kind: "text"` while the session sits idle at its prompt (#D-2161): a successful write to the
 //! PTY does not mean Claude Code's TUI actually pulled it into a real turn -- an Enter that lands at the wrong
@@ -102,6 +111,11 @@ pub struct SessionInfo {
     /// Always `false` from [`CoreBackend`] (it has no notion of tabs); [`Backend::sessions`]'s real implementation
     /// (makit's own GPUI workspace) fills this in.
     pub has_tab: bool,
+    /// `"open"` (has a tab, not stopped) / `"stopped"` (has a tab, explicitly stopped) / `"none"` (no tab at all,
+    /// equivalent to `has_tab: false`), #D-2300: lets a caller tell `stop` (process is running, tab stays) apart
+    /// from `close` (tab goes away too) without guessing from `has_tab` alone. Always `"none"` from [`CoreBackend`]
+    /// for the same reason `has_tab` is always `false` there.
+    pub tab_state: String,
 }
 
 pub struct TranscriptPage {
@@ -175,33 +189,42 @@ pub struct OpenError {
     /// #D-2168: `open` had `trust: true` for a directory that is not under any of the user's configured
     /// auto-trust roots -- refused rather than silently opening untrusted, or quietly ignoring `trust`.
     pub not_trusted_root: bool,
+    /// #D-2299/#D-2300: `stop`/`close` refused because the session is busy or waiting for approval and the
+    /// caller did not pass `force: true` -- the same "ask first" judgment the UI makes with a confirm dialog,
+    /// just refused outright instead of popping one a remote caller could never answer.
+    pub needs_force: bool,
 }
 
 impl OpenError {
     pub fn capacity(kind: CapacityLimitKind, message: impl Into<String>) -> Self {
-        Self { message: message.into(), capacity: Some(kind), no_tab: false, not_trusted_root: false }
+        Self { message: message.into(), capacity: Some(kind), no_tab: false, not_trusted_root: false, needs_force: false }
     }
 
     /// #D-2138: `resume` had `allow_new_tab: false` and this session has no tab to reuse.
     pub fn no_tab(message: impl Into<String>) -> Self {
-        Self { message: message.into(), capacity: None, no_tab: true, not_trusted_root: false }
+        Self { message: message.into(), capacity: None, no_tab: true, not_trusted_root: false, needs_force: false }
     }
 
     /// #D-2168: see [`OpenError::not_trusted_root`] field doc.
     pub fn not_trusted_root(message: impl Into<String>) -> Self {
-        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: true }
+        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: true, needs_force: false }
+    }
+
+    /// #D-2299/#D-2300: see [`OpenError::needs_force`] field doc.
+    pub fn needs_force(message: impl Into<String>) -> Self {
+        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: false, needs_force: true }
     }
 }
 
 impl From<String> for OpenError {
     fn from(message: String) -> Self {
-        Self { message, capacity: None, no_tab: false, not_trusted_root: false }
+        Self { message, capacity: None, no_tab: false, not_trusted_root: false, needs_force: false }
     }
 }
 
 impl From<&str> for OpenError {
     fn from(message: &str) -> Self {
-        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: false }
+        Self { message: message.into(), capacity: None, no_tab: false, not_trusted_root: false, needs_force: false }
     }
 }
 
@@ -261,6 +284,21 @@ pub trait Backend: Send + Sync {
     /// checked the session exists and is not running.
     fn archive(&self, _session_id: &str) -> Result<(), String> {
         Err("archive not supported".into())
+    }
+    /// Stop the session's tab's process, keeping the tab itself (same action as the sidebar's "Stop", #D-2299):
+    /// equivalent to pulling the plug, not a graceful shutdown. A session that is busy or waiting for approval is
+    /// refused with [`OpenError::needs_force`] unless `force` is `true` -- the UI's own equivalent asks with a
+    /// confirm dialog first; a remote caller gets refused outright instead, since it could never answer one.
+    /// Idle sessions, and ones with no tab to stop at all, are implementation-defined (a no-op or an error -- the
+    /// point of `force` is only to skip the busy/waiting confirmation, not to change what "nothing to stop" means).
+    fn stop(&self, _session_id: &str, _force: bool) -> Result<(), OpenError> {
+        Err("stop not supported".into())
+    }
+    /// Close the session's tab outright (same action as the sidebar's "Close", #D-2300): the tab is gone, not left
+    /// behind `stopped`, and its process is killed the same way closing any tab does (#3's MAKIT_PTY_ID cleanup).
+    /// Same busy/waiting-needs-`force` rule as [`Backend::stop`].
+    fn close(&self, _session_id: &str, _force: bool) -> Result<(), OpenError> {
+        Err("close not supported".into())
     }
     /// Every distinct `cwd` the session's directory moved through (#313: an external tool attributing a session to
     /// a project needs more than just the starting directory).
@@ -364,7 +402,7 @@ pub const PASTE_SETTLE_BUSY: Duration = Duration::from_millis(600);
 
 /// What `hello` lists, so the other side can tell an older makit (fewer ops) from this one.
 /// "type" is not an op of its own: it says `input` takes kind `type` and replies while the session works.
-pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds", "last_running", "update"];
+pub const OPS: &[&str] = &["hello", "sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "stop", "close", "subscribe", "type", "session_cwds", "last_running", "update"];
 
 /// Most keys one `keys` request may carry.
 pub const MAX_KEYS: usize = 16;
@@ -777,6 +815,9 @@ fn fail_open(e: OpenError) -> String {
     if e.not_trusted_root {
         v.as_object_mut().expect("object").insert("reason".into(), json!("not_trusted_root"));
     }
+    if e.needs_force {
+        v.as_object_mut().expect("object").insert("reason".into(), json!("needs_force"));
+    }
     v.to_string()
 }
 
@@ -882,6 +923,40 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
             match backend.archive(id) {
                 Ok(()) => json!({"ok": true}).to_string(),
                 Err(e) => fail(e),
+            }
+        }
+        Some("stop") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            if !backend.session_exists(id) {
+                return fail("session not found");
+            }
+            // #D-2299: omitted = `false`, so a caller that has never heard of `force` gets the safe refusal
+            // (structured `reason:"needs_force"`) on a busy/waiting session instead of silently killing it.
+            let force = req.get("force").and_then(Value::as_bool).unwrap_or(false);
+            match backend.stop(id, force) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(e) => fail_open(e),
+            }
+        }
+        Some("close") => {
+            if !backend.write_enabled() {
+                return fail("write disabled");
+            }
+            let Some(id) = req.get("session_id").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
+                return fail("session_id required");
+            };
+            if !backend.session_exists(id) {
+                return fail("session not found");
+            }
+            let force = req.get("force").and_then(Value::as_bool).unwrap_or(false);
+            match backend.close(id, force) {
+                Ok(()) => json!({"ok": true}).to_string(),
+                Err(e) => fail_open(e),
             }
         }
         Some("resume") => {
@@ -1085,6 +1160,7 @@ impl Backend for CoreBackend {
                 mtime: s.mtime,
                 last_user_msg: s.last_user_msg,
                 has_tab: false,
+                tab_state: "none".into(),
             })
             .collect())
     }
@@ -1285,6 +1361,12 @@ mod tests {
         /// What `open` returns when not blocked by the capacity cap (#D-2168: lets a test simulate `not_trusted_root`).
         open_result: Mutex<Result<(), OpenError>>,
         archived: Mutex<Vec<String>>,
+        /// What `stop` received each time: (session id, `force`)
+        stopped: Mutex<Vec<(String, bool)>>,
+        /// What `close` received each time: (session id, `force`)
+        closed: Mutex<Vec<(String, bool)>>,
+        stop_result: Mutex<Result<(), OpenError>>,
+        close_result: Mutex<Result<(), OpenError>>,
         /// Session ids that exist (so `session_exists` is true for them) but are not in `sessions`, simulating a
         /// session the capped/truncated list leaves out (#D-2078).
         existing_but_unlisted: Vec<String>,
@@ -1315,6 +1397,7 @@ mod tests {
             mtime: 100,
             last_user_msg: "hi".into(),
             has_tab: false,
+            tab_state: "none".into(),
         }
     }
 
@@ -1349,6 +1432,14 @@ mod tests {
         fn archive(&self, id: &str) -> Result<(), String> {
             self.archived.lock().unwrap().push(id.to_string());
             Ok(())
+        }
+        fn stop(&self, id: &str, force: bool) -> Result<(), OpenError> {
+            self.stopped.lock().unwrap().push((id.to_string(), force));
+            self.stop_result.lock().unwrap().clone()
+        }
+        fn close(&self, id: &str, force: bool) -> Result<(), OpenError> {
+            self.closed.lock().unwrap().push((id.to_string(), force));
+            self.close_result.lock().unwrap().clone()
         }
         fn transcript(&self, id: &str, cursor: Cursor) -> Result<TranscriptPage, String> {
             if id == "sub" {
@@ -1397,6 +1488,10 @@ mod tests {
             resume_result: Mutex::new(Ok(ResumeAction::OpenedNewTab)),
             open_result: Mutex::new(Ok(())),
             archived: Mutex::new(Vec::new()),
+            stopped: Mutex::new(Vec::new()),
+            closed: Mutex::new(Vec::new()),
+            stop_result: Mutex::new(Ok(())),
+            close_result: Mutex::new(Ok(())),
             existing_but_unlisted: Vec::new(),
             capacity_block: Mutex::new(None),
             last_running_snapshot: Vec::new(),
@@ -1947,6 +2042,77 @@ mod tests {
         assert_eq!(*b.archived.lock().unwrap(), vec!["s9".to_string()]);
     }
 
+    /// #D-2299/#D-2300: `stop`/`close` need write enabled, a real `session_id`, and a session that actually
+    /// exists on disk -- the same basic gate every other write op goes through.
+    #[test]
+    fn stop_and_close_validate_like_every_other_write_op() {
+        let b = Fake { write_on: false, ..fake() };
+        assert_eq!(ask(&b, r#"{"op":"stop","session_id":"s1"}"#)["error"], "write disabled");
+        assert_eq!(ask(&b, r#"{"op":"close","session_id":"s1"}"#)["error"], "write disabled");
+
+        let b = Fake { write_on: true, ..fake() };
+        assert_eq!(ask(&b, r#"{"op":"stop"}"#)["error"], "session_id required");
+        assert_eq!(ask(&b, r#"{"op":"stop","session_id":""}"#)["error"], "session_id required");
+        assert_eq!(ask(&b, r#"{"op":"close"}"#)["error"], "session_id required");
+        assert_eq!(ask(&b, r#"{"op":"stop","session_id":"nope"}"#)["error"], "session not found");
+        assert_eq!(ask(&b, r#"{"op":"close","session_id":"nope"}"#)["error"], "session not found");
+        assert!(b.stopped.lock().unwrap().is_empty());
+        assert!(b.closed.lock().unwrap().is_empty());
+    }
+
+    /// #D-2299: `force` is `false` when omitted (the safe default -- a caller that has never heard of it must not
+    /// start silently killing busy sessions), reaches the backend exactly as given, and a refusal because the
+    /// session needed it surfaces as the structured `reason:"needs_force"`, the same shape as `no_tab` /
+    /// `not_trusted_root`.
+    #[test]
+    fn stop_passes_through_force_and_reports_needs_force() {
+        let b = Fake { write_on: true, ..fake() };
+        let r = ask(&b, r#"{"op":"stop","session_id":"s1"}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(*b.stopped.lock().unwrap(), vec![("s1".to_string(), false)], "omitted force defaults to false");
+
+        let r = ask(&b, r#"{"op":"stop","session_id":"s1","force":true}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(b.stopped.lock().unwrap().last(), Some(&("s1".to_string(), true)));
+
+        *b.stop_result.lock().unwrap() = Err(OpenError::needs_force("s1 is busy; pass force:true to stop it anyway"));
+        let r = ask(&b, r#"{"op":"stop","session_id":"s1"}"#);
+        assert_eq!((r["ok"].as_bool(), r["reason"].as_str()), (Some(false), Some("needs_force")));
+        assert!(r["error"].as_str().is_some_and(|e| !e.is_empty()));
+        assert!(r.get("capacity_limit").is_none(), "needs_force must not also look like a capacity refusal");
+    }
+
+    /// #D-2300: same contract as `stop`, independently, since `close` is its own `Backend` method with its own
+    /// default implementation and its own JSON parsing in `handle_line`.
+    #[test]
+    fn close_passes_through_force_and_reports_needs_force() {
+        let b = Fake { write_on: true, ..fake() };
+        let r = ask(&b, r#"{"op":"close","session_id":"s1","force":true}"#);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(*b.closed.lock().unwrap(), vec![("s1".to_string(), true)]);
+
+        *b.close_result.lock().unwrap() = Err(OpenError::needs_force("s1 is waiting for approval; pass force:true to close it anyway"));
+        let r = ask(&b, r#"{"op":"close","session_id":"s1"}"#);
+        assert_eq!((r["ok"].as_bool(), r["reason"].as_str()), (Some(false), Some("needs_force")));
+    }
+
+    /// #D-2300: `sessions`' `tab_state` lets a caller tell "has a tab, running" apart from "has a tab, stopped"
+    /// apart from "no tab at all" without guessing from `has_tab` alone.
+    #[test]
+    fn sessions_reports_tab_state() {
+        let mut open = info("s1", "busy");
+        open.tab_state = "open".into();
+        let mut stopped = info("s2", "ended");
+        stopped.tab_state = "stopped".into();
+        let none = info("s3", "ended"); // tab_state defaults to "none" from `info()`
+        let b = Fake { sessions: vec![open, stopped, none], write_on: true, ..fake() };
+        let sessions = ask(&b, r#"{"op":"sessions"}"#)["sessions"].clone();
+        let state_of = |id: &str| sessions.as_array().unwrap().iter().find(|s| s["session_id"] == id).unwrap()["tab_state"].clone();
+        assert_eq!(state_of("s1"), "open");
+        assert_eq!(state_of("s2"), "stopped");
+        assert_eq!(state_of("s3"), "none");
+    }
+
     /// #D-2099 (总管's own automation asked for this): `open` / `resume` refused by the capacity cap carry a
     /// structured `capacity_limit` field, not just the human-readable message, so a caller can switch on which
     /// threshold tripped. Every other refusal (missing directory, unknown tool, session not found, ...) must not
@@ -2112,7 +2278,7 @@ mod tests {
     fn hello_lists_the_ops_so_the_other_side_can_tell_old_versions() {
         let ops = ask(&fake(), r#"{"op":"hello"}"#)["ops"].clone();
         // "type": input kind `type` (terminal keyboard) and replies accepted while the session works
-        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "subscribe", "type", "session_cwds", "last_running", "update"] {
+        for op in ["sessions", "transcript", "input", "screen", "keys", "open", "resume", "archive", "stop", "close", "subscribe", "type", "session_cwds", "last_running", "update"] {
             assert!(ops.as_array().unwrap().iter().any(|o| o == op), "{op}");
         }
     }

@@ -7,7 +7,7 @@
 //!    包括写终端、取屏幕快照、新开会话标签、续接会话；
 //! 3. 会话列表和对话直接用核心的 `CoreBackend`，不经主线程。
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex};
@@ -51,6 +51,10 @@ pub enum MainOp {
     /// 续接已结束的会话；标签复用策略是调用方的（#D-2138/#D-2140）：`allow_new_tab` 为假且没有标签可复用时不新开，返回结构化拒绝；
     /// `permission_mode` 见 #D-2168（只在真的新开标签时才用得上，复用已有标签时静默忽略）
     Resume { session_id: String, allow_new_tab: bool, permission_mode: Option<String> },
+    /// 停止会话的进程、标签保留（同侍栏「停止会话」，#D-2299）；运行中/等待批准中默认拒绝，`force:true` 才执行
+    Stop { session_id: String, force: bool },
+    /// 真正关掉这个会话的标签（同侍栏「关闭」，#D-2300）；拒绝规则同 `Stop`
+    Close { session_id: String, force: bool },
     /// 本机会话接口的 `update check`（#D-2122）：当前已知的更新状态，不是强制联网重查
     UpdateCheck,
     /// 本机会话接口的 `update install`：装当前已发现的新版本并重启；`after_restart` 是重启后要接上的那个会话
@@ -84,13 +88,14 @@ pub struct NativeBackend {
     write_on: Arc<AtomicBool>,
     tx: UnboundedSender<MainRequest>,
     timeout: Duration,
-    /// 当前有标签的会话 id（#D-2143，`sessions` 的 `has_tab`）；主线程跟着 `WorkspaceChanged` 更新，这里只读，不过主线程
-    tabbed: Arc<Mutex<HashSet<String>>>,
+    /// 当前每个会话标签的状态（"open"/"stopped"，没有标签就不在这个 map 里，#D-2143 的 `has_tab`、#D-2300 的
+    /// `tab_state` 都从这读）；主线程跟着 `WorkspaceChanged` 更新，这里只读，不过主线程
+    tab_states: Arc<Mutex<HashMap<String, &'static str>>>,
 }
 
 impl NativeBackend {
-    pub fn new(write_on: Arc<AtomicBool>, tx: UnboundedSender<MainRequest>, tabbed: Arc<Mutex<HashSet<String>>>) -> Self {
-        Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT, tabbed }
+    pub fn new(write_on: Arc<AtomicBool>, tx: UnboundedSender<MainRequest>, tab_states: Arc<Mutex<HashMap<String, &'static str>>>) -> Self {
+        Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT, tab_states }
     }
 
     fn ask(&self, op: MainOp) -> Result<MainReply, OpenError> {
@@ -110,9 +115,11 @@ impl NativeBackend {
 impl Backend for NativeBackend {
     fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String> {
         let mut list = self.core.sessions(limit)?;
-        let tabbed = self.tabbed.lock().unwrap();
+        let states = self.tab_states.lock().unwrap();
         for s in &mut list {
-            s.has_tab = tabbed.contains(&s.session_id);
+            let state = states.get(&s.session_id).copied();
+            s.has_tab = state.is_some();
+            s.tab_state = state.unwrap_or("none").to_string();
         }
         Ok(list)
     }
@@ -159,6 +166,14 @@ impl Backend for NativeBackend {
         }
     }
 
+    fn stop(&self, session_id: &str, force: bool) -> Result<(), OpenError> {
+        self.ask_done(MainOp::Stop { session_id: session_id.to_string(), force })
+    }
+
+    fn close(&self, session_id: &str, force: bool) -> Result<(), OpenError> {
+        self.ask_done(MainOp::Close { session_id: session_id.to_string(), force })
+    }
+
     fn update_check(&self) -> Result<UpdateStatus, String> {
         match self.ask(MainOp::UpdateCheck)? {
             MainReply::UpdateStatus(s) => Ok(s),
@@ -181,17 +196,17 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> UnboundedReceiver<MainReq
     let (tx, rx) = unbounded::<MainRequest>();
     let write_on = Arc::new(AtomicBool::new(false));
     let running: Arc<Mutex<Option<Handle>>> = Arc::new(Mutex::new(None));
-    let tabbed: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(crate::state::binding::tabbed_session_ids(&state.read(cx).workspace.state.root)));
+    let tab_states: Arc<Mutex<HashMap<String, &'static str>>> = Arc::new(Mutex::new(crate::state::binding::tab_states(&state.read(cx).workspace.state.root)));
     let sync = {
         let running = running.clone();
         let write_on = write_on.clone();
-        let tabbed = tabbed.clone();
+        let tab_states = tab_states.clone();
         move |enabled: bool, write: bool| {
             // 只读开关关着时写入一定不可用；接口停了也就没人能调
             write_on.store(enabled && write, Ordering::SeqCst);
             let mut slot = running.lock().expect("link switch lock");
             match decide(enabled, slot.is_some()) {
-                Action::Start => *slot = makit_core::link::start(Arc::new(NativeBackend::new(write_on.clone(), tx.clone(), tabbed.clone()))),
+                Action::Start => *slot = makit_core::link::start(Arc::new(NativeBackend::new(write_on.clone(), tx.clone(), tab_states.clone()))),
                 Action::Stop => {
                     if let Some(h) = slot.take() {
                         h.stop();
@@ -211,10 +226,10 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> UnboundedReceiver<MainReq
             let p = &state.read(cx).prefs;
             on_prefs(p.link_enabled, p.link_write_enabled);
         }
-        // `sessions`' `has_tab` (#D-2143) reads this without hopping to the main thread -- keep it current
-        // whenever the workspace changes instead
+        // `sessions`' `has_tab` / `tab_state` (#D-2143/#D-2300) read this without hopping to the main thread --
+        // keep it current whenever the workspace changes instead
         AppEvent::WorkspaceChanged => {
-            *tabbed.lock().unwrap() = crate::state::binding::tabbed_session_ids(&state.read(cx).workspace.state.root);
+            *tab_states.lock().unwrap() = crate::state::binding::tab_states(&state.read(cx).workspace.state.root);
         }
         AppEvent::SessionsChanged => {}
     })
@@ -306,6 +321,8 @@ fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &
             let (tab_id, action) = crate::overlays::session_ops::resume_session(&session_id, allow_new_tab, permission_mode.as_deref(), cx)?;
             confirm_spawned(&ws, &tab_id, window, cx, "resume").map(|_| MainReply::Resumed(action))
         }
+        MainOp::Stop { session_id, force } => crate::overlays::session_ops::stop_session_for_link(&session_id, force, cx).map(|_| MainReply::Done),
+        MainOp::Close { session_id, force } => crate::overlays::session_ops::close_session_for_link(&session_id, force, cx).map(|_| MainReply::Done),
         MainOp::UpdateCheck => {
             let s = crate::update::status(cx);
             let (state, latest, notes, page_url) = match &s {
@@ -385,7 +402,7 @@ mod tests {
     // 为什么单独测：写入要穿过线程边界。回执丢了，手机上是一直转圈；回执错了，是「已发送」但终端里什么都没有。
     fn backend(timeout_ms: u64) -> (NativeBackend, UnboundedReceiver<MainRequest>) {
         let (tx, rx) = unbounded();
-        let mut b = NativeBackend::new(Arc::new(AtomicBool::new(true)), tx, Arc::new(Mutex::new(HashSet::new())));
+        let mut b = NativeBackend::new(Arc::new(AtomicBool::new(true)), tx, Arc::new(Mutex::new(HashMap::new())));
         b.timeout = Duration::from_millis(timeout_ms);
         (b, rx)
     }
@@ -419,7 +436,7 @@ mod tests {
     fn write_flag_follows_the_switch() {
         let (tx, _rx) = unbounded();
         let on = Arc::new(AtomicBool::new(false));
-        let b = NativeBackend::new(on.clone(), tx, Arc::new(Mutex::new(HashSet::new())));
+        let b = NativeBackend::new(on.clone(), tx, Arc::new(Mutex::new(HashMap::new())));
         assert!(!b.write_enabled());
         on.store(true, Ordering::SeqCst);
         assert!(b.write_enabled());
