@@ -44,7 +44,7 @@ use makit_core::SessionMeta;
 
 use crate::state::{AppEvent, AppState};
 use crate::workspace::model::{opened_order, resume_cmd, resume_init_command, Dir, TabKind, TabSpec};
-use groups::{day_buckets, filter_sessions, meta_state, project_groups, session_title, status_groups, RunState, SortKey};
+use groups::{day_buckets, filter_sessions, project_groups, session_title, status_groups, SortKey};
 use search_input::{SearchEvent, SearchInput};
 use tree::{flatten, GroupRef, Tree, TreeGroup, TreeInput, TreeProject};
 
@@ -198,6 +198,7 @@ impl SidebarView {
         });
         let subs = vec![
             cx.observe(&state, |this, _, cx| {
+                this.pin_new_project_defaults(cx);
                 this.rebuild(cx);
                 cx.notify();
             }),
@@ -274,6 +275,20 @@ impl SidebarView {
 
     // ---------- 数据 → 拍平的列表 ----------
 
+    /// 项目组第一次出现时写下它的默认展开态，之后活动不再改它（`collapse::pin_project_defaults`）。
+    /// 放在状态变化的回调里做，不放在渲染里：渲染只拿到 `&App`，写 prefs 要 `&mut Context`
+    fn pin_new_project_defaults(&mut self, cx: &mut Context<Self>) {
+        let groups: Vec<(String, bool)> = {
+            let s = self.state.read(cx);
+            let rows = filter_sessions(&s.sessions, "", s.prefs.sidebar.show_archived);
+            project_groups(&s.sessions, &rows).iter().map(|pg| (pg.key(), pg.has_active)).collect()
+        };
+        let current = self.state.read(cx).prefs.sidebar.proj_collapsed.clone();
+        if let Some(next) = collapse::pin_project_defaults(&current, &groups) {
+            self.update_prefs(cx, |p| p.proj_collapsed = next);
+        }
+    }
+
     /// 重算分组 / 拍平，并把变化的那段告诉虚拟列表
     fn rebuild(&mut self, cx: &App) {
         let s = self.state.read(cx);
@@ -323,7 +338,6 @@ impl SidebarView {
         }
         let empty_text = tree::empty_text(s.loaded, !self.query.trim().is_empty(), !s.tools.unreadable_dirs().is_empty());
         self.group_ids = top.iter().chain(labeled.iter()).chain(history.iter()).map(|g| g.id.clone()).collect();
-        let alive = |i: usize| meta_state(&list[i]) != RunState::Stopped;
         let tree = flatten(&TreeInput {
             compact_rows: tree::compact_rows(p.row_project, p.row_short_id, p.row_branch),
             top,
@@ -334,7 +348,6 @@ impl SidebarView {
             collapsed_groups: &p.group_collapsed,
             filtered_count: filtered.len(),
             empty_text: empty_text.into(),
-            alive: &alive,
         });
         let heights: Vec<f32> = tree.items.iter().map(|i| i.height()).collect();
         if let Some((range, count)) = tree::splice_plan(&self.heights, &heights) {

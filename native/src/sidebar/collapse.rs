@@ -114,6 +114,23 @@ pub fn toggle_all_groups(set: &[String], ids: &[String]) -> Vec<String> {
     next
 }
 
+/// 组第一次出现时，把它当下的默认（`has_active`）写成显式态，之后活动怎么变都不再影响它。
+/// `groups` 是 (折叠键, 组里有没有活跃会话)。已经有显式态（折叠或展开）的组不动；都没写入则返回 None
+pub fn pin_project_defaults(set: &[String], groups: &[(String, bool)]) -> Option<Vec<String>> {
+    let mut next = set.to_vec();
+    for (key, has_active) in groups {
+        if has(set, key) || has(set, &expanded(key)) {
+            continue;
+        }
+        if *has_active {
+            add(&mut next, expanded(key));
+        } else {
+            add(&mut next, key.clone());
+        }
+    }
+    (next != set).then_some(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +145,26 @@ mod tests {
     fn key_uses_git_root_then_name() {
         assert_eq!(project_collapse_key(KEY, "makit"), KEY);
         assert_eq!(project_collapse_key("", "其他"), "其他");
+    }
+
+    /// 「默认」只在一个组第一次出现时用一次：之后活动（有没有在跑的会话）怎么变，展开状态都不动，
+    /// 否则会话一开始干活组就自己展开、干完又自己折叠（用户反馈：侧栏展开被消息活动打乱）。
+    #[test]
+    fn first_sight_pins_the_default_so_later_activity_cannot_flip_it() {
+        let pinned = pin_project_defaults(&[], &[(KEY.to_string(), true)]).expect("第一次见到要写下默认");
+        assert!(!is_project_collapsed(&pinned, KEY, false), "写下展开后，会话干完变空闲也不能自己折叠");
+        assert!(!is_project_collapsed(&pinned, KEY, true));
+
+        let pinned = pin_project_defaults(&[], &[(KEY.to_string(), false)]).expect("第一次见到要写下默认");
+        assert!(is_project_collapsed(&pinned, KEY, true), "写下折叠后，会话开始干活也不能自己展开");
+        assert!(is_project_collapsed(&pinned, KEY, false));
+    }
+
+    #[test]
+    fn pinning_never_overrides_a_state_the_user_already_chose() {
+        assert_eq!(pin_project_defaults(&s(&[KEY]), &[(KEY.to_string(), true)]), None, "已显式折叠，不写");
+        assert_eq!(pin_project_defaults(&[expanded(KEY)], &[(KEY.to_string(), false)]), None, "已显式展开，不写");
+        assert_eq!(pin_project_defaults(&[], &[]), None, "没有组，不写");
     }
 
     #[test]

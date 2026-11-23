@@ -13,9 +13,7 @@
 //!
 //! Colour (#278, read off cmux's `SidebarCompactStatusGlyph`): only the state that asks you to do something
 //! (waiting) gets a hue; everything settled — busy, idle, stopped — is grayscale, told apart by shape and
-//! `emphasis`. The corner badge on the tool logo follows the same source's rule ("everything settled gets a
-//! symbol that says what it is"): idle used to draw no badge at all, which read identical to a never-opened
-//! session; it now gets the same tick-in-a-ring as the standalone icon, just shrunk to badge size.
+//! `emphasis`. The tool logo gets a state-coloured ring when its session is open; unopened ones are dimmed instead.
 
 use gpui::{px, svg, AnyElement, Hsla, IntoElement, Styled};
 
@@ -61,81 +59,65 @@ pub fn color(rs: RunState, t: &Theme) -> Hsla {
     hued(rs, t, emphasis(rs))
 }
 
-/// The corner badge's own alpha floor (#278): distinct from `emphasis()` because the stopped state's
-/// dashed ring, already small, was unreadable at `emphasis(Stopped) = 0.45` — a badge that cannot be read
-/// fails the one job it has, whatever `emphasis()` says about how loud a full-size icon should be.
-fn badge_emphasis(rs: RunState) -> f32 {
-    match rs {
-        RunState::Stopped => 0.75,
-        _ => emphasis(rs),
-    }
-}
-
-fn badge_color(rs: RunState, t: &Theme) -> Hsla {
-    hued(rs, t, badge_emphasis(rs))
-}
-
 /// Whether the *standalone* icon (tab bar, or sidebar with "show icon" off) draws at all. Kept narrow on
 /// purpose: without a tool logo to carry identity, idle / stopped have nothing worth taking the space for.
-/// The corner badge on the tool logo (`badge`, below) is the wider one — see its doc comment.
 pub fn shown(rs: RunState) -> bool {
     matches!(rs, RunState::Waiting | RunState::Busy)
 }
 
-/// The corner badge on a tool logo (#303, widened in #278). Every state draws one: idle / stopped used to
-/// draw nothing, which made a live-but-quiet session look identical to one that was never opened — the
-/// cmux principle this followed is "everything settled gets a symbol that says what it is", not a blank.
+/// 状态颜色（#D-2302 改为颜色环，取代原来工具图标右下角的角标）：每种状态一个颜色，互不相同。
+/// 等待用 `attention`（需要你），进行中用 `accent`（主题强调色，蓝），空闲用 `success`（绿），停止用灰。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Badge {
-    Dot,
-    Ring,
-    Check,
-    Dashed,
+pub enum StateHue {
+    Attention,
+    Accent,
+    Success,
+    Muted,
 }
 
-pub fn badge(rs: RunState) -> Option<Badge> {
-    Some(match rs {
-        RunState::Waiting => Badge::Dot,
-        RunState::Busy => Badge::Ring,
-        RunState::Idle => Badge::Check,
-        RunState::Stopped => Badge::Dashed,
-    })
+pub fn state_hue(rs: RunState) -> StateHue {
+    match rs {
+        RunState::Waiting => StateHue::Attention,
+        RunState::Busy => StateHue::Accent,
+        RunState::Idle => StateHue::Success,
+        RunState::Stopped => StateHue::Muted,
+    }
 }
 
-/// A stopped session keeps its logo (it still says who it is) but recedes
-pub fn identity_opacity(rs: RunState) -> f32 {
-    if rs == RunState::Stopped { 0.45 } else { 1.0 }
+/// 状态环的颜色（#D-2302）：只在打开的会话上画，颜色就是状态色
+pub fn ring_color(rs: RunState, t: &Theme) -> Hsla {
+    match state_hue(rs) {
+        StateHue::Attention => t.attention,
+        StateHue::Accent => t.accent,
+        StateHue::Success => t.success,
+        StateHue::Muted => t.fg_muted,
+    }
 }
 
-/// Tool logo (or text badge, 12px: the same size as the title text) in a fixed 16x16 slot with the state badge on its lower-right corner.
-/// The slot has a fixed width in every state, so titles stay aligned when a session changes state.
-pub fn identity(rs: RunState, logo: AnyElement, t: &Theme) -> AnyElement {
+/// 打开的会话亮，没打开的整体变暗。只有亮的才区分状态（状态环只画在亮的上面）
+pub fn logo_opacity(opened: bool) -> f32 {
+    if opened { 1.0 } else { 0.4 }
+}
+
+/// 模型图标（或 12px 文字徽章）放在固定的 16x16 槽里。打开的会话外面画状态环，没打开的只变暗。
+/// 槽的大小在所有状态下都一样，状态变化时标题不会跳
+pub fn identity(rs: RunState, logo: AnyElement, t: &Theme, opened: bool) -> AnyElement {
     use gpui::{div, ParentElement};
-    use gpui::prelude::FluentBuilder;
-    // The slot is as tall as the title line (16) and the logo is centred in it, so logo and title share a centre line
-    div()
+    let slot = div()
         .relative()
         .w(px(16.))
         .h(px(16.))
         .flex_none()
         .flex()
         .items_center()
-        .child(div().opacity(identity_opacity(rs)).child(logo))
-        .when_some(badge(rs), |d, b| {
-            let c = badge_color(rs, t);
-            // logo is 12 wide / tall, centred in 16: its lower-right corner is at (12, 14), the badge sits on it.
-            // Dot / Ring are plain shapes at the original 5px; Check / Dashed reuse the standalone SVGs (they
-            // need the extra detail to read at a glance) at 7px, nudged to keep the same corner alignment.
-            // Dashed is drawn a size up (9px, #278): a dashed ring that small read as a faint blur, not a
-            // shape, even before the alpha bump above.
-            match b {
-                Badge::Dot => d.child(div().absolute().right(px(2.)).bottom(px(1.)).size(px(5.)).rounded_full().bg(c)),
-                Badge::Ring => d.child(div().absolute().right(px(2.)).bottom(px(1.)).size(px(5.)).rounded_full().border_1().border_color(c)),
-                Badge::Check => d.child(svg().path(path(RunState::Idle)).absolute().right(px(1.)).bottom(px(0.)).size(px(7.)).text_color(c)),
-                Badge::Dashed => d.child(svg().path(path(RunState::Stopped)).absolute().right(px(0.)).bottom(px(-1.)).size(px(9.)).text_color(c)),
-            }
-        })
-        .into_any_element()
+        .justify_center()
+        .rounded_full()
+        .child(div().opacity(logo_opacity(opened)).child(logo));
+    if opened {
+        slot.border_2().border_color(ring_color(rs, t)).into_any_element()
+    } else {
+        slot.into_any_element()
+    }
 }
 
 /// The icon itself, `size` px square. Sidebar rows use 12, tabs 11. A state that is not `shown` is an empty box of the
@@ -196,34 +178,16 @@ mod tests {
     }
 
     #[test]
-    fn stopped_badge_is_more_visible_than_its_standalone_icon_fade() {
-        // #278: the dashed badge at emphasis(Stopped) = 0.45 read as a faint blur at its small size;
-        // the badge needs its own, higher floor even though the full-size icon still fades by the usual rule
-        assert!(badge_emphasis(RunState::Stopped) > emphasis(RunState::Stopped));
-        // the other three states don't need a separate floor: their badges were already legible
-        for rs in [RunState::Waiting, RunState::Busy, RunState::Idle] {
-            assert_eq!(badge_emphasis(rs), emphasis(rs), "{rs:?} should keep the plain emphasis for its badge");
-        }
+    fn each_state_has_its_own_hue_so_the_ring_tells_them_apart() {
+        // 底色块（替代原来的右下角角标）：四种状态各用一个颜色，互不相同，才能一眼分清
+        let hues: std::collections::HashSet<_> = [RunState::Waiting, RunState::Busy, RunState::Idle, RunState::Stopped].into_iter().map(state_hue).collect();
+        assert_eq!(hues.len(), 4, "every state needs a hue of its own");
     }
 
     #[test]
-    fn badge_draws_something_for_every_live_state() {
-        // #278: idle / stopped used to have no badge at all (indistinguishable from a never-opened session);
-        // cmux's rule is "everything settled gets a symbol", so every state now gets its own badge shape
-        assert_eq!(badge(RunState::Waiting), Some(Badge::Dot));
-        assert_eq!(badge(RunState::Busy), Some(Badge::Ring));
-        assert_eq!(badge(RunState::Idle), Some(Badge::Check));
-        assert_eq!(badge(RunState::Stopped), Some(Badge::Dashed));
-        let shapes: std::collections::HashSet<_> = [Badge::Dot, Badge::Ring, Badge::Check, Badge::Dashed].into_iter().collect();
-        assert_eq!(shapes.len(), 4, "every state must have a shape of its own");
-    }
-
-    #[test]
-    fn only_a_stopped_session_dims_its_logo() {
-        assert!(identity_opacity(RunState::Stopped) < 1.0);
-        for rs in [RunState::Waiting, RunState::Busy, RunState::Idle] {
-            assert_eq!(identity_opacity(rs), 1.0);
-        }
+    fn unopened_sessions_dim_their_logo_and_opened_ones_stay_bright() {
+        assert_eq!(logo_opacity(true), 1.0, "打开的会话亮");
+        assert!(logo_opacity(false) < 1.0, "没打开的会话暗");
     }
 
     #[test]

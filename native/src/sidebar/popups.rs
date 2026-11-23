@@ -234,7 +234,6 @@ impl SidebarView {
         }
         menu.child(sep())
             .child(row("show-archived", p.show_archived, ts!("sidebar.options.show_archived"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.show_archived = !p.show_archived))))
-            .child(row("show-logo", p.row_logo, ts!("sidebar.options.show_logo"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_logo = !p.row_logo))))
             .child(row("show-project", p.row_project, ts!("sidebar.options.show_project"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_project = !p.row_project))))
             .child(row("show-time", p.row_time, ts!("sidebar.options.show_time"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_time = !p.row_time))))
             .child(row("show-short-id", p.row_short_id, ts!("sidebar.options.show_short_id"), None, true).on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.update_prefs(cx, |p| p.row_short_id = !p.row_short_id))))

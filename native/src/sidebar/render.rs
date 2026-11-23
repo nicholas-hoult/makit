@@ -69,13 +69,13 @@ impl SidebarView {
             Item::ProjectHeader { key, name, cwd, count, collapsed, has_active } => {
                 self.render_project_header(ix, key, name, cwd, count, collapsed, has_active, &theme, cx)
             }
-            Item::Session { row, show_status, nav, .. } => self.render_session(ix, row, show_status, nav, &theme, window, cx),
+            Item::Session { row, nav, .. } => self.render_session(ix, row, nav, &theme, window, cx),
         }
     }
 
     /// `.tree-group-label`：10px 弱文字，padding 2 12 3 4，gap 5；可折叠时整行可点，hover 才给底色
     fn render_group_header(&mut self, id: String, label: String, count: usize, collapsed: bool, warn: bool, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
-        // "a session in here needs you" uses `attention`, not `warning` (#278): same reasoning as the status badge
+        // "a session in here needs you" uses `attention`, not `warning` (#278): same reasoning as the status ring
         let color = if warn { t.attention } else { t.fg_muted };
         // Group counts show on hover only, unless the user asked for them always (#304). No exception for collapsed groups
         let count_always = self.state.read(cx).prefs.sidebar.group_count_always;
@@ -215,14 +215,14 @@ impl SidebarView {
     /// `.tree-session`：两行（标题 + 元信息），padding 5 12 5 8、gap 6、圆角 4、左右 margin 4。
     /// `.focused`（当前打开的）= 15% accent 底 + 左侧 2px 竖条；`.selected`（键盘选中）= 1px accent 描边，两者正交。
     /// 描边只在列表有焦点（正在用键盘挑）时画：焦点回到终端后还挂着，就成了「两行同时高亮」（用户 2026-09-29）
-    fn render_session(&mut self, ix: usize, row: usize, show_status: bool, nav: bool, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn render_session(&mut self, ix: usize, row: usize, nav: bool, t: &Theme, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let s = self.state.read(cx);
         let Some(m) = s.sessions.get(row) else { return div().h(px(SESSION_H)).into_any_element() };
         let m = m.clone();
         let pinned = s.is_pinned(&m.session_id);
         let p = &s.prefs.sidebar;
         let (show_id, show_branch) = (p.row_short_id, p.row_branch);
-        let (show_logo, show_project, show_time) = (p.row_logo, p.row_project, p.row_time);
+        let (show_project, show_time) = (p.row_project, p.row_time);
         // 第二行一项都不显示：不画第二行，行高收紧（和 tree 里的 Item 高度同一个来源）
         let compact = tree::compact_rows(show_project, show_id, show_branch);
         let row_h = if compact { SESSION_H_COMPACT } else { SESSION_H };
@@ -247,31 +247,16 @@ impl SidebarView {
         let (sid_click, sid_menu, sid_hover) = (sid.clone(), sid.clone(), sid.clone());
         let logo = crate::assets::tool_logo(&m.tool);
 
-        // Identity first (#303): the tool logo says who the session is, a corner badge says whether to look.
-        // With the logo option off, fall back to the plain state icon (only drawn for waiting / busy)
-        let status = if show_logo {
-            let logo_el = match (&logo, m.tool.as_str()) {
-                (Some(src), _) => img(src.clone()).size(px(12.)).flex_none().rounded(px(3.)).into_any_element(),
-                (None, "opencode") => tool_text_badge("OC", t.fg_muted, mix(t.fg_muted, 0.18)),
-                (None, "codex") => tool_text_badge("CX", brand_codex(), mix(brand_codex(), 0.18)),
-                _ => div().size(px(12.)).into_any_element(),
-            };
-            Some(div().id(SharedString::from(format!("st-{uid}"))).tooltip(tip(status_title.clone())).child(status_icon::identity(rs, logo_el, t)).into_any_element())
-        } else {
-            show_status.then(|| {
-                div()
-                    .id(SharedString::from(format!("st-{uid}")))
-                    .w(px(12.))
-                    .h(px(16.))
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .tooltip(tip(status_title.clone()))
-                    .child(status_icon::render(rs, 12., t))
-                    .into_any_element()
-            })
+        // 模型图标（#303）：每条会话都画，颜色底块表示状态（#D-2302）
+        let logo_el = match (&logo, m.tool.as_str()) {
+            (Some(src), _) => img(src.clone()).size(px(12.)).flex_none().rounded(px(3.)).into_any_element(),
+            (None, "opencode") => tool_text_badge("OC", t.fg_muted, mix(t.fg_muted, 0.18)),
+            (None, "codex") => tool_text_badge("CX", brand_codex(), mix(brand_codex(), 0.18)),
+            _ => div().size(px(12.)).into_any_element(),
         };
+        // 亮：打开了标签，或者在等你处理（没打开的等待会话也要亮，#D-2302）
+        let lit = s.workspace.tab_of_session(&m.session_id).is_some() || rs == RunState::Waiting;
+        let status = Some(div().id(SharedString::from(format!("st-{uid}"))).tooltip(tip(status_title.clone())).child(status_icon::identity(rs, logo_el, t, lit)).into_any_element());
 
         let row1 = div()
             .h(px(16.))
@@ -287,7 +272,7 @@ impl SidebarView {
                         .flex_none()
                         .px(px(5.))
                         .rounded_full()
-                        // `attention`, not `warning` (#278): same colour as the status badge for this state
+                        // `attention`, not `warning` (#278): same colour as the status ring for this state
                         .bg(mix(t.attention, 0.2))
                         .text_color(t.attention)
                         .text_size(px(9.))

@@ -4,7 +4,7 @@
 //! shell / claude 自己……），条件写错在界面上是「多了一行重复信息」或「该有的 PID 没了」，
 //! 而卡片要悬停 400ms 才出来，肉眼回归很难覆盖全。
 
-use crate::{tr, ts};
+use crate::ts;
 use makit_core::SessionMeta;
 
 /// 悬停多久出卡片：`makit-hover-mode` = always（400ms）/ cmd（按住 ⌘ 才出，立刻）/ off。None = 不出

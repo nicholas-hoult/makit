@@ -960,9 +960,9 @@ impl WorkspaceView {
                     .when(active, |d| {
                         d.child(div().absolute().top_0().left_0().right_0().h(px(2.0)).bg(if accent_top { theme.accent } else { theme.border_strong }))
                     })
-                    // 两侧都不是 active 的缝里画一根 14px 的短竖线
+                    // 两侧都不是 active 的缝里画一根 12px 的短竖线
                     .when(idx > 0 && !active && !prev_active, |d| {
-                        d.child(div().absolute().left_0().top(relative(0.5)).mt(px(-7.0)).w(px(1.0)).h(px(14.0)).bg(theme.border_strong))
+                        d.child(div().absolute().left_0().top(relative(0.5)).mt(px(-6.0)).w(px(1.0)).h(px(12.0)).bg(theme.border))
                     })
                     .when(before, |d| d.child(marker(div()).left(px(-2.0))))
                     .when(after, |d| d.child(marker(div()).right(px(-2.0))))
