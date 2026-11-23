@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.26] - 2026-11-24
+
+### Added
+- Sidebar session icons show each session's state: an open session wears a ring in its state colour (busy, waiting, idle, stopped), and a session that is not open is dimmed. A waiting session is always lit, even when it is not open, so it cannot be missed.
+- The model icon is always shown in the sidebar; the "show model icon" option was removed.
+
+### Changed
+- A project group's default expanded or collapsed state is fixed the first time the group appears, so message activity no longer makes a group expand or collapse by itself.
+- Titlebar: the sidebar toggle and bell sit further from the traffic lights and closer to each other. Tab separators and the context menu border are lighter.
+
 ## [0.2.25] - 2026-11-21
 
 ### Added
