@@ -18,7 +18,7 @@ use crate::process::{collect_orphan_by_env, collect_process_table, descendants_o
 use crate::running::{load_running_info, RunningInfo};
 use crate::scan_cache::{save_scan_cache_throttled, scan_session_file, ScanState};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct SessionMeta {
     pub session_id: String,
     pub short_id: String,

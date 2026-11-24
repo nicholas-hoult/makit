@@ -63,12 +63,17 @@ pub fn merge_updated(list: &mut Vec<SessionMeta>, updated: Vec<SessionMeta>, ski
         }
         match list.iter_mut().find(|s| s.session_id == u.session_id) {
             Some(old) => {
-                u.child_processes = std::mem::take(&mut old.child_processes);
-                *old = u;
+                u.child_processes = old.child_processes.clone();
+                if *old != u {
+                    *old = u;
+                    changed = true;
+                }
             }
-            None => list.push(u),
+            None => {
+                list.push(u);
+                changed = true;
+            }
         }
-        changed = true;
     }
     if changed {
         list.sort_by(|a, b| b.mtime.cmp(&a.mtime));
@@ -182,6 +187,15 @@ pub(crate) mod tests {
         assert!(!merge_running(&mut list, &[w.clone()], |s| s.session_id == "a"), "被跳过的不合并");
         assert!(merge_running(&mut list, &[w], |_| false));
         assert_eq!(list[0].status, "waiting");
+    }
+
+    /// 输入时会话文件会不停写入，每次都会走到这里。内容没变就不能报"有变化"，否则侧栏整体重排、重绘（闪一下）
+    #[test]
+    fn merge_updated_reports_no_change_when_nothing_differs() {
+        let mut list = vec![SessionMeta { mtime: 20, ..session("b") }, SessionMeta { mtime: 10, ..session("a") }];
+        assert!(!merge_updated(&mut list, vec![SessionMeta { mtime: 10, ..session("a") }], |_| false), "内容一样，不算变化");
+        let ids: Vec<&str> = list.iter().map(|s| s.session_id.as_str()).collect();
+        assert_eq!(ids, ["b", "a"], "顺序不动");
     }
 
     #[test]
