@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.27] - 2026-11-24
+
+### Fixed
+- The sidebar flashed while typing in a session that was writing output: an update that changed nothing still re-sorted and redrew the whole sidebar. Now it only does that when a session's content actually changed.
+
 ## [0.2.26] - 2026-11-24
 
 ### Added

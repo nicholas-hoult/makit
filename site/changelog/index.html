@@ -24,6 +24,7 @@
 </header>
 <div class="layout">
   <aside class="side"><h3>更新日志</h3>
+    <a href="#v0.2.26">v0.2.26 — 2026-11-23</a>
     <a href="#v0.2.25">v0.2.25 — 2026-11-21</a>
     <a href="#v0.2.24">v0.2.24 — 2026-11-20</a>
     <a href="#v0.2.21">v0.2.21 — 2026-11-19</a>
@@ -60,7 +61,19 @@
       <h1>更新日志</h1>
       <p class="fine">正文是已发布的 GitHub Release 说明，不含草稿、预发布和未发布条目。读取失败时构建会失败，不会改用仓库里的未发布内容。</p>
     </section>
-    <section id="v0.2.25"><h2>v0.2.25 — 2026-11-21</h2>
+    <section id="v0.2.26"><h2>v0.2.26 — 2026-11-23</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.26">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.26</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Sidebar session icons show each session&#x27;s state: an open session wears a ring in its state colour (busy, waiting, idle, stopped), and a session that is not open is dimmed. A waiting session is always lit, even when it is not open, so it cannot be missed.</li><li>The model icon is always shown in the sidebar; the &quot;show model icon&quot; option was removed.</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>A project group&#x27;s default expanded or collapsed state is fixed the first time the group appears, so message activity no longer makes a group expand or collapse by itself.</li><li>Titlebar: the sidebar toggle and bell sit further from the traffic lights and closer to each other. Tab separators and the context menu border are lighter.</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>侧栏的会话图标显示状态：打开的会话在模型图标外带一圈状态色环（忙碌、等待、空闲、停止各有颜色），没打开的会话变暗。等待中的会话即使没打开也保持亮，不会被漏掉。</li><li>侧栏始终显示模型图标，去掉了「显示模型图标」设置。</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>项目组的默认展开或折叠状态在第一次出现时固定下来，消息活动不再让分组自己展开或折叠。</li><li>标题栏：侧栏按钮和铃铛离红绿灯更远，两者之间更近；标签之间的分隔线和右键菜单边框更轻。</li></ul>
+</section>
+<section id="v0.2.25"><h2>v0.2.25 — 2026-11-21</h2>
 <p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.25">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.25</a></p>
 <h3>Added</h3>
 <ul class="list"><li>The local-session link gained <code>stop</code> (kill the session&#x27;s tab&#x27;s process, keep the tab itself, marked stopped -- the same thing the sidebar&#x27;s own &quot;Stop&quot; does) and <code>close</code> (kill the process and drop the tab outright, same as the sidebar&#x27;s &quot;Close&quot;). Both refuse a session that is busy or waiting for approval with a structured reason unless the caller passes <code>force: true</code>, since a remote caller has no confirm dialog to answer. Each entry in <code>sessions</code> now also carries <code>tab_state</code> (&quot;open&quot; / &quot;stopped&quot; / &quot;none&quot;) so a caller can tell which of the two even applies.</li></ul>
