@@ -1,0 +1,63 @@
+name: Sync site changelog
+
+# After a Release is published, regenerate site/changelog and site/en/changelog
+# from the public GitHub Releases API (same script as scripts/build-site.sh)
+# and commit the pages to main. Cloudflare Pages Git integration deploys main,
+# so the marketing site stays in step. This is the automated form of
+# RELEASE.md step 6. Manual workflow_dispatch is a catch-up if a run is missed.
+#
+# This workflow does not push product commits. If a release tag is ahead of
+# main (only the tag was pushed), the changelog on main is still updated, but
+# the default branch stays behind the shipped version — push main as well.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-site-changelog
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    if: github.event_name == 'workflow_dispatch' || (github.event.release.draft == false && github.event.release.prerelease == false)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Warn if this release commit is not on main
+        if: github.event_name == 'release'
+        run: |
+          git fetch --no-tags origin main
+          sha="${{ github.event.release.target_commitish }}"
+          # Prefer the tag's commit when the event has one
+          if [ -n "${{ github.sha }}" ]; then
+            sha="${{ github.sha }}"
+          fi
+          if ! git merge-base --is-ancestor "$sha" origin/main; then
+            echo "::warning::Release commit $sha is not on origin/main. The changelog pages will still be regenerated on main, but the default branch is behind this tag. Push main (see RELEASE.md) so the repo matches the shipped version."
+          fi
+
+      - name: Render changelog from published releases
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/render-site-changelog.py
+
+      - name: Commit and push if the pages changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/changelog/index.html site/en/changelog/index.html
+          if git diff --cached --quiet; then
+            echo "changelog already in sync"
+            exit 0
+          fi
+          git commit -m "docs: sync the marketing site changelog with published releases"
+          git pull --rebase origin main
+          git push origin HEAD:main

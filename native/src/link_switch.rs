@@ -7,7 +7,7 @@
 //!    包括写终端、取屏幕快照、新开会话标签、续接会话；
 //! 3. 会话列表和对话直接用核心的 `CoreBackend`，不经主线程。
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex};
@@ -45,10 +45,16 @@ pub enum MainOp {
     Write { session_id: String, bytes: Vec<u8> },
     /// 会话所在终端的屏幕快照
     Screen { session_id: String },
-    /// 在目录里开新标签启动工具（已经过 `plan_open` / `validate_open_text` 检查），`text` 是首条消息
-    Open { cwd: String, tool: String, text: Option<String> },
-    /// 续接已结束的会话；标签复用策略是调用方的（#D-2138/#D-2140）：`allow_new_tab` 为假且没有标签可复用时不新开，返回结构化拒绝
-    Resume { session_id: String, allow_new_tab: bool },
+    /// 在目录里开新标签启动工具（已经过 `plan_open` / `validate_open_text` 检查），`text` 是首条消息；`trust`/
+    /// `permission_mode` 见 #D-2168（只对 claude 生效，调用前 `handle_line` 已经把关过 tool）
+    Open { cwd: String, tool: String, text: Option<String>, trust: bool, permission_mode: Option<String> },
+    /// 续接已结束的会话；标签复用策略是调用方的（#D-2138/#D-2140）：`allow_new_tab` 为假且没有标签可复用时不新开，返回结构化拒绝；
+    /// `permission_mode` 见 #D-2168（只在真的新开标签时才用得上，复用已有标签时静默忽略）
+    Resume { session_id: String, allow_new_tab: bool, permission_mode: Option<String> },
+    /// 停止会话的进程、标签保留（同侍栏「停止会话」，#D-2299）；运行中/等待批准中默认拒绝，`force:true` 才执行
+    Stop { session_id: String, force: bool },
+    /// 真正关掉这个会话的标签（同侍栏「关闭」，#D-2300）；拒绝规则同 `Stop`
+    Close { session_id: String, force: bool },
     /// 本机会话接口的 `update check`（#D-2122）：当前已知的更新状态，不是强制联网重查
     UpdateCheck,
     /// 本机会话接口的 `update install`：装当前已发现的新版本并重启；`after_restart` 是重启后要接上的那个会话
@@ -82,13 +88,14 @@ pub struct NativeBackend {
     write_on: Arc<AtomicBool>,
     tx: UnboundedSender<MainRequest>,
     timeout: Duration,
-    /// 当前有标签的会话 id（#D-2143，`sessions` 的 `has_tab`）；主线程跟着 `WorkspaceChanged` 更新，这里只读，不过主线程
-    tabbed: Arc<Mutex<HashSet<String>>>,
+    /// 当前每个会话标签的状态（"open"/"stopped"，没有标签就不在这个 map 里，#D-2143 的 `has_tab`、#D-2300 的
+    /// `tab_state` 都从这读）；主线程跟着 `WorkspaceChanged` 更新，这里只读，不过主线程
+    tab_states: Arc<Mutex<HashMap<String, &'static str>>>,
 }
 
 impl NativeBackend {
-    pub fn new(write_on: Arc<AtomicBool>, tx: UnboundedSender<MainRequest>, tabbed: Arc<Mutex<HashSet<String>>>) -> Self {
-        Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT, tabbed }
+    pub fn new(write_on: Arc<AtomicBool>, tx: UnboundedSender<MainRequest>, tab_states: Arc<Mutex<HashMap<String, &'static str>>>) -> Self {
+        Self { core: CoreBackend::new(), write_on, tx, timeout: WRITE_TIMEOUT, tab_states }
     }
 
     fn ask(&self, op: MainOp) -> Result<MainReply, OpenError> {
@@ -108,9 +115,11 @@ impl NativeBackend {
 impl Backend for NativeBackend {
     fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String> {
         let mut list = self.core.sessions(limit)?;
-        let tabbed = self.tabbed.lock().unwrap();
+        let states = self.tab_states.lock().unwrap();
         for s in &mut list {
-            s.has_tab = tabbed.contains(&s.session_id);
+            let state = states.get(&s.session_id).copied();
+            s.has_tab = state.is_some();
+            s.tab_state = state.unwrap_or("none").to_string();
         }
         Ok(list)
     }
@@ -127,6 +136,14 @@ impl Backend for NativeBackend {
         self.core.session_state(session_id)
     }
 
+    /// #D-2188: must not inherit the default (`self.sessions(MAX_LIMIT)`, which `CoreBackend::sessions` filters
+    /// to non-archived and caps) -- `resume` on an archived-but-still-on-disk session needs this to say it
+    /// exists, same as `CoreBackend::session_exists` itself already correctly does by looking the file up on
+    /// disk directly.
+    fn session_exists(&self, session_id: &str) -> bool {
+        self.core.session_exists(session_id)
+    }
+
     fn write(&self, session_id: &str, bytes: Vec<u8>) -> Result<(), String> {
         Ok(self.ask_done(MainOp::Write { session_id: session_id.to_string(), bytes })?)
     }
@@ -138,15 +155,23 @@ impl Backend for NativeBackend {
         }
     }
 
-    fn open(&self, cwd: &str, tool: &str, text: Option<&str>) -> Result<(), OpenError> {
-        self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from) })
+    fn open(&self, cwd: &str, tool: &str, text: Option<&str>, trust: bool, permission_mode: Option<&str>) -> Result<(), OpenError> {
+        self.ask_done(MainOp::Open { cwd: cwd.to_string(), tool: tool.to_string(), text: text.map(String::from), trust, permission_mode: permission_mode.map(String::from) })
     }
 
-    fn resume(&self, session_id: &str, allow_new_tab: bool) -> Result<makit_core::link::ResumeAction, OpenError> {
-        match self.ask(MainOp::Resume { session_id: session_id.to_string(), allow_new_tab })? {
+    fn resume(&self, session_id: &str, allow_new_tab: bool, permission_mode: Option<&str>) -> Result<makit_core::link::ResumeAction, OpenError> {
+        match self.ask(MainOp::Resume { session_id: session_id.to_string(), allow_new_tab, permission_mode: permission_mode.map(String::from) })? {
             MainReply::Resumed(action) => Ok(action),
             MainReply::Done | MainReply::Screen(_) | MainReply::UpdateStatus(_) => Err("unexpected reply".into()),
         }
+    }
+
+    fn stop(&self, session_id: &str, force: bool) -> Result<(), OpenError> {
+        self.ask_done(MainOp::Stop { session_id: session_id.to_string(), force })
+    }
+
+    fn close(&self, session_id: &str, force: bool) -> Result<(), OpenError> {
+        self.ask_done(MainOp::Close { session_id: session_id.to_string(), force })
     }
 
     fn update_check(&self) -> Result<UpdateStatus, String> {
@@ -171,17 +196,17 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> UnboundedReceiver<MainReq
     let (tx, rx) = unbounded::<MainRequest>();
     let write_on = Arc::new(AtomicBool::new(false));
     let running: Arc<Mutex<Option<Handle>>> = Arc::new(Mutex::new(None));
-    let tabbed: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(crate::state::binding::tabbed_session_ids(&state.read(cx).workspace.state.root)));
+    let tab_states: Arc<Mutex<HashMap<String, &'static str>>> = Arc::new(Mutex::new(crate::state::binding::tab_states(&state.read(cx).workspace.state.root)));
     let sync = {
         let running = running.clone();
         let write_on = write_on.clone();
-        let tabbed = tabbed.clone();
+        let tab_states = tab_states.clone();
         move |enabled: bool, write: bool| {
             // 只读开关关着时写入一定不可用；接口停了也就没人能调
             write_on.store(enabled && write, Ordering::SeqCst);
             let mut slot = running.lock().expect("link switch lock");
             match decide(enabled, slot.is_some()) {
-                Action::Start => *slot = makit_core::link::start(Arc::new(NativeBackend::new(write_on.clone(), tx.clone(), tabbed.clone()))),
+                Action::Start => *slot = makit_core::link::start(Arc::new(NativeBackend::new(write_on.clone(), tx.clone(), tab_states.clone()))),
                 Action::Stop => {
                     if let Some(h) = slot.take() {
                         h.stop();
@@ -201,10 +226,10 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> UnboundedReceiver<MainReq
             let p = &state.read(cx).prefs;
             on_prefs(p.link_enabled, p.link_write_enabled);
         }
-        // `sessions`' `has_tab` (#D-2143) reads this without hopping to the main thread -- keep it current
-        // whenever the workspace changes instead
+        // `sessions`' `has_tab` / `tab_state` (#D-2143/#D-2300) read this without hopping to the main thread --
+        // keep it current whenever the workspace changes instead
         AppEvent::WorkspaceChanged => {
-            *tabbed.lock().unwrap() = crate::state::binding::tabbed_session_ids(&state.read(cx).workspace.state.root);
+            *tab_states.lock().unwrap() = crate::state::binding::tab_states(&state.read(cx).workspace.state.root);
         }
         AppEvent::SessionsChanged => {}
     })
@@ -245,18 +270,35 @@ fn confirm_spawned(ws: &Entity<crate::workspace::WorkspaceView>, tab_id: &str, w
     }
 }
 
+/// #D-2168: canonicalizes `cwd` (resolves `..` and symlinks -- the same form Claude Code's own `process.cwd()`
+/// ends up recording in `~/.claude.json`, since POSIX `getcwd()` is already symlink-free) and refuses unless it
+/// lands under one of the user's own configured auto-trust roots (also canonicalized), *before* writing
+/// anything. Only then does it mark that directory trusted via [`makit_core::claude_config::trust_directory`].
+fn try_trust_directory(cwd: &str, cx: &gpui::App) -> Result<(), OpenError> {
+    let canonical_cwd = std::fs::canonicalize(cwd).map_err(|e| OpenError::from(format!("cwd: {e}")))?;
+    let roots: Vec<std::path::PathBuf> =
+        AppState::global(cx).read(cx).prefs.trust_roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).collect();
+    if !makit_core::claude_config::is_under_trusted_root(&canonical_cwd, &roots) {
+        return Err(OpenError::not_trusted_root("cwd is not under any configured auto-trust root"));
+    }
+    makit_core::claude_config::trust_directory(&canonical_cwd.to_string_lossy()).map_err(OpenError::from)
+}
+
 fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &mut gpui::Context<crate::app::Root>) -> Result<MainReply, OpenError> {
     let ws = root.workspace_view();
     match op {
         MainOp::Write { session_id, bytes } => ws.update(cx, |w, cx| w.write_to_session(&session_id, bytes, cx)).map(|_| MainReply::Done).map_err(OpenError::from),
         MainOp::Screen { session_id } => ws.update(cx, |w, cx| w.screen_of_session(&session_id, cx)).map(MainReply::Screen).map_err(OpenError::from),
-        MainOp::Open { cwd, tool, text } => {
+        MainOp::Open { cwd, tool, text, trust, permission_mode } => {
             if let Some(e) = crate::overlays::session_ops::capacity_block(cx) {
                 return Err(e);
             }
+            if trust {
+                try_trust_directory(&cwd, cx)?;
+            }
             let state = AppState::global(cx);
             let tab_id = state.update(cx, |s, cx| {
-                let tid = s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref());
+                let tid = s.workspace.open_new_session(&cwd, makit_core::ai_provider::tool_arg(&tool), text.as_deref(), permission_mode.as_deref());
                 s.workspace_changed(cx);
                 tid
             });
@@ -266,7 +308,7 @@ fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &
             }
             result.map(|_| MainReply::Done)
         }
-        MainOp::Resume { session_id, allow_new_tab } => {
+        MainOp::Resume { session_id, allow_new_tab, permission_mode } => {
             if AppState::global(cx).read(cx).session(&session_id).is_none() {
                 return Err("session not found".into());
             }
@@ -276,9 +318,11 @@ fn run(root: &mut crate::app::Root, op: MainOp, window: &mut gpui::Window, cx: &
             // The tab-reuse-vs-open-new policy is the caller's, not makit's (#D-2138/#D-2140): `resume_session`
             // itself refuses with `OpenError::no_tab` when `allow_new_tab` is false and there is nothing to
             // reuse, without opening anything.
-            let (tab_id, action) = crate::overlays::session_ops::resume_session(&session_id, allow_new_tab, cx)?;
+            let (tab_id, action) = crate::overlays::session_ops::resume_session(&session_id, allow_new_tab, permission_mode.as_deref(), cx)?;
             confirm_spawned(&ws, &tab_id, window, cx, "resume").map(|_| MainReply::Resumed(action))
         }
+        MainOp::Stop { session_id, force } => crate::overlays::session_ops::stop_session_for_link(&session_id, force, cx).map(|_| MainReply::Done),
+        MainOp::Close { session_id, force } => crate::overlays::session_ops::close_session_for_link(&session_id, force, cx).map(|_| MainReply::Done),
         MainOp::UpdateCheck => {
             let s = crate::update::status(cx);
             let (state, latest, notes, page_url) = match &s {
@@ -321,6 +365,26 @@ mod tests {
         assert_eq!(decide(false, false), Action::Keep);
     }
 
+    /// #D-2188: `Backend::session_exists`'s default implementation goes through `self.sessions(MAX_LIMIT)` --
+    /// which `CoreBackend::sessions` filters to non-archived sessions and caps at `MAX_LIMIT` -- so it is wrong
+    /// for any backend whose `sessions()` can leave sessions out for a reason that has nothing to do with
+    /// whether they still exist (archived, or simply past the cap). `CoreBackend` itself gets this right
+    /// (`session_exists` looks the file up on disk directly, ignoring `archived` and any cap) but
+    /// `NativeBackend` wraps one and must not silently fall back to the broken default: it has to override
+    /// `session_exists` to defer to its own `core`'s correct one. A missing override here is exactly how this
+    /// bug slipped in once already (real repro: a session archived via the sidebar, still on disk, made
+    /// `resume` reply `{"ok":false,"error":"session not found"}` on this machine on 2026-11-20) -- scanning the
+    /// source for the override, rather than only asserting behavior, is what actually catches "someone deleted
+    /// the override" the next time, since a real-disk assertion can't be made deterministic in a unit test.
+    #[test]
+    fn session_exists_is_overridden_to_defer_to_core_not_the_capped_sessions_list() {
+        let src = include_str!("link_switch.rs");
+        let impl_start = src.find("impl Backend for NativeBackend").expect("the impl block itself");
+        let impl_block = &src[impl_start..];
+        let impl_end = impl_block.find("\n}\n").map(|i| i + 1).unwrap_or(impl_block.len());
+        assert!(impl_block[..impl_end].contains("fn session_exists"), "NativeBackend must override session_exists, not inherit the default");
+    }
+
     #[test]
     fn link_is_off_by_default_and_old_state_files_load_with_it_off() {
         let d = crate::persist::NativeState::default();
@@ -338,7 +402,7 @@ mod tests {
     // 为什么单独测：写入要穿过线程边界。回执丢了，手机上是一直转圈；回执错了，是「已发送」但终端里什么都没有。
     fn backend(timeout_ms: u64) -> (NativeBackend, UnboundedReceiver<MainRequest>) {
         let (tx, rx) = unbounded();
-        let mut b = NativeBackend::new(Arc::new(AtomicBool::new(true)), tx, Arc::new(Mutex::new(HashSet::new())));
+        let mut b = NativeBackend::new(Arc::new(AtomicBool::new(true)), tx, Arc::new(Mutex::new(HashMap::new())));
         b.timeout = Duration::from_millis(timeout_ms);
         (b, rx)
     }
@@ -372,7 +436,7 @@ mod tests {
     fn write_flag_follows_the_switch() {
         let (tx, _rx) = unbounded();
         let on = Arc::new(AtomicBool::new(false));
-        let b = NativeBackend::new(on.clone(), tx, Arc::new(Mutex::new(HashSet::new())));
+        let b = NativeBackend::new(on.clone(), tx, Arc::new(Mutex::new(HashMap::new())));
         assert!(!b.write_enabled());
         on.store(true, Ordering::SeqCst);
         assert!(b.write_enabled());
@@ -389,26 +453,33 @@ mod tests {
             assert_eq!(req.op, MainOp::Screen { session_id: "s1".into() });
             req.reply.send(Ok(MainReply::Screen(screen))).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "codex".into(), text: None });
+            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "codex".into(), text: None, trust: false, permission_mode: None });
             req.reply.send(Ok(MainReply::Done)).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Open { cwd: "/Users/me/p".into(), tool: "claude".into(), text: Some("hi there".into()) });
+            assert_eq!(
+                req.op,
+                MainOp::Open { cwd: "/Users/me/p".into(), tool: "claude".into(), text: Some("hi there".into()), trust: true, permission_mode: Some("acceptEdits".into()) }
+            );
             req.reply.send(Ok(MainReply::Done)).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Resume { session_id: "s9".into(), allow_new_tab: false });
+            assert_eq!(req.op, MainOp::Resume { session_id: "s9".into(), allow_new_tab: false, permission_mode: None });
             req.reply.send(Err("session not found".into())).unwrap();
             let req = next(&mut rx);
-            assert_eq!(req.op, MainOp::Resume { session_id: "s3".into(), allow_new_tab: true });
+            assert_eq!(req.op, MainOp::Resume { session_id: "s3".into(), allow_new_tab: true, permission_mode: Some("acceptEdits".into()) });
             req.reply.send(Ok(MainReply::Resumed(makit_core::link::ResumeAction::OpenedNewTab))).unwrap();
             // A reply of the wrong kind is an error, not a silent success
             let req = next(&mut rx);
             req.reply.send(Ok(MainReply::Done)).unwrap();
         });
         assert_eq!(b.screen("s1"), Ok(expected));
-        assert_eq!(b.open("/Users/me/p", "codex", None), Ok(()));
-        assert_eq!(b.open("/Users/me/p", "claude", Some("hi there")), Ok(()));
-        assert_eq!(b.resume("s9", false), Err("session not found".into()));
-        assert_eq!(b.resume("s3", true), Ok(makit_core::link::ResumeAction::OpenedNewTab), "allow_new_tab reaches the main thread and the Resumed reply carries the action back");
+        assert_eq!(b.open("/Users/me/p", "codex", None, false, None), Ok(()));
+        assert_eq!(b.open("/Users/me/p", "claude", Some("hi there"), true, Some("acceptEdits")), Ok(()));
+        assert_eq!(b.resume("s9", false, None), Err("session not found".into()));
+        assert_eq!(
+            b.resume("s3", true, Some("acceptEdits")),
+            Ok(makit_core::link::ResumeAction::OpenedNewTab),
+            "allow_new_tab and permission_mode reach the main thread and the Resumed reply carries the action back"
+        );
         assert_eq!(b.screen("s1"), Err("unexpected reply".into()));
         main.join().unwrap();
     }

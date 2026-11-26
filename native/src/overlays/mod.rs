@@ -586,7 +586,7 @@ impl OverlayHost {
                         .flex_col()
                         .bg(theme.bg_soft)
                         .border_1()
-                        .border_color(theme.border_strong)
+                        .border_color(theme.border)
                         .rounded(px(RADIUS_MD))
                         .shadow(vec![shadow(8.0, 24.0, theme.var("--shadow-strong"))])
                         .when_some(search, |d, input| {

@@ -53,11 +53,11 @@ pub enum Item {
     Space(f32),
     GroupHeader { id: String, label: String, count: usize, collapsed: bool, warn: bool },
     ProjectHeader { key: String, name: String, cwd: String, count: usize, collapsed: bool, has_active: bool },
-    /// `row` 是会话列表里的下标；`show_status` 按组给（整组都停止时不画状态点）
+    /// `row` 是会话列表里的下标
     /// `compact` = 第二行一项都不显示（见 `SESSION_H_COMPACT`）
     /// `nav`：这一行是不是「导航用的那份」——项目视图里已打开 / 置顶的会话既在顶部组里、也在自己的项目里（#259），
     /// 同一条会话只有一份算 nav（进 `order`、画选中框、被定位 / 悬停卡认作它的位置）；别的情况恒为 true
-    Session { row: usize, show_status: bool, compact: bool, nav: bool },
+    Session { row: usize, compact: bool, nav: bool },
     Empty(String),
 }
 
@@ -118,8 +118,6 @@ pub struct TreeInput<'a> {
     pub filtered_count: usize,
     /// 空状态文案：加载中… / 无匹配 session / 无 session
     pub empty_text: String,
-    /// 这条会话活着吗（决定组要不要画状态列）
-    pub alive: &'a dyn Fn(usize) -> bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -198,10 +196,9 @@ pub fn flatten(input: &TreeInput) -> Tree {
             t.items.push(Item::GroupHeader { id: g.id.clone(), label: g.label.clone(), count: g.rows.len(), collapsed, warn: g.warn });
         }
         if !collapsed {
-            let show_status = g.rows.iter().any(|&r| (input.alive)(r));
             for &row in &g.rows {
                 let nav = in_project.get(&row).copied().unwrap_or(true);
-                t.items.push(Item::Session { row, show_status, compact: input.compact_rows, nav });
+                t.items.push(Item::Session { row, compact: input.compact_rows, nav });
                 if nav {
                     t.order.push(row);
                 }
@@ -240,8 +237,7 @@ pub fn flatten(input: &TreeInput) -> Tree {
             });
             if !p.collapsed {
                 for &row in &p.rows {
-                    // hasActive 就是 anyAlive(组)，整组一起画状态列
-                    t.items.push(Item::Session { row, show_status: p.has_active, compact: input.compact_rows, nav: true });
+                    t.items.push(Item::Session { row, compact: input.compact_rows, nav: true });
                     t.order.push(row);
                 }
             }
@@ -404,7 +400,6 @@ mod tests {
     }
 
     fn build(c: Case) -> Tree {
-        let alive = |_: usize| false;
         flatten(&TreeInput {
             compact_rows: c.compact,
             top: c.top,
@@ -415,7 +410,6 @@ mod tests {
             collapsed_groups: &c.collapsed,
             filtered_count: 1,
             empty_text: "无 session".into(),
-            alive: &alive,
         })
     }
     fn order(c: Case) -> Vec<&'static str> {
@@ -530,27 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn status_column_is_per_group() {
-        let alive = |i: usize| i == r("r2");
-        let t = flatten(&TreeInput {
-            compact_rows: false,
-            top: vec![],
-            project_view: false,
-            labeled: vec![g("running", &["r1", "r2"]), g("pinned", &["p1"])],
-            history: vec![],
-            projects: vec![],
-            collapsed_groups: &[],
-            filtered_count: 3,
-            empty_text: String::new(),
-            alive: &alive,
-        });
-        let st: Vec<(usize, bool)> = t.items.iter().filter_map(|i| if let Item::Session { row, show_status, .. } = i { Some((*row, *show_status)) } else { None }).collect();
-        assert_eq!(st, [(r("r1"), true), (r("r2"), true), (r("p1"), false)], "组里有一条活的就整组画；全死的组不画");
-    }
-
-    #[test]
     fn empty_states() {
-        let alive = |_: usize| false;
         let mk = |project_view: bool, top: Vec<TreeGroup>, filtered: usize| {
             flatten(&TreeInput {
             compact_rows: false,
@@ -562,8 +536,7 @@ mod tests {
                 collapsed_groups: &[],
                 filtered_count: filtered,
                 empty_text: "无匹配 session".into(),
-                alive: &alive,
-            })
+                })
             .items
         };
         assert_eq!(mk(false, vec![], 0), [Item::Space(4.0), Item::Empty("无匹配 session".into()), Item::Space(4.0)]);

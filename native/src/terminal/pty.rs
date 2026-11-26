@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn env_has_marker_locale_and_session_id() {
         // 恢复命令只许 workspace::model 拼（那边有测试盯着），这里直接用它
-        let resume = crate::workspace::model::resume_init_command(UUID, None);
+        let resume = crate::workspace::model::resume_init_command(UUID, None, None);
         let env = build_env(Some("t_abc"), Some(&resume), "/bin/bash", None);
         assert_eq!(env["TERM"], "xterm-256color");
         assert_eq!(env["LANG"], "en_US.UTF-8");
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn session_id_only_for_uuid_shaped_ids() {
-        let bad = crate::workspace::model::resume_init_command("../../etc", None);
+        let bad = crate::workspace::model::resume_init_command("../../etc", None, None);
         let env = build_env(None, Some(&bad), "/bin/bash", None);
         assert!(!env.contains_key("MAKIT_SESSION_ID"), "id 会拼进路径，只认 uuid 形状");
         assert!(!env.contains_key("MAKIT_PTY_ID"));

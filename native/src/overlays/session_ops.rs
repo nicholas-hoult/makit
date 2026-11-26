@@ -16,7 +16,7 @@ fn tool_of(s: &SessionMeta) -> Option<&str> {
 
 /// 复制恢复命令：`cd <cwd> && claude -r <id>`（codex 是 `codex resume <id>`）
 pub fn resume_command(s: &SessionMeta) -> String {
-    format!("cd {} && {}", s.cwd, resume_cmd(&s.session_id, tool_of(s)))
+    format!("cd {} && {}", s.cwd, resume_cmd(&s.session_id, tool_of(s), None))
 }
 
 pub fn toggle_pin(session_id: &str, cx: &mut App) {
@@ -252,7 +252,7 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
     let decision = decide_open(&state.read(cx).workspace.state.root, &s);
     log::info!(target: "session", "open session {}: {}", s.short_id, match &decision {
         OpenDecision::Switch { .. } => ts!("session.decision.switch").to_string(),
-        OpenDecision::BlockedExternal { pid } => ts!("session.decision.external", pid = pid),
+        OpenDecision::BlockedExternal { pid, cwd } => ts!("session.decision.external", pid = pid, cwd = cwd),
         OpenDecision::OpenNew => ts!("session.decision.open_new").to_string(),
     });
     match decision {
@@ -264,8 +264,8 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
                 st.workspace_changed(cx);
             });
         }
-        OpenDecision::BlockedExternal { pid } => {
-            show_toast(ts!("sidebar.toast.already_running", pid = pid), toast::ALREADY_RUNNING, cx);
+        OpenDecision::BlockedExternal { pid, cwd } => {
+            show_toast(ts!("sidebar.toast.already_running", pid = pid, cwd = cwd), toast::ALREADY_RUNNING, cx);
         }
         OpenDecision::OpenNew => open_new_session(s, window, cx),
     }
@@ -275,12 +275,12 @@ pub fn open_session(session_id: &str, window: &mut Window, cx: &mut App) {
 /// own open (this file) and link.sock's `resume` when it has nowhere to revive (`resume_session` below). Returns
 /// the tab id that now holds it, so a remote caller (link.sock) can force its terminal to actually spawn before
 /// replying (#D-2118) -- the local sidebar/⌘K callers just discard it, same as before.
-fn do_open_new(s: &SessionMeta, cx: &mut App) -> String {
+fn do_open_new(s: &SessionMeta, permission_mode: Option<&str>, cx: &mut App) -> String {
     ensure_symlink(s);
     let title = crate::sidebar::groups::session_title(&s.display_name, &s.first_user_msg, &s.short_id);
     let state = AppState::global(cx);
     state.update(cx, |st, cx| {
-        let opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s));
+        let opened = st.workspace.open_session(&s.session_id, &s.short_id, &s.cwd, Some(&title), tool_of(s), permission_mode);
         st.workspace_changed(cx);
         match opened {
             Opened::New { tab_id } | Opened::Existing { tab_id, .. } => tab_id,
@@ -327,7 +327,7 @@ fn with_capacity_check(window: &mut Window, cx: &mut App, action: impl FnOnce(&m
 
 fn open_new_session(s: SessionMeta, window: &mut Window, cx: &mut App) {
     with_capacity_check(window, cx, move |cx| {
-        do_open_new(&s, cx);
+        do_open_new(&s, None, cx);
     });
 }
 
@@ -422,7 +422,9 @@ pub fn capacity_block(cx: &mut App) -> Option<makit_core::link::OpenError> {
 /// force that one tab's terminal to actually spawn before replying `ok` (#D-2118: this used to reply `ok` right
 /// after this call returned, while the PTY itself only gets built on the next render pass, so a fast follow-up
 /// `screen` / `input` from the other side saw "session not open in makit").
-pub fn resume_session(session_id: &str, allow_new_tab: bool, cx: &mut App) -> Result<(String, makit_core::link::ResumeAction), makit_core::link::OpenError> {
+/// `permission_mode`（#D-2168）只有 `OpenNew` 分支真的新开一个标签时才用得上：`Revive` 分支复用的是已有标签，
+/// 启动命令早就定了，没有新命令可拼，静默忽略——这是架构上的限制，不是漏做
+pub fn resume_session(session_id: &str, allow_new_tab: bool, permission_mode: Option<&str>, cx: &mut App) -> Result<(String, makit_core::link::ResumeAction), makit_core::link::OpenError> {
     use makit_core::link::{OpenError, ResumeAction};
     let state = AppState::global(cx);
     let Some(s) = state.read(cx).session(session_id).cloned() else {
@@ -436,7 +438,14 @@ pub fn resume_session(session_id: &str, allow_new_tab: bool, cx: &mut App) -> Re
             Ok((tab_id, ResumeAction::ReusedTab))
         }
         LinkResumeDecision::OpenNew if !allow_new_tab => Err(OpenError::no_tab("no tab for this session and allow_new_tab is false")),
-        LinkResumeDecision::OpenNew => Ok((do_open_new(&s, cx), ResumeAction::OpenedNewTab)),
+        LinkResumeDecision::OpenNew => {
+            // claude-only (#D-2168): `tool_arg` returns `None` for claude itself (it's the default everywhere
+            // else matches on it), so `is_none()` here means "this session's tool is claude". codex/opencode's
+            // own flags mean something different, so a `permission_mode` meant for claude is silently dropped
+            // rather than handed to a tool it was never meant for.
+            let permission_mode = permission_mode.filter(|_| tool_of(&s).is_none());
+            Ok((do_open_new(&s, permission_mode, cx), ResumeAction::OpenedNewTab))
+        }
     }
 }
 
@@ -448,6 +457,66 @@ pub fn stoppable_tabs(ws: &crate::workspace::model::WorkspaceState, session_id: 
         .filter(|t| t.session_id.as_deref() == Some(session_id) && crate::workspace::model::can_stop(t))
         .map(|t| t.id.clone())
         .collect()
+}
+
+/// `stop`/`close` 的共用把关（#D-2299/#D-2300）：会话忙着跑或等批准时默认拒绝——本机界面的等价操作是弹一个确认
+/// 框问「真的要停吗」，而远端调用方没有人能点那个框，所以直接拒绝，回结构化原因；`force:true` 等同于点了确认。
+fn refuse_unless_force(s: &SessionMeta, force: bool) -> Result<(), makit_core::link::OpenError> {
+    use crate::sidebar::groups::{run_state, RunState};
+    use makit_core::link::OpenError;
+    let rs = run_state(s.running, &s.status, &s.waiting_for);
+    if force || !crate::workspace::model::stop_needs_confirm(rs) {
+        return Ok(());
+    }
+    let label = match rs {
+        RunState::Busy => "busy",
+        RunState::Waiting => "waiting for approval",
+        RunState::Idle | RunState::Stopped => unreachable!("stop_needs_confirm only returns true for Busy/Waiting"),
+    };
+    Err(OpenError::needs_force(format!("session {} is {label}; pass force:true to do this anyway", s.short_id)))
+}
+
+/// Link.sock 的 `stop`（#D-2299）：按 `session_id` 停掉它绑定的那一个标签（协议假设一个会话只绑一个标签，和
+/// `resume`/`has_tab` 一样）的进程，标签本身留着（侍栏「停止会话」的等价物，跳过确认框直接执行）。没有标签绑
+/// 着它（已经是 `none`/`stopped` 状态）当作没什么可做，回 `Ok` 而不是报错——`force` 只管要不要绕过忙碌确认，
+/// 不改变"没有可停的"这件事本身的含义。
+pub fn stop_session_for_link(session_id: &str, force: bool, cx: &mut App) -> Result<(), makit_core::link::OpenError> {
+    use makit_core::link::OpenError;
+    let state = AppState::global(cx);
+    let Some(s) = state.read(cx).session(session_id).cloned() else {
+        return Err(OpenError::from("session not found"));
+    };
+    refuse_unless_force(&s, force)?;
+    let Some(tab_id) = state.read(cx).workspace.tab_of_session(session_id) else {
+        return Ok(());
+    };
+    let Some(h) = host(cx) else { return Err(OpenError::from("makit window is not ready")) };
+    let ws = h.read(cx).workspace.clone();
+    ws.update(cx, |w, cx| w.stop_tabs_now(&[tab_id], cx));
+    Ok(())
+}
+
+/// Link.sock 的 `close`（#D-2300）：按 `session_id` 真正关掉它绑定的那一个标签（标签消失，不是留着标 stopped），
+/// 进程按关标签原来那套杀法（#3 的 `MAKIT_PTY_ID` 清理）。拒绝规则同 [`stop_session_for_link`]；没有标签绑着它
+/// 也是"没什么可做"，回 `Ok`。
+pub fn close_session_for_link(session_id: &str, force: bool, cx: &mut App) -> Result<(), makit_core::link::OpenError> {
+    use makit_core::link::OpenError;
+    let state = AppState::global(cx);
+    let Some(s) = state.read(cx).session(session_id).cloned() else {
+        return Err(OpenError::from("session not found"));
+    };
+    refuse_unless_force(&s, force)?;
+    let found = {
+        let st = state.read(cx);
+        st.workspace.tab_of_session(session_id).and_then(|tid| st.workspace.locate_tab(&tid).map(|(c, _)| (c.id.clone(), tid)))
+    };
+    let Some((cid, tid)) = found else {
+        return Ok(());
+    };
+    let Some(h) = host(cx) else { return Err(OpenError::from("makit window is not ready")) };
+    let ws = h.read(cx).workspace.clone();
+    ws.update(cx, |w, cx| w.close_tab(&cid, &tid, cx));
+    Ok(())
 }
 
 /// Sidebar "Stop": stop every tab of this session, keeping them (#287)
@@ -463,7 +532,7 @@ fn do_open_split(s: &SessionMeta, dir: Dir, cx: &mut App) {
     let spec = TabSpec {
         kind: TabKind::Resume,
         cwd: s.cwd.clone(),
-        init_command: Some(resume_init_command(&s.session_id, tool_of(s))),
+        init_command: Some(resume_init_command(&s.session_id, tool_of(s), None)),
         session_id: Some(s.session_id.clone()),
         session_short_id: Some(s.short_id.clone()),
     };
@@ -514,5 +583,40 @@ mod tests {
         assert_eq!(best_cwd(&s), "/Users/me/p");
         s.last_cwd = "/Users/me/q".into();
         assert_eq!(best_cwd(&s), "/Users/me/q", "Finder 显示优先 last_cwd");
+    }
+
+    /// #D-2299/#D-2300: the busy/waiting-needs-`force` judgment itself, independent of `stop_session_for_link` /
+    /// `close_session_for_link` (those need a real `cx: &mut App` to drive `Workspace`/`host`, same as
+    /// `resume_session` next to them -- this project's convention is to pull the judgment out into something
+    /// plain to unit-test and leave the GPUI-threaded wrapper itself to real-app verification).
+    #[test]
+    fn refuse_unless_force_only_blocks_busy_or_waiting_without_force() {
+        let mut s = crate::state::sessions::tests::session("abc");
+        s.running = true;
+        s.status = "idle".into();
+        assert!(refuse_unless_force(&s, false).is_ok(), "idle never needs force");
+        assert!(refuse_unless_force(&s, true).is_ok());
+
+        s.running = false;
+        s.status = "idle".into(); // state_of/run_state reads this as Stopped when `running` is false
+        assert!(refuse_unless_force(&s, false).is_ok(), "a stopped session has nothing busy to force past");
+
+        s.running = true;
+        s.status = "busy".into();
+        let err = refuse_unless_force(&s, false).expect_err("busy without force must refuse");
+        assert!(err.needs_force);
+        assert!(err.message.contains("busy"));
+        assert!(refuse_unless_force(&s, true).is_ok(), "force skips the busy refusal");
+
+        s.status = "waiting".into();
+        s.waiting_for = "approval needed".into();
+        let err = refuse_unless_force(&s, false).expect_err("waiting for approval without force must refuse");
+        assert!(err.needs_force);
+        assert!(refuse_unless_force(&s, true).is_ok());
+
+        // #308: "waiting" + "input needed" is just sitting at the prompt, not a real approval dialog -- must not
+        // need force
+        s.waiting_for = "input needed".into();
+        assert!(refuse_unless_force(&s, false).is_ok(), "settled prompt-wait is not a real waiting state");
     }
 }

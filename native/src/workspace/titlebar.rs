@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! | 左段：宽 = 侧栏宽（折叠时 78）| 2px 分隔 | 工作区段：标题居中「项目 · 分支」 |
-//!          ↑ x=68 起绝对定位：[折叠侧栏按钮][铃铛挂点]
+//!          ↑ x=78 起绝对定位：[折叠侧栏按钮][铃铛挂点]
 //! ```
 //! - 拖动窗口：macOS 原生（全尺寸内容视图下标题栏条带仍由 AppKit 负责拖动）。GPUI 的 `start_window_move`
 //!   在 mac 上是空操作，所以不像 TS 版那样显式调
@@ -31,13 +31,13 @@ use crate::theme::ActiveTheme;
 pub const TITLEBAR_H: f32 = 32.0;
 /// 侧栏折叠时左段只留红绿灯的宽度
 pub const TRAFFIC_LIGHTS_W: f32 = 78.0;
-/// 按钮组的左边界（`.app-titlebar-controls { left: 68px }`）
-pub const CONTROLS_LEFT: f32 = 68.0;
+/// 按钮组的左边界。红绿灯绿灯右边缘约在 70；图标在 20px 按钮框里居中，图标左边约为 +3，取 78 得到约 11px 间距（68 太近，84 太远）
+pub const CONTROLS_LEFT: f32 = 78.0;
 /// 标题栏图标按钮 20×22（TS 版是 24×22，#238 起图标之间收紧）
 pub const ICON_BTN_W: f32 = 20.0;
 pub const ICON_BTN_H: f32 = 22.0;
 /// 两个图标按钮之间的间距（原来是 0，紧贴；照 render.rs 同类图标按钮的 `ml(px(2.))` 补上）
-pub const ICON_BTN_GAP: f32 = 2.0;
+pub const ICON_BTN_GAP: f32 = 0.0;
 /// 铃铛按钮的左边界（窗口坐标）：折叠按钮右边 + 间距
 pub const BELL_LEFT: f32 = CONTROLS_LEFT + ICON_BTN_W + ICON_BTN_GAP;
 
@@ -173,7 +173,7 @@ pub fn render_titlebar(state: &Entity<AppState>, window: &mut Window, cx: &mut A
                     ),
             )
         })
-        // 按钮组：x=68 绝对定位，侧栏展开 / 折叠都看得见
+        // 按钮组：绝对定位，侧栏展开 / 折叠都看得见
         .child(
             div()
                 .absolute()

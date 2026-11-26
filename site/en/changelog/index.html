@@ -24,6 +24,11 @@
 </header>
 <div class="layout">
   <aside class="side"><h3>Changelog</h3>
+    <a href="#v0.2.27">v0.2.27 — 2026-11-24</a>
+    <a href="#v0.2.26">v0.2.26 — 2026-11-23</a>
+    <a href="#v0.2.25">v0.2.25 — 2026-11-21</a>
+    <a href="#v0.2.24">v0.2.24 — 2026-11-20</a>
+    <a href="#v0.2.21">v0.2.21 — 2026-11-19</a>
     <a href="#v0.2.20">v0.2.20 — 2026-11-19</a>
     <a href="#v0.2.19">v0.2.19 — 2026-11-19</a>
     <a href="#v0.2.18">v0.2.18 — 2026-11-18</a>
@@ -57,7 +62,59 @@
       <h1>Changelog</h1>
       <p class="fine">The text is the published GitHub Release body. Drafts, prereleases, and unreleased notes are omitted. If GitHub cannot be read, the build fails and does not substitute the repository changelog.</p>
     </section>
-    <section id="v0.2.20"><h2>v0.2.20 — 2026-11-19</h2>
+    <section id="v0.2.27"><h2>v0.2.27 — 2026-11-24</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.27">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.27</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>The sidebar flashed while typing in a session that was writing output: an update that changed nothing still re-sorted and redrew the whole sidebar. Now it only does that when a session&#x27;s content actually changed.</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>在正在输出的会话里输入时，侧栏会闪一下：内容没变的会话更新也会让整个侧栏重排、重绘。现在只在会话内容真的变了时才这样做。</li></ul>
+</section>
+<section id="v0.2.26"><h2>v0.2.26 — 2026-11-23</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.26">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.26</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Sidebar session icons show each session&#x27;s state: an open session wears a ring in its state colour (busy, waiting, idle, stopped), and a session that is not open is dimmed. A waiting session is always lit, even when it is not open, so it cannot be missed.</li><li>The model icon is always shown in the sidebar; the &quot;show model icon&quot; option was removed.</li></ul>
+<h3>Changed</h3>
+<ul class="list"><li>A project group&#x27;s default expanded or collapsed state is fixed the first time the group appears, so message activity no longer makes a group expand or collapse by itself.</li><li>Titlebar: the sidebar toggle and bell sit further from the traffic lights and closer to each other. Tab separators and the context menu border are lighter.</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>侧栏的会话图标显示状态：打开的会话在模型图标外带一圈状态色环（忙碌、等待、空闲、停止各有颜色），没打开的会话变暗。等待中的会话即使没打开也保持亮，不会被漏掉。</li><li>侧栏始终显示模型图标，去掉了「显示模型图标」设置。</li></ul>
+<h3>变更</h3>
+<ul class="list"><li>项目组的默认展开或折叠状态在第一次出现时固定下来，消息活动不再让分组自己展开或折叠。</li><li>标题栏：侧栏按钮和铃铛离红绿灯更远，两者之间更近；标签之间的分隔线和右键菜单边框更轻。</li></ul>
+</section>
+<section id="v0.2.25"><h2>v0.2.25 — 2026-11-21</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.25">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.25</a></p>
+<h3>Added</h3>
+<ul class="list"><li>The local-session link gained <code>stop</code> (kill the session&#x27;s tab&#x27;s process, keep the tab itself, marked stopped -- the same thing the sidebar&#x27;s own &quot;Stop&quot; does) and <code>close</code> (kill the process and drop the tab outright, same as the sidebar&#x27;s &quot;Close&quot;). Both refuse a session that is busy or waiting for approval with a structured reason unless the caller passes <code>force: true</code>, since a remote caller has no confirm dialog to answer. Each entry in <code>sessions</code> now also carries <code>tab_state</code> (&quot;open&quot; / &quot;stopped&quot; / &quot;none&quot;) so a caller can tell which of the two even applies.</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>本机会话接口新增 <code>stop</code>（停掉会话绑定标签的进程，标签本身留着并标记为已停止，和侍栏「停止会话」是同一个动作）和 <code>close</code>（进程和标签一起关掉，同侍栏「关闭」）。会话正忙或等用户批准时默认拒绝并回结构化原因，除非调用方带上 <code>force: true</code>——远端调用方没有确认框可以点。<code>sessions</code> 每条也新增了 <code>tab_state</code>（<code>open</code>/<code>stopped</code>/<code>none</code>），方便分清该用哪一个。</li></ul>
+</section>
+<section id="v0.2.24"><h2>v0.2.24 — 2026-11-20</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.24">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.24</a></p>
+<h3>Added</h3>
+<ul class="list"><li>Each session in the local-session link&#x27;s <code>sessions</code> list now carries <code>has_tab</code>: whether makit currently has a tab for it at all, so a caller can batch-check which sessions <code>resume { allow_new_tab: false }</code> would actually revive without calling it on each one and causing side effects (#299).</li><li>The local-session link&#x27;s <code>open</code> gained an optional <code>trust</code>: pre-accepts Claude Code&#x27;s own trust-this-directory dialog for a new session&#x27;s directory, but only when it is under one of the user&#x27;s own configured auto-trust roots (a new setting, default empty); otherwise it refuses with a structured reason instead of opening anything untrusted. <code>open</code> and <code>resume</code> both also gained an optional <code>permission_mode</code>, passed straight through as Claude Code&#x27;s own <code>--permission-mode</code> (#D-2168).</li><li>⌘K&#x27;s content search is now parallel across CPU cores and debounced off the UI thread, with an incremental, mtime-based refresh instead of rebuilding from scratch (#212).</li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>The local-session link&#x27;s <code>input</code> with <code>kind:&quot;text&quot;</code> could reply <code>ok</code> while the text actually sat unsent in the input box (an Enter landing at the wrong moment got swallowed by the TUI); it now confirms against the session&#x27;s own conversation before replying, retries once with a bare Enter, and reports a structured reason instead of a false success. Text appended to a session that is busy running a turn skips this check, since it is not expected to show up on any short timescale (#D-2161).</li><li>The local-session link&#x27;s <code>resume</code> reported &quot;session not found&quot; for a session that was archived but still on disk: the check for whether it existed went through the same list that archiving filters out of, instead of looking the session up on disk directly like it was always supposed to (#D-2188).</li><li>Updating in place could look stuck for about a minute with no feedback (the &quot;downloading&quot; toast disappeared long before the download actually finished), and if the session driving the update was itself the one waiting to be resumed after the restart, nothing was left alive to ever resume it. Restarting could also silently drop sessions that were running in the restarting instance&#x27;s own tabs from the next <code>last_running</code> snapshot (#D-2149, #D-2150).</li><li>⌘K jumping to a search match inside a long conversation could land far from the right spot, because the scroll happened before the list had been laid out once with real row heights (#212).</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>本机会话接口 <code>sessions</code> 列表的每条会话新增 <code>has_tab</code>：标识 makit 当前有没有给它开着标签，调用方可以批量判断哪些会话用 <code>resume { allow_new_tab: false }</code> 真的能续上，不用逐个调用 <code>resume</code> 带来副作用（#299）。</li><li>本机会话接口的 <code>open</code> 新增可选参数 <code>trust</code>：预先接受 Claude Code 自己的「是否信任此目录」对话框，但只对用户在设置里配置过的自动信任根目录（新设置项，默认空）下面的路径生效，否则回结构化错误而不是在未授信的目录下开起来。<code>open</code> 和 <code>resume</code> 都新增了可选参数 <code>permission_mode</code>，原样传给 Claude Code 自己的 <code>--permission-mode</code>（#D-2168）。</li><li>⌘K 的内容搜索现在并行用满多核，防抖挪到了界面线程之外，按文件修改时间做增量刷新，不用每次从头重建（#212）。</li></ul>
+<h3>修复</h3>
+<ul class="list"><li>本机会话接口 <code>input</code> 带 <code>kind:&quot;text&quot;</code> 有时会回成功，但文字其实没提交进去（回车在错误的时机被终端界面吞掉了）；现在会对着会话自己的对话记录确认，没确认到就补发一次回车重试，还是不行就回结构化的失败原因而不是假装成功。会话忙着跑当前这轮时追加的文字会跳过这项确认，因为这种情况下本来就不该很快单独出现在对话记录里（#D-2161）。</li><li>本机会话接口的 <code>resume</code> 对一个已经归档、但磁盘上文件还在的会话会误报「找不到会话」：判断「存不存在」走的是归档时会被过滤掉的那份列表，而不是像设计时说的那样直接去磁盘上查（#D-2188）。</li><li>原地升级有时看起来卡住将近一分钟、没有任何反馈（「下载中」的提示比真正下载完早消失很多）；如果触发升级的那个会话恰好就是重启后要被接上的那个，重启后就没有谁还活着去接它了。重启还会悄悄把重启前这个实例自己标签里跑着的会话，从下一次的 <code>last_running</code> 快照里漏掉（#D-2149、#D-2150）。</li><li>⌘K 跳转到长对话里的搜索命中位置时，有时会跳到很偏的地方——滚动发生在列表还没真正排过一次版、拿到真实行高之前（#212）。</li></ul>
+</section>
+<section id="v0.2.21"><h2>v0.2.21 — 2026-11-19</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.21">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.21</a></p>
+<h3>Added</h3>
+<ul class="list"><li>The local-session link&#x27;s <code>resume</code> gained an optional <code>allow_new_tab</code>: the caller can ask makit to only reuse a tab the session already has and refuse (with a structured reason) instead of opening a new one when there is nothing to reuse (#299).</li></ul>
+<h3>Fixed</h3>
+<ul class="list"><li>The installed Claude Code hook script hung for ~4s on every single hook event (until Claude Code&#x27;s own hook timeout killed it): macOS&#x27;s bundled <code>nc</code> never exits once its peer closes the connection. The script now calls a <code>hook</code> subcommand on makit&#x27;s own executable instead (#215).</li><li>Resuming an ended session through the local-session link could fail with &quot;did not start a process&quot; for every session right after a restart: the check for &quot;does this tab need reviving&quot; mistook &quot;nothing has been built for it yet this launch&quot; for &quot;already running fine&quot; (#299).</li><li>The detached helper that swaps in a downloaded update and relaunches makit now runs in its own process group instead of makit&#x27;s, so it keeps running even if something signals makit&#x27;s whole process group while it is still waiting for the old process to exit (#299).</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>新增</h3>
+<ul class="list"><li>本机会话接口的 <code>resume</code> 新增可选参数 <code>allow_new_tab</code>：调用方可以要求 makit 只复用会话已有的标签，没有标签可复用时直接拒绝（带结构化原因），而不是自己新开一个（#299）。</li></ul>
+<h3>修复</h3>
+<ul class="list"><li>装好的 Claude Code hook 脚本过去每次触发都会挂住约 4 秒（直到 Claude Code 自己的 hook 超时把它杀掉）：macOS 自带的 <code>nc</code> 在对方关闭连接后不会退出。脚本现在改成调 makit 自己可执行文件的 <code>hook</code> 子命令，不再依赖 <code>nc</code>（#215）。</li><li>本机会话接口续接一个已结束的会话，重启后几乎每次都会回「did not start a process」：判断「这个标签要不要救」的逻辑把「这次启动还没给它建过东西」误判成「已经在正常跑」（#299）。</li><li>装好更新后负责换包重启 makit 的那个分离出去的小脚本，现在用自己独立的进程组，不再跟 makit 共用：即使有什么信号打向 makit 所在的整个进程组，它也不会在等旧进程退出的时候被一起带走（#299）。</li></ul>
+</section>
+<section id="v0.2.20"><h2>v0.2.20 — 2026-11-19</h2>
 <p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.20">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.20</a></p>
 <h3>Added</h3>
 <ul class="list"><li>The local-session link gained two ops: <code>last_running</code> (a lightweight, read-only snapshot of the sessions that were running right before the last quit -- id, name, cwd, last active time) and <code>update</code> (<code>check</code> reports what the running instance currently knows about a newer release; <code>install</code> restarts into it, with an optional <code>after_restart: {session_id, text}</code> to type something into a session once it goes idle again after the restart) (#318).</li></ul>

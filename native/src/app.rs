@@ -7,7 +7,7 @@
 //! 工作区 action 转发给 `WorkspaceView`；还没实现的 action 挂占位（打一行日志，写明归哪个包）——
 //! 各包实现时删掉对应占位，在自己的视图上 `.on_action`。
 
-use crate::{tr, ts};
+use crate::ts;
 use std::time::Duration;
 
 use gpui::{

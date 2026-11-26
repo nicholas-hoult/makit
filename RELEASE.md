@@ -63,22 +63,23 @@ CI 的「Verify signing and notarization」步骤对每个 .dmg 做同样的检�
 
 1. 改版本号：`native/Cargo.toml`、`core/Cargo.toml`（两处保持一致），更新 `CHANGELOG.md`（英文，Release 说明从它生成）和 `CHANGELOG.zh-CN.md`（中文，CI 会附在英文后面）
 2. 跑测试：`cargo test --manifest-path native/Cargo.toml`
-3. 提交、打 tag 并推送：
+3. 提交并**先推送 main**，再打 tag 并推送 tag。只推 tag、不推 main 时，GitHub 上的 `main` 不会更新，Cloudflare Pages 官网（跟 `main` 走）也不会跟上：
 
    ```bash
+   git push origin main
    git tag v0.1.1
    git push origin v0.1.1
    ```
 
 4. `.github/workflows/release.yml` 先查官网更新日志（`site/changelog`、`site/en/changelog`）是否跟上了已发布的 Release——落后（通常是上一次忘了第 6 步）就直接失败，不会继续；查过之后在 macOS 上跑测试、打通用包和 .dmg，测试通过后**直接发布** Release（说明取自 CHANGELOG；测试或打包失败不会发布）
 5. 发布后在 Releases 页下载 .dmg 装一遍确认；有问题可以在页面上编辑说明或设为预发布
-6. **同步官网更新日志**（Release 发布之后才能做，它读的是已发布的 Release）：
+6. **同步官网更新日志**（Release 发布之后才能做，它读的是已发布的 Release）。`sync-site-changelog.yml` 会在 Release 发布后自动运行 `python3 scripts/render-site-changelog.py`，若页面有变化就提交并推送到 `main`。若该 workflow 失败或未运行，再手动：
 
    ```bash
    python3 scripts/render-site-changelog.py
    ```
 
-   确认 `git diff --stat site/changelog site/en/changelog` 只多了这个新版本，提交并推送。漏了这一步，下次发版会被第 4 步的检查挡住。
+   确认 `git diff --stat site/changelog site/en/changelog` 只多了这个新版本，提交并推送到 **main**（不要只推 tag）。漏了这一步，下次发版会被第 4 步的检查挡住（检查读的是 GitHub 上 `main` / 该 tag 提交里的已提交页面）。
 
 第一次建议先在 Actions 页用 `workflow_dispatch` 手动试跑，确认构建能过，再打 tag。
 

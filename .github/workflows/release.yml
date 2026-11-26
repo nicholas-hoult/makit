@@ -22,6 +22,11 @@ jobs:
       # synced (see the "Sync the site changelog" step in RELEASE.md), rather than publishing another one on top
       # of a stale site.
       - name: Check the marketing site changelog is in sync with published releases
+        env:
+          # Unauthenticated GitHub API requests are capped at 60/hour shared across the whole runner IP pool --
+          # the script's own token support (added after hitting a 403 rate limit exceeded on a real run,
+          # 2026-11-20) raises that to 5000/hour.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/render-site-changelog.py
           if ! git diff --exit-code -- site/changelog site/en/changelog; then

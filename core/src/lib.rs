@@ -25,6 +25,7 @@
 pub mod i18n;
 pub mod ai_provider;
 pub mod archive;
+pub mod claude_config;
 pub mod doctor;
 pub mod environment;
 pub mod fsid;

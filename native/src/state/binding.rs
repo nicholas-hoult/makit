@@ -46,8 +46,9 @@ pub fn match_running<'a>(pending: &[PendingTab], sessions: &'a [SessionMeta]) ->
 pub enum OpenDecision {
     /// 它已经在本软件的某个标签里：切过去
     Switch { container_id: String, tab_id: String },
-    /// 它在**别的终端**里跑着（不是本软件）：不能重复启动，提示 PID
-    BlockedExternal { pid: u32 },
+    /// 它在**别的终端**里跑着（不是本软件）：不能重复启动，提示 PID + 目录（#319：光有 PID 不够帮用户去哪个
+    /// 窗口找到它，`cwd` 已经是 `SessionMeta` 现成的字段，不用额外查 `ps`）
+    BlockedExternal { pid: u32, cwd: String },
     /// 没在跑：新开 resume 标签
     OpenNew,
 }
@@ -69,7 +70,7 @@ pub fn decide_open(root: &LayoutNode, s: &SessionMeta) -> OpenDecision {
         }
     }
     if s.running && s.pid != 0 {
-        return OpenDecision::BlockedExternal { pid: s.pid };
+        return OpenDecision::BlockedExternal { pid: s.pid, cwd: s.cwd.clone() };
     }
     OpenDecision::OpenNew
 }
@@ -101,6 +102,20 @@ pub fn decide_link_resume(root: &LayoutNode, session_id: &str) -> LinkResumeDeci
 /// sessions `resume { allow_new_tab: false }` would actually revive without calling it on each one.
 pub fn tabbed_session_ids(root: &LayoutNode) -> HashSet<String> {
     collect_containers(root).into_iter().flat_map(|c| c.tabs.iter()).filter_map(|t| t.session_id.clone()).collect()
+}
+
+/// Per-session tab state (#D-2300): `"open"` (has a tab, running) or `"stopped"` (has a tab, explicitly
+/// stopped) -- a session with no tab at all is simply absent from this map. Lets the local-session link's
+/// `sessions` tell a caller whether `stop` (process running, tab stays) or `close` (tab gone too) is the one
+/// that applies, without guessing from `has_tab` alone. If a session somehow has more than one tab (not
+/// supposed to happen -- this protocol assumes one tab per session, same as `tab_of_session`), the last one
+/// collected into the map wins; not worth resolving since it should not occur.
+pub fn tab_states(root: &LayoutNode) -> std::collections::HashMap<String, &'static str> {
+    collect_containers(root)
+        .into_iter()
+        .flat_map(|c| c.tabs.iter())
+        .filter_map(|t| t.session_id.clone().map(|sid| (sid, if t.stopped { "stopped" } else { "open" })))
+        .collect()
 }
 
 /// Whether `WorkspaceView::resume_tab` has anything to do, given whether that tab currently has a live
@@ -205,9 +220,9 @@ mod tests {
     #[test]
     fn running_in_another_terminal_is_blocked_with_its_pid() {
         let r = root(vec![tab("t1", TabKind::Shell, None)]);
-        assert_eq!(decide_open(&r, &running("s2", 4242, "")), OpenDecision::BlockedExternal { pid: 4242 }, "没有 pty_id = 不是本软件开的");
+        assert_eq!(decide_open(&r, &running("s2", 4242, "")), OpenDecision::BlockedExternal { pid: 4242, cwd: "/p".into() }, "没有 pty_id = 不是本软件开的");
         // pty_id 指向一个已经不存在的标签（上次的残留）：也是外部
-        assert_eq!(decide_open(&r, &running("s2", 4242, "t_gone")), OpenDecision::BlockedExternal { pid: 4242 });
+        assert_eq!(decide_open(&r, &running("s2", 4242, "t_gone")), OpenDecision::BlockedExternal { pid: 4242, cwd: "/p".into() });
     }
 
     #[test]
@@ -260,6 +275,19 @@ mod tests {
         let mut ids: Vec<_> = tabbed_session_ids(&r).into_iter().collect();
         ids.sort();
         assert_eq!(ids, ["s1", "s2"]);
+    }
+
+    /// #D-2300: `sessions`'s `tab_state` reads straight off this -- unlike `tabbed_session_ids`, `stopped` is the
+    /// whole point here (it is what tells a caller whether `stop` or `close` is the applicable one).
+    #[test]
+    fn tab_states_distinguishes_open_from_stopped_and_omits_sessions_with_no_tab() {
+        let mut stopped = tab("t2", TabKind::Resume, Some("s2"));
+        stopped.stopped = true;
+        let r = root(vec![tab("t1", TabKind::Resume, Some("s1")), stopped, tab("t3", TabKind::Shell, None)]);
+        let states = tab_states(&r);
+        assert_eq!(states.get("s1"), Some(&"open"));
+        assert_eq!(states.get("s2"), Some(&"stopped"));
+        assert_eq!(states.get("s3"), None, "a session with no tab is absent, not \"none\" literally");
     }
 
     /// #D-2137: repro for "resume did not start a process" after a restart. No terminal entry yet must mean

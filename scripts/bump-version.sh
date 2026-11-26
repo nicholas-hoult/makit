@@ -1,6 +1,8 @@
 #!/bin/bash
-# 同步更新版本号：core/Cargo.toml、native/Cargo.toml、native/Cargo.lock 里的 makit-core / makit-native。
+# 同步更新版本号：core/Cargo.toml、core/Cargo.lock、native/Cargo.toml、native/Cargo.lock 里的 makit-core / makit-native。
 # 漏改任何一处都会导致「构建出来的包版本和 tag 对不上」。CHANGELOG 仍需手写。
+# （core/Cargo.lock 这一项是 2026-11-20 补的：之前这个脚本没碰它，cargo 自己发现 Cargo.toml 和 Cargo.lock 里
+#  的版本号不一致时会悄悄改写 Cargo.lock，这份"意外 diff"容易被当成无关改动漏提交，见 #320 顺手查出的记录）
 #
 # 用法: ./scripts/bump-version.sh 0.2.3
 set -e
@@ -31,12 +33,14 @@ print("%s → %s\n" % (cur, new))
 
 edit("core/Cargo.toml",   r'(?m)^(version\s*=\s*")[^"]+"', r'\g<1>%s"' % new)
 edit("native/Cargo.toml", r'(?m)^(version\s*=\s*")[^"]+"', r'\g<1>%s"' % new)
+edit("core/Cargo.lock", lock("makit-core"), r'\g<1>%s"' % new)
 for name in ("makit-core", "makit-native"):
     edit("native/Cargo.lock", lock(name), r'\g<1>%s"' % new)
 
 checks = [
     ("core/Cargo.toml", toml),
     ("native/Cargo.toml", toml),
+    ("core/Cargo.lock (makit-core)", lock("makit-core")),
     ("native/Cargo.lock (makit-core)", lock("makit-core")),
     ("native/Cargo.lock (makit-native)", lock("makit-native")),
 ]
