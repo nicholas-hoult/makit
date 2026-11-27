@@ -699,7 +699,27 @@ enum SubmitOutcome {
 /// (#D-2161)? Split out from the polling loop below so the judgment itself -- what counts as "it submitted" --
 /// can be tested without paying for a single real sleep.
 fn text_submitted(before_total: usize, after: &TranscriptPage, sent: &str) -> bool {
-    after.total > before_total && after.items.last().is_some_and(|v| v["kind"] == "user" && v["text"].as_str().is_some_and(|t| t.trim() == sent.trim()))
+    let wanted = normalize_for_match(sent);
+    // `after` holds only the items written after `before_total`; if the transcript was rewritten, `from` is 0 and we
+    // cannot tell old items from new ones, so we do not count it (#334)
+    after.total > before_total
+        && after.from == before_total
+        && !wanted.is_empty()
+        && after.items.iter().any(|v| v["kind"] == "user" && normalize_for_match(v["text"].as_str().unwrap_or("")).contains(&wanted))
+}
+
+/// Compares a message the way it is worth comparing (#334): Claude Code wraps a pasted block in a
+/// `<pasted_content id="…">…</pasted_content>` tag in the transcript, and the transcript's whitespace need not match
+/// what we sent, so both sides drop the tags and fold runs of whitespace.
+fn normalize_for_match(s: &str) -> String {
+    let mut out = s.to_string();
+    while let Some(start) = out.find("<pasted_content") {
+        match out[start..].find('>') {
+            Some(len) => out.replace_range(start..start + len + 1, ""),
+            None => break,
+        }
+    }
+    out.replace("</pasted_content>", "").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Writes `steps` (from [`plan_input`] for an `InputKind::Text`), then confirms against the session's own
@@ -715,7 +735,9 @@ fn submit_text_and_confirm(backend: &dyn Backend, session_id: &str, steps: Vec<W
     let confirmed = |backend: &dyn Backend| {
         for _ in 0..poll_attempts {
             std::thread::sleep(poll_interval);
-            if let Ok(page) = backend.transcript(session_id, Cursor::Tail(1)) {
+            // Everything written since the write: a busy session can answer or log other records before our message is
+            // the last one, so the last item alone is not enough to judge (#334)
+            if let Ok(page) = backend.transcript(session_id, Cursor::After(before_total)) {
                 if text_submitted(before_total, &page, text) {
                     return true;
                 }
@@ -1775,6 +1797,30 @@ mod tests {
         assert!(!text_submitted(0, &page(1, Some(json!({"kind": "assistant", "text": "hi there"}))), "hi there"), "wrong kind");
         assert!(!text_submitted(0, &page(1, Some(json!({"kind": "user", "text": "something else"}))), "hi there"), "a new message, but not ours");
         assert!(!text_submitted(0, &page(0, None), "hi there"), "nothing there at all");
+    }
+
+    /// #334 复现：长文本会被 Claude Code 包成 `<pasted_content>` 块写进转录，转录里的 text 不等于发送的原文
+    #[test]
+    fn text_submitted_sees_through_a_pasted_block_wrapper() {
+        let page = |items: Vec<Value>| TranscriptPage { total: items.len(), from: 0, items };
+        let sent = "【派工】第一行\n第二行，中文\n第三行";
+        let wrapped = format!("<pasted_content id=\"b80e\">\n{sent}\n</pasted_content>");
+        assert!(text_submitted(0, &page(vec![json!({"kind": "user", "text": wrapped})]), sent), "粘贴块包裹的原文应判为已提交");
+    }
+
+    /// #334 复现：会话忙时，用户消息之后很快会跟着 assistant 的条目；确认不能只看最后一条
+    #[test]
+    fn text_submitted_finds_the_message_even_when_a_reply_came_after_it() {
+        let page = |items: Vec<Value>| TranscriptPage { total: items.len(), from: 0, items };
+        let items = vec![json!({"kind": "user", "text": "好"}), json!({"kind": "assistant", "text": "收到"})];
+        assert!(text_submitted(0, &page(items), "好"), "用户消息后面跟了 assistant，仍然算已提交");
+    }
+
+    /// #334: 转录被重写（from 不等于调用方给的起点）时，无法分辨哪些是新消息，不能把旧消息当成这次的提交
+    #[test]
+    fn text_submitted_refuses_a_rewritten_transcript() {
+        let rewritten = TranscriptPage { total: 6, from: 0, items: vec![json!({"kind": "user", "text": "好"})] };
+        assert!(!text_submitted(5, &rewritten, "好"), "总数涨了，但 from 对不上（文件被重写过），不能算");
     }
 
     /// #D-2161: 复现——`write` 把字节送进 PTY 这件事本身就回 ok，不代表 Claude Code 真的把它当一次提交；这组用
