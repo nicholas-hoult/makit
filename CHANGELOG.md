@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-11-27
+
+### Fixed
+- `input` over the local-session link no longer reports "text did not submit" for a message that was in fact submitted. The check now looks at every record written after the send (not only the last one), and matches through the `<pasted_content>` wrapper Claude Code puts around a pasted block, so long multi-line messages and messages sent to a busy session are confirmed correctly.
+
 ## [0.2.27] - 2026-11-24
 
 ### Fixed
