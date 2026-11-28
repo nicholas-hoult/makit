@@ -1139,17 +1139,65 @@ pub fn handle_line(backend: &dyn Backend, line: &str) -> String {
     }
 }
 
+/// Keeps one computed value for `ttl`, so a polling client does not make every request rescan the disk.
+/// Callers that arrive while a computation is running wait for it and reuse its result (single flight).
+/// Errors are not kept: the next caller computes again.
+pub struct TtlCache<T> {
+    ttl: Duration,
+    slot: Mutex<Option<(std::time::Instant, T)>>,
+}
+
+impl<T: Clone> TtlCache<T> {
+    pub fn new(ttl: Duration) -> Self {
+        Self { ttl, slot: Mutex::new(None) }
+    }
+
+    /// The cached value if it is younger than `ttl`, otherwise `compute()` (its result is stored when it is `Ok`).
+    pub fn get(&self, compute: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        self.get_at(std::time::Instant::now(), compute)
+    }
+
+    fn get_at(&self, now: std::time::Instant, compute: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        // The lock is held across `compute`: a caller that arrives meanwhile waits and then reads the fresh value (single flight).
+        let mut slot = self.slot.lock().expect("ttl cache");
+        if let Some((stored, value)) = slot.as_ref() {
+            if now.saturating_duration_since(*stored) < self.ttl {
+                return Ok(value.clone());
+            }
+        }
+        let value = compute()?;
+        // Stamped when the value is ready, not when the call started: a scan that takes longer than the ttl must still be reused.
+        *slot = Some((std::time::Instant::now(), value.clone()));
+        Ok(value)
+    }
+}
+
+/// How long a computed `sessions` list is reused. Clients poll every few seconds, and one uncached scan costs 1-3 s of disk stat,
+/// so a 5 s window lets roughly every other poll reuse it. The cost is that the list (and `running`) can lag by up to this long.
+pub const SESSIONS_CACHE_TTL: Duration = Duration::from_secs(5);
+
 /// The real backend: sessions from `sessions::list_sessions`, conversations from cached `TranscriptReader`s.
-#[derive(Default)]
 pub struct CoreBackend {
     /// session id -> (reader, last use tick)
     readers: Mutex<HashMap<String, (TranscriptReader, u64)>>,
     tick: Mutex<u64>,
+    /// The full (unfiltered, unsorted) scan result, shared by all `sessions` calls within `SESSIONS_CACHE_TTL`
+    sessions: TtlCache<Vec<crate::sessions::SessionMeta>>,
+}
+
+impl Default for CoreBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CoreBackend {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            readers: Mutex::new(HashMap::new()),
+            tick: Mutex::new(0),
+            sessions: TtlCache::new(SESSIONS_CACHE_TTL),
+        }
     }
 
     /// Pick the requested items from a reader that has just been polled.
@@ -1163,7 +1211,7 @@ impl CoreBackend {
 
 impl Backend for CoreBackend {
     fn sessions(&self, limit: usize) -> Result<Vec<SessionInfo>, String> {
-        let mut all = crate::sessions::list_sessions(None)?;
+        let mut all = self.sessions.get(|| crate::sessions::list_sessions(None))?;
         all.retain(|s| !s.archived);
         all.sort_by(|a, b| b.mtime.cmp(&a.mtime));
         Ok(all
@@ -2463,5 +2511,73 @@ mod tests {
         start_at(&path, Arc::new(fake())).unwrap();
         assert_eq!(roundtrip(&path, r#"{"op":"hello"}"#)["ok"], true);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+}
+
+#[cfg(test)]
+mod ttl_cache_tests {
+    // Why these are tested on their own: `sessions` is polled every few seconds by clients, and each uncached call rescans
+    // ~300 transcripts (1-3 s of disk stat). If the cache returns stale data for too long, `running` / `state` lag behind reality;
+    // if it does not single-flight, a burst of polls runs several scans at once and the CPU spike comes back.
+    use super::TtlCache;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn reuses_the_value_within_the_ttl() {
+        let cache = TtlCache::new(Duration::from_secs(2));
+        let calls = AtomicUsize::new(0);
+        let t0 = Instant::now();
+        let compute = || {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![1, 2])
+        };
+        assert_eq!(cache.get_at(t0, compute), Ok(vec![1, 2]));
+        assert_eq!(cache.get_at(t0 + Duration::from_secs(1), compute), Ok(vec![1, 2]));
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "the second call inside the ttl must not recompute");
+    }
+
+    #[test]
+    fn recomputes_after_the_ttl() {
+        let cache = TtlCache::new(Duration::from_secs(2));
+        let calls = AtomicUsize::new(0);
+        let t0 = Instant::now();
+        let compute = || Ok(calls.fetch_add(1, Ordering::SeqCst) as u32);
+        assert_eq!(cache.get_at(t0, compute), Ok(0));
+        assert_eq!(cache.get_at(t0 + Duration::from_secs(3), compute), Ok(1));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn does_not_keep_errors() {
+        let cache: TtlCache<u32> = TtlCache::new(Duration::from_secs(2));
+        let t0 = Instant::now();
+        assert_eq!(cache.get_at(t0, || Err("boom".into())), Err("boom".to_string()));
+        assert_eq!(cache.get_at(t0, || Ok(5)), Ok(5), "an error must not stick for the whole ttl");
+    }
+
+    #[test]
+    fn concurrent_callers_share_one_computation() {
+        let cache = Arc::new(TtlCache::new(Duration::from_secs(2)));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let start = Arc::new(Barrier::new(8));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let (cache, calls, start) = (cache.clone(), calls.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    cache.get(|| {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        std::thread::sleep(Duration::from_millis(100));
+                        Ok(7u32)
+                    })
+                })
+            })
+            .collect();
+        for h in handles {
+            assert_eq!(h.join().unwrap(), Ok(7));
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "eight simultaneous polls must run one scan, not eight");
     }
 }
