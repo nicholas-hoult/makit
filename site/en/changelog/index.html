@@ -24,6 +24,7 @@
 </header>
 <div class="layout">
   <aside class="side"><h3>Changelog</h3>
+    <a href="#v0.2.29">v0.2.29 — 2026-11-28</a>
     <a href="#v0.2.28">v0.2.28 — 2026-11-27</a>
     <a href="#v0.2.27">v0.2.27 — 2026-11-24</a>
     <a href="#v0.2.26">v0.2.26 — 2026-11-23</a>
@@ -63,7 +64,15 @@
       <h1>Changelog</h1>
       <p class="fine">The text is the published GitHub Release body. Drafts, prereleases, and unreleased notes are omitted. If GitHub cannot be read, the build fails and does not substitute the repository changelog.</p>
     </section>
-    <section id="v0.2.28"><h2>v0.2.28 — 2026-11-27</h2>
+    <section id="v0.2.29"><h2>v0.2.29 — 2026-11-28</h2>
+<p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.29">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.29</a></p>
+<h3>Fixed</h3>
+<ul class="list"><li>The local-session link (<code>sessions</code> op) no longer rescans every transcript on each request. A client that polls it every few seconds used to keep makit at about 60% CPU; the scan result is now shared for 5 seconds, and simultaneous requests wait for one scan instead of starting several. The session list, including the running state, can therefore lag by up to 5 seconds.</li></ul>
+<p><strong>简体中文</strong></p>
+<h3>修复</h3>
+<ul class="list"><li>本机会话接口的 <code>sessions</code> 不再每次请求都重扫全部对话记录。原来客户端每隔几秒轮询一次，会让 makit 长期占用约 60% 的 CPU；现在扫描结果共享 5 秒，同时到来的请求等同一次扫描，不再各扫一遍。因此会话列表（包括运行状态）最多滞后 5 秒。</li></ul>
+</section>
+<section id="v0.2.28"><h2>v0.2.28 — 2026-11-27</h2>
 <p class="fine"><a href="https://github.com/nicholas-hoult/makit/releases/tag/v0.2.28">https://github.com/nicholas-hoult/makit/releases/tag/v0.2.28</a></p>
 <h3>Fixed</h3>
 <ul class="list"><li><code>input</code> over the local-session link no longer reports &quot;text did not submit&quot; for a message that was in fact submitted. The check now looks at every record written after the send (not only the last one), and matches through the <code>&lt;pasted_content&gt;</code> wrapper Claude Code puts around a pasted block, so long multi-line messages and messages sent to a busy session are confirmed correctly.</li></ul>
