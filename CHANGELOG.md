@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-11-28
+
+### Fixed
+- The local-session link (`sessions` op) no longer rescans every transcript on each request. A client that polls it every few seconds used to keep makit at about 60% CPU; the scan result is now shared for 5 seconds, and simultaneous requests wait for one scan instead of starting several. The session list, including the running state, can therefore lag by up to 5 seconds.
+
 ## [0.2.28] - 2026-11-27
 
 ### Fixed
